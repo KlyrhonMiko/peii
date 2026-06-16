@@ -11,6 +11,7 @@ class UserBaseSchema(BaseModel):
 
 class UserBase(UserBaseSchema):
     email: EmailStr
+    username: str
     role: str
     first_name: str
     last_name: str
@@ -20,11 +21,14 @@ class UserBase(UserBaseSchema):
 
 
 class UserCreate(UserBase):
+    password: str
     performed_by: Optional[UUID] = None
 
 
 class UserUpdate(UserBaseSchema):
     email: Optional[EmailStr] = None
+    username: Optional[str] = None
+    password: Optional[str] = None
     role: Optional[str] = None
     first_name: Optional[str] = None
     last_name: Optional[str] = None
