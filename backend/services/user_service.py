@@ -7,6 +7,7 @@ from core.exceptions import AppError
 from models.user import User
 from schemas.user import UserCreate, UserDelete, UserUpdate
 from services.base_service import apply_updates, utc_now
+from utils.security import hash_password
 
 
 def list_users(session: Session, include_deleted: bool = False) -> list[User]:
@@ -29,7 +30,13 @@ def create_user(session: Session, payload: UserCreate) -> User:
     if existing_user and not existing_user.is_deleted:
         raise AppError("A user with this email already exists.", status_code=status.HTTP_400_BAD_REQUEST)
 
-    user = User.model_validate(payload.model_dump())
+    existing_username = session.exec(select(User).where(User.username == payload.username)).first()
+    if existing_username and not existing_username.is_deleted:
+        raise AppError("A user with this username already exists.", status_code=status.HTTP_400_BAD_REQUEST)
+
+    user_data = payload.model_dump(exclude={"password"})
+    user_data["password"] = hash_password(payload.password)
+    user = User.model_validate(user_data)
     session.add(user)
     session.commit()
     session.refresh(user)
@@ -44,6 +51,14 @@ def update_user(session: Session, user_id: UUID, payload: UserUpdate) -> User:
         existing_user = session.exec(select(User).where(User.email == updates["email"])).first()
         if existing_user and existing_user.id != user.id and not existing_user.is_deleted:
             raise AppError("A user with this email already exists.", status_code=status.HTTP_400_BAD_REQUEST)
+
+    if "username" in updates and updates["username"] != user.username:
+        existing_user = session.exec(select(User).where(User.username == updates["username"])).first()
+        if existing_user and existing_user.id != user.id and not existing_user.is_deleted:
+            raise AppError("A user with this username already exists.", status_code=status.HTTP_400_BAD_REQUEST)
+
+    if "password" in updates:
+        updates["password"] = hash_password(updates["password"])
 
     apply_updates(user, updates)
     session.add(user)

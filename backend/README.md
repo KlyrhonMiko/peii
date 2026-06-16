@@ -77,7 +77,7 @@ Services:
 - `core/`: app settings, database engine/session, and other shared infrastructure.
 - `core/deps.py`: shared FastAPI dependencies and common query params.
 - `core/handlers.py`: global API exception handling.
-- `core/base.py`: shared SQLModel base with UUIDv7 primary key and audit/soft-delete fields.
+- `models/base_model.py`: shared SQLModel base with UUIDv7 primary key and audit/soft-delete fields.
 - `models/`: SQLModel table definitions.
 - `schemas/`: request and response schemas for FastAPI.
 - `routers/`: API endpoint modules.
