@@ -24,10 +24,48 @@
 /backend/node_modules
 /backend/coverage
 /backend/build
+/backend/.pytest_cache
+/backend/.mypy_cache
+/backend/.ruff_cache
+/backend/.hypothesis
+/backend/.venv
+/backend/*.db
+/backend/*.sqlite3
+
+# python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+.python-version
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.hypothesis/
+.coverage
+.coverage.*
+htmlcov/
+dist/
+site/
+.eggs/
+*.egg-info/
+pip-wheel-metadata/
+.venv/
+venv/
+env/
+ENV/
 
 # misc
 .DS_Store
 *.pem
+*.log
+*.sqlite3
+*.db
+
+# local editor / tooling files
+.idea/
+.vscode/
 
 # debug
 npm-debug.log*
@@ -46,3 +84,6 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 /frontend/next-env.d.ts
+
+# repository guidance files
+**/AGENTS.md
