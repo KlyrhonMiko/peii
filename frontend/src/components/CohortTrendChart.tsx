@@ -2,6 +2,20 @@
 
 import { Line, LineChart, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts"
 
+type TooltipValue = number | string | readonly (number | string)[] | undefined
+
+function formatTooltipValue(value: TooltipValue) {
+  if (typeof value === "number") {
+    return value.toFixed(2)
+  }
+
+  if (Array.isArray(value)) {
+    return value.join(", ")
+  }
+
+  return value ?? ""
+}
+
 const data = [
   { year: "2020", score: 0.62 },
   { year: "2021", score: 0.68 },
@@ -13,7 +27,7 @@ const data = [
 
 export function CohortTrendChart() {
   return (
-    <div className="h-full w-full min-w-0 relative">
+    <div className="h-full min-h-[320px] w-full min-w-0 relative">
       <ResponsiveContainer width="100%" height="100%">
         <LineChart
           data={data}
@@ -52,7 +66,7 @@ export function CohortTrendChart() {
               padding: '8px 12px',
             }}
             labelStyle={{ fontWeight: 600, color: '#1e293b', fontSize: '12px', marginBottom: '2px' }}
-            formatter={(value: any) => [typeof value === 'number' ? value.toFixed(2) : value, "PEII Score"]}
+            formatter={(value: TooltipValue) => [formatTooltipValue(value), "PEII Score"]}
           />
           <Line
             type="monotone"

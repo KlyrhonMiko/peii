@@ -1,4 +1,4 @@
-import { CohortTrendChart } from "@/components/CohortTrendChart"
+import { ClientCohortTrendChart } from "@/components/ClientCohortTrendChart"
 import { TrendingUp, Users, Briefcase, Sparkles, ArrowUpRight } from "lucide-react"
 
 const stats = [
@@ -110,7 +110,7 @@ export default function DashboardPage() {
           </select>
         </div>
         <div className="h-[320px] w-full px-4 py-4">
-          <CohortTrendChart />
+          <ClientCohortTrendChart />
         </div>
       </div>
     </div>

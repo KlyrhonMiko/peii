@@ -1,4 +1,4 @@
-import { FeatureImportanceChart } from "@/components/FeatureImportanceChart"
+import { ClientFeatureImportanceChart } from "@/components/ClientFeatureImportanceChart"
 
 export default function AnalyticsPage() {
   return (
@@ -11,7 +11,7 @@ export default function AnalyticsPage() {
       </div>
 
       <div className="rounded-xl border border-slate-200/80 bg-white">
-        <FeatureImportanceChart />
+        <ClientFeatureImportanceChart />
       </div>
     </div>
   )

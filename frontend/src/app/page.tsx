@@ -55,12 +55,6 @@ function AnimatedCounter({
 }
 
 export default function Home() {
-  const [mounted, setMounted] = useState(false);
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
-
   return (
     <div className="relative min-h-screen bg-white text-slate-900 font-sans selection:bg-indigo-600 selection:text-white overflow-hidden">
       {/* Subtle background texture */}
@@ -111,11 +105,7 @@ export default function Home() {
           <div className="flex flex-col items-center w-full text-center my-auto">
             {/* Oversized Headline */}
             <h1
-              className={`text-center leading-[0.95] tracking-[-0.04em] font-extrabold transition-all duration-700 delay-100 ${
-                mounted
-                  ? "opacity-100 translate-y-0"
-                  : "opacity-0 translate-y-6"
-              }`}
+              className="text-center leading-[0.95] tracking-[-0.04em] font-extrabold opacity-100 translate-y-0 transition-all duration-700 delay-100"
             >
               <span className="block text-[clamp(2.5rem,7vw,4.8rem)] text-slate-900">
                 Measure
@@ -130,11 +120,7 @@ export default function Home() {
 
             {/* Subtitle */}
             <p
-              className={`max-w-md mt-5 text-[13px] sm:text-[14px] text-slate-400 text-center leading-relaxed font-normal transition-all duration-700 delay-200 ${
-                mounted
-                  ? "opacity-100 translate-y-0"
-                  : "opacity-0 translate-y-6"
-              }`}
+              className="max-w-md mt-5 text-[13px] sm:text-[14px] text-slate-400 text-center leading-relaxed font-normal opacity-100 translate-y-0 transition-all duration-700 delay-200"
             >
               The unified platform for tracking alumni outcomes, analyzing
               institutional effectiveness, and driving data-informed
@@ -143,11 +129,7 @@ export default function Home() {
 
             {/* CTA Buttons */}
             <div
-              className={`flex flex-col sm:flex-row gap-3 mt-8 w-full sm:w-auto transition-all duration-700 delay-300 ${
-                mounted
-                  ? "opacity-100 translate-y-0"
-                  : "opacity-0 translate-y-6"
-              }`}
+              className="flex flex-col sm:flex-row gap-3 mt-8 w-full sm:w-auto opacity-100 translate-y-0 transition-all duration-700 delay-300"
             >
               <Link href="/researcher/dashboard" className="w-full sm:w-auto">
                 <Button
@@ -177,11 +159,7 @@ export default function Home() {
 
           {/* Stats Row (pinned to bottom of viewport) */}
           <div
-            className={`flex flex-wrap items-center justify-center gap-6 sm:gap-12 mt-8 md:mt-0 pt-4 border-t border-slate-100/50 transition-all duration-700 delay-[400ms] ${
-              mounted
-                ? "opacity-100 translate-y-0"
-                : "opacity-0 translate-y-6"
-            }`}
+            className="flex flex-wrap items-center justify-center gap-6 sm:gap-12 mt-8 md:mt-0 pt-4 border-t border-slate-100/50 opacity-100 translate-y-0 transition-all duration-700 delay-[400ms]"
           >
             <div className="text-center">
               <div className="text-[26px] sm:text-[30px] font-bold tracking-tight text-slate-900 leading-none">
@@ -221,11 +199,7 @@ export default function Home() {
         {/* Features Section */}
         <div className="w-full max-w-6xl mx-auto py-20 lg:py-28">
           <div
-            className={`text-center mb-14 transition-all duration-700 delay-500 ${
-              mounted
-                ? "opacity-100 translate-y-0"
-                : "opacity-0 translate-y-6"
-            }`}
+            className="text-center mb-14 opacity-100 translate-y-0 transition-all duration-700 delay-500"
           >
             <h2 className="text-[28px] sm:text-[32px] font-bold tracking-tight text-slate-900">
               Built for Evidence-Based Education

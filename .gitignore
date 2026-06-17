@@ -86,6 +86,3 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 /frontend/next-env.d.ts
-
-# repository guidance files
-**/AGENTS.md

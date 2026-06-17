@@ -1,6 +1,8 @@
 import { Button } from "@/components/ui/button"
 
 export default function SurveyPage({ params }: { params: { alumniToken: string } }) {
+  const { alumniToken } = params
+
   return (
     <div className="min-h-screen bg-[#f7f8fb] flex flex-col items-center justify-center p-4">
       <div className="w-full max-w-[480px]">
@@ -93,7 +95,7 @@ export default function SurveyPage({ params }: { params: { alumniToken: string }
 
         {/* Footer */}
         <p className="text-center text-[11px] text-slate-400 mt-4">
-          Pasig Education Impact Index · Confidential Survey
+          Pasig Education Impact Index · Confidential Survey · Token {alumniToken}
         </p>
       </div>
     </div>
