@@ -50,12 +50,13 @@ def list_users(
     params: UserListParams,
 ) -> APIResponse[list[UserRead]]:
     users, total = user_service.list_users(session, params)
+    response_users = [UserRead.model_validate(user) for user in users]
     return success_response(
-        users,
+        response_users,
         meta=list_meta_response(
             filters=params,
             total=total,
-            count=len(users),
+            count=len(response_users),
             limit=params.limit,
             offset=params.offset,
         ),
@@ -65,13 +66,13 @@ def list_users(
 @router.post("/", response_model=APIResponse[UserRead], status_code=status.HTTP_201_CREATED)
 def create_user(payload: UserCreate, session: DBSession) -> APIResponse[UserRead]:
     user = user_service.create_user(session, payload)
-    return success_response(user, message="User created.")
+    return success_response(UserRead.model_validate(user), message="User created.")
 
 
 @router.get("/{user_id}", response_model=APIResponse[UserRead])
 def get_user(user_id: UUID, session: DBSession) -> APIResponse[UserRead]:
     user = user_service.get_user_by_id(session, user_id)
-    return success_response(user)
+    return success_response(UserRead.model_validate(user))
 
 
 @router.patch("/{user_id}", response_model=APIResponse[UserRead])
@@ -81,7 +82,7 @@ def update_user(
     session: DBSession,
 ) -> APIResponse[UserRead]:
     user = user_service.update_user(session, user_id, payload)
-    return success_response(user, message="User updated.")
+    return success_response(UserRead.model_validate(user), message="User updated.")
 
 
 @router.delete("/{user_id}", response_model=APIResponse[UserRead])
@@ -91,7 +92,7 @@ def delete_user(
     session: DBSession,
 ) -> APIResponse[UserRead]:
     user = user_service.soft_delete_user(session, user_id, payload)
-    return success_response(user, message="User deleted.")
+    return success_response(UserRead.model_validate(user), message="User deleted.")
 
 
 @router.post("/{user_id}/restore", response_model=APIResponse[UserRead])
@@ -101,4 +102,4 @@ def restore_user(
     session: DBSession,
 ) -> APIResponse[UserRead]:
     user = user_service.restore_user(session, user_id, payload)
-    return success_response(user, message="User restored.")
+    return success_response(UserRead.model_validate(user), message="User restored.")

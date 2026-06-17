@@ -1,5 +1,7 @@
+from typing import cast
 from uuid import UUID
 
+import pytest
 from sqlmodel import select
 
 from core.database import get_session
@@ -7,8 +9,10 @@ from main import app
 from models.user import User
 from utils.security import verify_password
 
+pytestmark = pytest.mark.anyio
 
-def test_create_and_list_users(client):
+
+async def test_create_and_list_users(client):
     payload = {
         "email": "user@example.com",
         "username": "janedoe",
@@ -22,13 +26,13 @@ def test_create_and_list_users(client):
         "performed_by": None,
     }
 
-    create_response = client.post("/api/v1/users/", json=payload)
+    create_response = await client.post("/api/v1/users/", json=payload)
     assert create_response.status_code == 201
     assert create_response.json()["data"]["email"] == payload["email"]
     assert create_response.json()["data"]["username"] == payload["username"]
     assert "password" not in create_response.json()["data"]
 
-    list_response = client.get("/api/v1/users/")
+    list_response = await client.get("/api/v1/users/")
     assert list_response.status_code == 200
     assert list_response.json()["meta"]["pagination"] == {
         "total": 1,
@@ -48,11 +52,12 @@ def test_create_and_list_users(client):
     }
 
 
-def test_password_is_stored_as_argon2_hash(client):
+async def test_password_is_stored_as_argon2_hash(client):
+    plain_password = "test-password-123"
     payload = {
         "email": "secure@example.com",
         "username": "secureuser",
-        "password": "test-password-123",
+        "password": plain_password,
         "role": "admin",
         "first_name": "Jane",
         "last_name": "Doe",
@@ -62,7 +67,7 @@ def test_password_is_stored_as_argon2_hash(client):
         "performed_by": None,
     }
 
-    create_response = client.post("/api/v1/users/", json=payload)
+    create_response = await client.post("/api/v1/users/", json=payload)
     assert create_response.status_code == 201
 
     override = app.dependency_overrides[get_session]
@@ -74,12 +79,13 @@ def test_password_is_stored_as_argon2_hash(client):
         session_generator.close()
 
     assert user is not None
-    assert user.password.startswith("$argon2")
-    assert verify_password(payload["password"], user.password) is True
+    hashed_password = cast(str, user.password)
+    assert hashed_password.startswith("$argon2")
+    assert verify_password(plain_password, hashed_password) is True
 
 
-def test_user_not_found_uses_universal_error_shape(client):
-    response = client.get("/api/v1/users/00000000-0000-0000-0000-000000000000")
+async def test_user_not_found_uses_universal_error_shape(client):
+    response = await client.get("/api/v1/users/00000000-0000-0000-0000-000000000000")
 
     assert response.status_code == 404
     assert response.json() == {
@@ -90,8 +96,8 @@ def test_user_not_found_uses_universal_error_shape(client):
     }
 
 
-def test_validation_error_uses_universal_error_shape(client):
-    response = client.post("/api/v1/users/", json={})
+async def test_validation_error_uses_universal_error_shape(client):
+    response = await client.post("/api/v1/users/", json={})
 
     assert response.status_code == 422
     body = response.json()
@@ -101,7 +107,7 @@ def test_validation_error_uses_universal_error_shape(client):
     assert body["meta"] is None
 
 
-def test_list_users_uses_shared_query_params(client):
+async def test_list_users_uses_shared_query_params(client):
     payloads = [
         {
             "email": "first@example.com",
@@ -130,10 +136,10 @@ def test_list_users_uses_shared_query_params(client):
     ]
 
     for payload in payloads:
-        response = client.post("/api/v1/users/", json=payload)
+        response = await client.post("/api/v1/users/", json=payload)
         assert response.status_code == 201
 
-    response = client.get("/api/v1/users/?limit=1&offset=0&sort_order=asc&sort_by=email")
+    response = await client.get("/api/v1/users/?limit=1&offset=0&sort_order=asc&sort_by=email")
 
     assert response.status_code == 200
     body = response.json()
@@ -159,7 +165,7 @@ def test_list_users_uses_shared_query_params(client):
     }
 
 
-def test_list_users_filters_by_role_and_is_active(client):
+async def test_list_users_filters_by_role_and_is_active(client):
     payloads = [
         {
             "email": "admin-active@example.com",
@@ -188,10 +194,10 @@ def test_list_users_filters_by_role_and_is_active(client):
     ]
 
     for payload in payloads:
-        response = client.post("/api/v1/users/", json=payload)
+        response = await client.post("/api/v1/users/", json=payload)
         assert response.status_code == 201
 
-    response = client.get("/api/v1/users/?role=admin&is_active=true")
+    response = await client.get("/api/v1/users/?role=admin&is_active=true")
 
     assert response.status_code == 200
     body = response.json()
@@ -202,7 +208,7 @@ def test_list_users_filters_by_role_and_is_active(client):
     assert body["meta"]["filters"]["is_active"] is True
 
 
-def test_list_users_filters_by_search(client):
+async def test_list_users_filters_by_search(client):
     payloads = [
         {
             "email": "jane.doe@example.com",
@@ -231,10 +237,10 @@ def test_list_users_filters_by_search(client):
     ]
 
     for payload in payloads:
-        response = client.post("/api/v1/users/", json=payload)
+        response = await client.post("/api/v1/users/", json=payload)
         assert response.status_code == 201
 
-    response = client.get("/api/v1/users/?search=jane")
+    response = await client.get("/api/v1/users/?search=jane")
 
     assert response.status_code == 200
     body = response.json()
@@ -244,7 +250,7 @@ def test_list_users_filters_by_search(client):
     assert body["meta"]["filters"]["search"] == "jane"
 
 
-def test_list_users_uses_stable_secondary_sort_for_ties(client):
+async def test_list_users_uses_stable_secondary_sort_for_ties(client):
     payloads = [
         {
             "email": "tie-one@example.com",
@@ -274,16 +280,16 @@ def test_list_users_uses_stable_secondary_sort_for_ties(client):
 
     created_ids: list[str] = []
     for payload in payloads:
-        response = client.post("/api/v1/users/", json=payload)
+        response = await client.post("/api/v1/users/", json=payload)
         assert response.status_code == 201
         created_ids.append(response.json()["data"]["id"])
 
-    asc_response = client.get("/api/v1/users/?sort_by=last_name&sort_order=asc")
+    asc_response = await client.get("/api/v1/users/?sort_by=last_name&sort_order=asc")
     assert asc_response.status_code == 200
     asc_ids = [item["id"] for item in asc_response.json()["data"]]
     assert asc_ids == [str(value) for value in sorted(UUID(user_id) for user_id in created_ids)]
 
-    desc_response = client.get("/api/v1/users/?sort_by=last_name&sort_order=desc")
+    desc_response = await client.get("/api/v1/users/?sort_by=last_name&sort_order=desc")
     assert desc_response.status_code == 200
     desc_ids = [item["id"] for item in desc_response.json()["data"]]
     assert desc_ids == [
@@ -292,7 +298,7 @@ def test_list_users_uses_stable_secondary_sort_for_ties(client):
     ]
 
 
-def test_soft_deleted_user_is_hidden_by_default_and_can_be_restored(client):
+async def test_soft_deleted_user_is_hidden_by_default_and_can_be_restored(client):
     payload = {
         "email": "restore-me@example.com",
         "username": "restoreme",
@@ -306,11 +312,11 @@ def test_soft_deleted_user_is_hidden_by_default_and_can_be_restored(client):
         "performed_by": None,
     }
 
-    create_response = client.post("/api/v1/users/", json=payload)
+    create_response = await client.post("/api/v1/users/", json=payload)
     assert create_response.status_code == 201
     user_id = create_response.json()["data"]["id"]
 
-    delete_response = client.request(
+    delete_response = await client.request(
         "DELETE",
         f"/api/v1/users/{user_id}",
         json={"performed_by": None},
@@ -319,19 +325,19 @@ def test_soft_deleted_user_is_hidden_by_default_and_can_be_restored(client):
     assert delete_response.json()["data"]["is_deleted"] is True
     assert delete_response.json()["data"]["deleted_at"] is not None
 
-    get_response = client.get(f"/api/v1/users/{user_id}")
+    get_response = await client.get(f"/api/v1/users/{user_id}")
     assert get_response.status_code == 404
 
-    default_list_response = client.get("/api/v1/users/")
+    default_list_response = await client.get("/api/v1/users/")
     assert default_list_response.status_code == 200
     assert default_list_response.json()["meta"]["pagination"]["total"] == 0
 
-    include_deleted_response = client.get("/api/v1/users/?include_deleted=true")
+    include_deleted_response = await client.get("/api/v1/users/?include_deleted=true")
     assert include_deleted_response.status_code == 200
     assert include_deleted_response.json()["meta"]["pagination"]["total"] == 1
     assert include_deleted_response.json()["data"][0]["is_deleted"] is True
 
-    restore_response = client.post(
+    restore_response = await client.post(
         f"/api/v1/users/{user_id}/restore",
         json={"performed_by": None},
     )
@@ -340,12 +346,12 @@ def test_soft_deleted_user_is_hidden_by_default_and_can_be_restored(client):
     assert restore_response.json()["data"]["is_deleted"] is False
     assert restore_response.json()["data"]["deleted_at"] is None
 
-    restored_get_response = client.get(f"/api/v1/users/{user_id}")
+    restored_get_response = await client.get(f"/api/v1/users/{user_id}")
     assert restored_get_response.status_code == 200
     assert restored_get_response.json()["data"]["id"] == user_id
 
 
-def test_restore_rejects_active_user(client):
+async def test_restore_rejects_active_user(client):
     payload = {
         "email": "active-user@example.com",
         "username": "activeuser",
@@ -359,11 +365,11 @@ def test_restore_rejects_active_user(client):
         "performed_by": None,
     }
 
-    create_response = client.post("/api/v1/users/", json=payload)
+    create_response = await client.post("/api/v1/users/", json=payload)
     assert create_response.status_code == 201
     user_id = create_response.json()["data"]["id"]
 
-    restore_response = client.post(
+    restore_response = await client.post(
         f"/api/v1/users/{user_id}/restore",
         json={"performed_by": None},
     )
@@ -371,7 +377,7 @@ def test_restore_rejects_active_user(client):
     assert restore_response.json()["message"] == "User is not deleted."
 
 
-def test_create_rejects_duplicate_email_from_soft_deleted_user(client):
+async def test_create_rejects_duplicate_email_from_soft_deleted_user(client):
     original_payload = {
         "email": "deleted-email@example.com",
         "username": "deletedemailuser",
@@ -389,18 +395,18 @@ def test_create_rejects_duplicate_email_from_soft_deleted_user(client):
         "username": "replacementuser",
     }
 
-    create_response = client.post("/api/v1/users/", json=original_payload)
+    create_response = await client.post("/api/v1/users/", json=original_payload)
     assert create_response.status_code == 201
     user_id = create_response.json()["data"]["id"]
 
-    delete_response = client.request(
+    delete_response = await client.request(
         "DELETE",
         f"/api/v1/users/{user_id}",
         json={"performed_by": None},
     )
     assert delete_response.status_code == 200
 
-    duplicate_response = client.post("/api/v1/users/", json=replacement_payload)
+    duplicate_response = await client.post("/api/v1/users/", json=replacement_payload)
     assert duplicate_response.status_code == 400
     assert duplicate_response.json()["message"] == (
         "A deleted user with this email already exists. Restore that user instead."

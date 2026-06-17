@@ -2,7 +2,7 @@ from uuid import UUID
 
 from fastapi import status
 from sqlalchemy import func, or_
-from sqlmodel import Session, select
+from sqlmodel import Session, col, select
 
 from core.exceptions import AppError
 from models.user import User
@@ -14,20 +14,20 @@ from utils.sorting import stable_order_by
 
 def _apply_user_list_filters(statement, params: UserListQueryParams):
     if not params.include_deleted:
-        statement = statement.where(User.is_deleted.is_(False))
+        statement = statement.where(col(User.is_deleted).is_(False))
 
     if params.role is not None:
-        statement = statement.where(User.role == params.role)
+        statement = statement.where(col(User.role) == params.role)
     if params.is_active is not None:
-        statement = statement.where(User.is_active == params.is_active)
+        statement = statement.where(col(User.is_active) == params.is_active)
     if params.search is not None:
         search_term = f"%{params.search}%"
         statement = statement.where(
             or_(
-                User.email.ilike(search_term),
-                User.username.ilike(search_term),
-                User.first_name.ilike(search_term),
-                User.last_name.ilike(search_term),
+                col(User.email).ilike(search_term),
+                col(User.username).ilike(search_term),
+                col(User.first_name).ilike(search_term),
+                col(User.last_name).ilike(search_term),
             )
         )
 
@@ -91,11 +91,13 @@ def _raise_username_conflict(existing_user: User) -> None:
 
 
 def create_user(session: Session, payload: UserCreate) -> User:
-    existing_user = session.exec(select(User).where(User.email == payload.email)).first()
+    existing_user = session.exec(select(User).where(col(User.email) == payload.email)).first()
     if existing_user:
         _raise_email_conflict(existing_user)
 
-    existing_username = session.exec(select(User).where(User.username == payload.username)).first()
+    existing_username = session.exec(
+        select(User).where(col(User.username) == payload.username)
+    ).first()
     if existing_username:
         _raise_username_conflict(existing_username)
 
@@ -113,13 +115,15 @@ def update_user(session: Session, user_id: UUID, payload: UserUpdate) -> User:
     updates = payload.model_dump(exclude_unset=True)
 
     if "email" in updates and updates["email"] != user.email:
-        existing_user = session.exec(select(User).where(User.email == updates["email"])).first()
+        existing_user = session.exec(
+            select(User).where(col(User.email) == updates["email"])
+        ).first()
         if existing_user and existing_user.id != user.id:
             _raise_email_conflict(existing_user)
 
     if "username" in updates and updates["username"] != user.username:
         existing_user = session.exec(
-            select(User).where(User.username == updates["username"])
+            select(User).where(col(User.username) == updates["username"])
         ).first()
         if existing_user and existing_user.id != user.id:
             _raise_username_conflict(existing_user)

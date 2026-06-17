@@ -1,14 +1,11 @@
 from datetime import datetime
-from typing import Any, Generic, Literal, TypeVar
+from typing import Any, Literal
 from uuid import UUID
 
 from pydantic import BaseModel
 
-T = TypeVar("T")
-F = TypeVar("F", bound=BaseModel)
 
-
-class APIResponse(BaseModel, Generic[T]):
+class APIResponse[T](BaseModel):
     data: T | None = None
     message: str = "Success"
     errors: Any | None = None
@@ -24,7 +21,7 @@ class PaginationMeta(BaseModel):
     has_prev: bool
 
 
-class ListMeta(BaseModel, Generic[F]):
+class ListMeta[F: BaseModel](BaseModel):
     pagination: PaginationMeta
     filters: F
 

@@ -5,7 +5,6 @@ from core.config import settings
 from core.handlers import register_exception_handlers
 from routers.api import api_router
 
-
 app = FastAPI(
     title=settings.PROJECT_NAME,
     version=settings.PROJECT_VERSION,
