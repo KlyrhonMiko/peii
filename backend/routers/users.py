@@ -6,7 +6,14 @@ from fastapi import APIRouter, Depends, Query, status
 from core.deps import DBSession
 from core.responses import list_meta_response, success_response
 from schemas.common import APIResponse
-from schemas.user import UserCreate, UserDelete, UserListQueryParams, UserRead, UserUpdate
+from schemas.user import (
+    UserCreate,
+    UserDelete,
+    UserListQueryParams,
+    UserRead,
+    UserRestore,
+    UserUpdate,
+)
 from services import user_service
 
 router = APIRouter()
@@ -85,3 +92,13 @@ def delete_user(
 ) -> APIResponse[UserRead]:
     user = user_service.soft_delete_user(session, user_id, payload)
     return success_response(user, message="User deleted.")
+
+
+@router.post("/{user_id}/restore", response_model=APIResponse[UserRead])
+def restore_user(
+    user_id: UUID,
+    payload: UserRestore,
+    session: DBSession,
+) -> APIResponse[UserRead]:
+    user = user_service.restore_user(session, user_id, payload)
+    return success_response(user, message="User restored.")

@@ -1,5 +1,12 @@
 from uuid import UUID
 
+from sqlmodel import select
+
+from core.database import get_session
+from main import app
+from models.user import User
+from utils.security import verify_password
+
 
 def test_create_and_list_users(client):
     payload = {
@@ -42,12 +49,6 @@ def test_create_and_list_users(client):
 
 
 def test_password_is_stored_as_argon2_hash(client):
-    from core.database import get_session
-    from main import app
-    from models.user import User
-    from sqlmodel import select
-    from utils.security import verify_password
-
     payload = {
         "email": "secure@example.com",
         "username": "secureuser",
@@ -280,9 +281,127 @@ def test_list_users_uses_stable_secondary_sort_for_ties(client):
     asc_response = client.get("/api/v1/users/?sort_by=last_name&sort_order=asc")
     assert asc_response.status_code == 200
     asc_ids = [item["id"] for item in asc_response.json()["data"]]
-    assert asc_ids == [str(value) for value in sorted((UUID(user_id) for user_id in created_ids))]
+    assert asc_ids == [str(value) for value in sorted(UUID(user_id) for user_id in created_ids)]
 
     desc_response = client.get("/api/v1/users/?sort_by=last_name&sort_order=desc")
     assert desc_response.status_code == 200
     desc_ids = [item["id"] for item in desc_response.json()["data"]]
-    assert desc_ids == [str(value) for value in sorted((UUID(user_id) for user_id in created_ids), reverse=True)]
+    assert desc_ids == [
+        str(value)
+        for value in sorted((UUID(user_id) for user_id in created_ids), reverse=True)
+    ]
+
+
+def test_soft_deleted_user_is_hidden_by_default_and_can_be_restored(client):
+    payload = {
+        "email": "restore-me@example.com",
+        "username": "restoreme",
+        "password": "test-password-123",
+        "role": "admin",
+        "first_name": "Restore",
+        "last_name": "Target",
+        "middle_name": None,
+        "contact": None,
+        "is_active": True,
+        "performed_by": None,
+    }
+
+    create_response = client.post("/api/v1/users/", json=payload)
+    assert create_response.status_code == 201
+    user_id = create_response.json()["data"]["id"]
+
+    delete_response = client.request(
+        "DELETE",
+        f"/api/v1/users/{user_id}",
+        json={"performed_by": None},
+    )
+    assert delete_response.status_code == 200
+    assert delete_response.json()["data"]["is_deleted"] is True
+    assert delete_response.json()["data"]["deleted_at"] is not None
+
+    get_response = client.get(f"/api/v1/users/{user_id}")
+    assert get_response.status_code == 404
+
+    default_list_response = client.get("/api/v1/users/")
+    assert default_list_response.status_code == 200
+    assert default_list_response.json()["meta"]["pagination"]["total"] == 0
+
+    include_deleted_response = client.get("/api/v1/users/?include_deleted=true")
+    assert include_deleted_response.status_code == 200
+    assert include_deleted_response.json()["meta"]["pagination"]["total"] == 1
+    assert include_deleted_response.json()["data"][0]["is_deleted"] is True
+
+    restore_response = client.post(
+        f"/api/v1/users/{user_id}/restore",
+        json={"performed_by": None},
+    )
+    assert restore_response.status_code == 200
+    assert restore_response.json()["message"] == "User restored."
+    assert restore_response.json()["data"]["is_deleted"] is False
+    assert restore_response.json()["data"]["deleted_at"] is None
+
+    restored_get_response = client.get(f"/api/v1/users/{user_id}")
+    assert restored_get_response.status_code == 200
+    assert restored_get_response.json()["data"]["id"] == user_id
+
+
+def test_restore_rejects_active_user(client):
+    payload = {
+        "email": "active-user@example.com",
+        "username": "activeuser",
+        "password": "test-password-123",
+        "role": "admin",
+        "first_name": "Active",
+        "last_name": "User",
+        "middle_name": None,
+        "contact": None,
+        "is_active": True,
+        "performed_by": None,
+    }
+
+    create_response = client.post("/api/v1/users/", json=payload)
+    assert create_response.status_code == 201
+    user_id = create_response.json()["data"]["id"]
+
+    restore_response = client.post(
+        f"/api/v1/users/{user_id}/restore",
+        json={"performed_by": None},
+    )
+    assert restore_response.status_code == 400
+    assert restore_response.json()["message"] == "User is not deleted."
+
+
+def test_create_rejects_duplicate_email_from_soft_deleted_user(client):
+    original_payload = {
+        "email": "deleted-email@example.com",
+        "username": "deletedemailuser",
+        "password": "test-password-123",
+        "role": "admin",
+        "first_name": "Deleted",
+        "last_name": "Email",
+        "middle_name": None,
+        "contact": None,
+        "is_active": True,
+        "performed_by": None,
+    }
+    replacement_payload = {
+        **original_payload,
+        "username": "replacementuser",
+    }
+
+    create_response = client.post("/api/v1/users/", json=original_payload)
+    assert create_response.status_code == 201
+    user_id = create_response.json()["data"]["id"]
+
+    delete_response = client.request(
+        "DELETE",
+        f"/api/v1/users/{user_id}",
+        json={"performed_by": None},
+    )
+    assert delete_response.status_code == 200
+
+    duplicate_response = client.post("/api/v1/users/", json=replacement_payload)
+    assert duplicate_response.status_code == 400
+    assert duplicate_response.json()["message"] == (
+        "A deleted user with this email already exists. Restore that user instead."
+    )
