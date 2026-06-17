@@ -2,6 +2,20 @@
 
 import { Bar, BarChart, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from "recharts"
 
+type TooltipValue = number | string | readonly (number | string)[] | undefined
+
+function formatTooltipValue(value: TooltipValue) {
+  if (typeof value === "number") {
+    return value.toFixed(2)
+  }
+
+  if (Array.isArray(value)) {
+    return value.join(", ")
+  }
+
+  return value ?? ""
+}
+
 const data = [
   { factor: "Curriculum Relevance", score: 0.92, tier: 1 },
   { factor: "Faculty Mentorship", score: 0.85, tier: 1 },
@@ -45,7 +59,7 @@ export function FeatureImportanceChart() {
             </div>
           ))}
         </div>
-        <div className="h-[360px] w-full">
+        <div className="h-[360px] min-h-[360px] w-full min-w-0">
           <ResponsiveContainer width="100%" height="100%">
             <BarChart
               data={data}
@@ -84,7 +98,7 @@ export function FeatureImportanceChart() {
                   padding: '8px 12px',
                 }}
                 labelStyle={{ fontWeight: 600, color: '#1e293b', fontSize: '12px', marginBottom: '2px' }}
-                formatter={(value: any) => [typeof value === 'number' ? value.toFixed(2) : value, "Score"]}
+                formatter={(value: TooltipValue) => [formatTooltipValue(value), "Score"]}
               />
               <Bar dataKey="score" radius={[0, 4, 4, 0]} barSize={28}>
                 {data.map((entry, index) => (
