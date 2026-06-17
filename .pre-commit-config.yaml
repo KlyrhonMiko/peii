@@ -1,0 +1,39 @@
+minimum_pre_commit_version: "3.7.0"
+
+repos:
+  - repo: local
+    hooks:
+      - id: backend-ruff
+        name: backend ruff
+        entry: bash -lc 'cd backend && ./.venv/bin/ruff check .'
+        language: system
+        pass_filenames: false
+        stages: [pre-commit]
+
+      - id: backend-mypy
+        name: backend mypy
+        entry: bash -lc 'cd backend && ./.venv/bin/mypy .'
+        language: system
+        pass_filenames: false
+        stages: [pre-commit]
+
+      - id: frontend-lint
+        name: frontend lint
+        entry: bash -lc 'cd frontend && npm run lint'
+        language: system
+        pass_filenames: false
+        stages: [pre-commit]
+
+      - id: backend-pytest
+        name: backend pytest
+        entry: bash -lc 'cd backend && env DEBUG=false ./.venv/bin/pytest -q'
+        language: system
+        pass_filenames: false
+        stages: [pre-commit, pre-push]
+
+      - id: frontend-build
+        name: frontend build
+        entry: bash -lc 'cd frontend && npm run build'
+        language: system
+        pass_filenames: false
+        stages: [pre-commit, pre-push]

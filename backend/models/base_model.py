@@ -1,5 +1,4 @@
-from datetime import datetime, timezone
-from typing import Optional
+from datetime import UTC, datetime
 from uuid import UUID
 
 from sqlmodel import Field, SQLModel
@@ -7,7 +6,7 @@ from uuid6 import uuid7
 
 
 def utc_now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 class TimestampedUUIDModel(SQLModel):
@@ -19,8 +18,8 @@ class TimestampedUUIDModel(SQLModel):
         sa_column_kwargs={"onupdate": utc_now},
     )
     is_deleted: bool = Field(default=False, nullable=False, index=True)
-    deleted_at: Optional[datetime] = Field(default=None, nullable=True)
-    performed_by: Optional[UUID] = Field(default=None, nullable=True, index=True)
+    deleted_at: datetime | None = Field(default=None, nullable=True)
+    performed_by: UUID | None = Field(default=None, nullable=True, index=True)
 
 
 class BaseModel(TimestampedUUIDModel):

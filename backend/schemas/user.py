@@ -1,8 +1,10 @@
 from datetime import datetime
-from typing import Optional
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, EmailStr
+
+from schemas.common import ListQueryParams
 
 
 class UserBaseSchema(BaseModel):
@@ -15,27 +17,27 @@ class UserBase(UserBaseSchema):
     role: str
     first_name: str
     last_name: str
-    middle_name: Optional[str] = None
-    contact: Optional[str] = None
+    middle_name: str | None = None
+    contact: str | None = None
     is_active: bool = True
 
 
 class UserCreate(UserBase):
     password: str
-    performed_by: Optional[UUID] = None
+    performed_by: UUID | None = None
 
 
 class UserUpdate(UserBaseSchema):
-    email: Optional[EmailStr] = None
-    username: Optional[str] = None
-    password: Optional[str] = None
-    role: Optional[str] = None
-    first_name: Optional[str] = None
-    last_name: Optional[str] = None
-    middle_name: Optional[str] = None
-    contact: Optional[str] = None
-    is_active: Optional[bool] = None
-    performed_by: Optional[UUID] = None
+    email: EmailStr | None = None
+    username: str | None = None
+    password: str | None = None
+    role: str | None = None
+    first_name: str | None = None
+    last_name: str | None = None
+    middle_name: str | None = None
+    contact: str | None = None
+    is_active: bool | None = None
+    performed_by: UUID | None = None
 
 
 class UserRead(UserBase):
@@ -43,9 +45,20 @@ class UserRead(UserBase):
     created_at: datetime
     updated_at: datetime
     is_deleted: bool
-    deleted_at: Optional[datetime] = None
-    performed_by: Optional[UUID] = None
+    deleted_at: datetime | None = None
+    performed_by: UUID | None = None
 
 
 class UserDelete(UserBaseSchema):
-    performed_by: Optional[UUID] = None
+    performed_by: UUID | None = None
+
+
+class UserRestore(UserBaseSchema):
+    performed_by: UUID | None = None
+
+
+class UserListQueryParams(ListQueryParams):
+    role: str | None = None
+    is_active: bool | None = None
+    search: str | None = None
+    sort_by: Literal["created_at", "email", "username", "last_name"] = "created_at"

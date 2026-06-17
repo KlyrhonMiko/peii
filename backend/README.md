@@ -7,13 +7,14 @@ FastAPI backend scaffold for `peii`.
 1. Install dependencies:
 
 ```bash
-pip install -r requirements.txt
+python3.14 -m venv .venv
+./.venv/bin/pip install -r requirements.txt
 ```
 
 2. Start the development server from `backend/`:
 
 ```bash
-uvicorn main:app --reload
+./.venv/bin/uvicorn main:app --reload
 ```
 
 The backend loads the root `.env` automatically.
@@ -43,9 +44,9 @@ alembic revision --autogenerate -m "describe change"
 Run these from `backend/`:
 
 ```bash
-pytest
-ruff check .
-mypy .
+env DEBUG=false ./.venv/bin/pytest -q
+./.venv/bin/ruff check .
+./.venv/bin/mypy .
 ```
 
 ## Run with Docker
