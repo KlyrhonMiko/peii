@@ -29,11 +29,11 @@ repos:
         entry: bash -lc 'cd backend && env DEBUG=false ./.venv/bin/pytest -q'
         language: system
         pass_filenames: false
-        stages: [pre-push]
+        stages: [pre-commit, pre-push]
 
       - id: frontend-build
         name: frontend build
         entry: bash -lc 'cd frontend && npm run build'
         language: system
         pass_filenames: false
-        stages: [pre-push]
+        stages: [pre-commit, pre-push]

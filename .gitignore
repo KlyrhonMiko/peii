@@ -66,6 +66,8 @@ ENV/
 # local editor / tooling files
 .idea/
 .vscode/
+.cache/
+.pre-commit-config.yaml
 
 # debug
 npm-debug.log*
