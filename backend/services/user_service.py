@@ -1,21 +1,57 @@
 from uuid import UUID
 
 from fastapi import status
+from sqlalchemy import func, or_
 from sqlmodel import Session, select
 
 from core.exceptions import AppError
 from models.user import User
-from schemas.user import UserCreate, UserDelete, UserUpdate
+from schemas.user import UserCreate, UserDelete, UserListQueryParams, UserUpdate
 from services.base_service import apply_updates, utc_now
 from utils.security import hash_password
+from utils.sorting import stable_order_by
 
 
-def list_users(session: Session, include_deleted: bool = False) -> list[User]:
-    statement = select(User)
-    if not include_deleted:
+def _apply_user_list_filters(statement, params: UserListQueryParams):
+    if not params.include_deleted:
         statement = statement.where(User.is_deleted.is_(False))
-    statement = statement.order_by(User.created_at.desc())
-    return list(session.exec(statement).all())
+
+    if params.role is not None:
+        statement = statement.where(User.role == params.role)
+    if params.is_active is not None:
+        statement = statement.where(User.is_active == params.is_active)
+    if params.search is not None:
+        search_term = f"%{params.search}%"
+        statement = statement.where(
+            or_(
+                User.email.ilike(search_term),
+                User.username.ilike(search_term),
+                User.first_name.ilike(search_term),
+                User.last_name.ilike(search_term),
+            )
+        )
+
+    return statement
+
+
+def list_users(session: Session, params: UserListQueryParams) -> tuple[list[User], int]:
+    statement = select(User)
+    statement = _apply_user_list_filters(statement, params)
+
+    total_statement = _apply_user_list_filters(select(func.count()).select_from(User), params)
+    total = session.exec(total_statement).one()
+
+    sort_columns = {
+        "created_at": User.created_at,
+        "email": User.email,
+        "username": User.username,
+        "last_name": User.last_name,
+    }
+    sort_column = sort_columns[params.sort_by]
+    statement = stable_order_by(statement, sort_column, sort_order=params.sort_order, id_column=User.id)
+    statement = statement.offset(params.offset).limit(params.limit)
+    users = list(session.exec(statement).all())
+    return users, total
 
 
 def get_user_by_id(session: Session, user_id: UUID, include_deleted: bool = False) -> User:

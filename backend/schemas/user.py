@@ -1,8 +1,10 @@
 from datetime import datetime
-from typing import Optional
+from typing import Literal, Optional
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, EmailStr
+
+from schemas.common import ListQueryParams
 
 
 class UserBaseSchema(BaseModel):
@@ -49,3 +51,10 @@ class UserRead(UserBase):
 
 class UserDelete(UserBaseSchema):
     performed_by: Optional[UUID] = None
+
+
+class UserListQueryParams(ListQueryParams):
+    role: Optional[str] = None
+    is_active: Optional[bool] = None
+    search: Optional[str] = None
+    sort_by: Literal["created_at", "email", "username", "last_name"] = "created_at"

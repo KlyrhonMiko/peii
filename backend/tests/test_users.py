@@ -1,3 +1,6 @@
+from uuid import UUID
+
+
 def test_create_and_list_users(client):
     payload = {
         "email": "user@example.com",
@@ -20,7 +23,22 @@ def test_create_and_list_users(client):
 
     list_response = client.get("/api/v1/users/")
     assert list_response.status_code == 200
-    assert list_response.json()["meta"]["count"] == 1
+    assert list_response.json()["meta"]["pagination"] == {
+        "total": 1,
+        "count": 1,
+        "limit": 20,
+        "offset": 0,
+        "has_next": False,
+        "has_prev": False,
+    }
+    assert list_response.json()["meta"]["filters"] == {
+        "sort_order": "desc",
+        "sort_by": "created_at",
+        "include_deleted": False,
+        "role": None,
+        "is_active": None,
+        "search": None,
+    }
 
 
 def test_password_is_stored_as_argon2_hash(client):
@@ -57,3 +75,214 @@ def test_password_is_stored_as_argon2_hash(client):
     assert user is not None
     assert user.password.startswith("$argon2")
     assert verify_password(payload["password"], user.password) is True
+
+
+def test_user_not_found_uses_universal_error_shape(client):
+    response = client.get("/api/v1/users/00000000-0000-0000-0000-000000000000")
+
+    assert response.status_code == 404
+    assert response.json() == {
+        "data": None,
+        "message": "User not found.",
+        "errors": None,
+        "meta": None,
+    }
+
+
+def test_validation_error_uses_universal_error_shape(client):
+    response = client.post("/api/v1/users/", json={})
+
+    assert response.status_code == 422
+    body = response.json()
+    assert body["data"] is None
+    assert body["message"] == "Validation error."
+    assert isinstance(body["errors"], list)
+    assert body["meta"] is None
+
+
+def test_list_users_uses_shared_query_params(client):
+    payloads = [
+        {
+            "email": "first@example.com",
+            "username": "firstuser",
+            "password": "test-password-123",
+            "role": "admin",
+            "first_name": "First",
+            "last_name": "User",
+            "middle_name": None,
+            "contact": None,
+            "is_active": True,
+            "performed_by": None,
+        },
+        {
+            "email": "second@example.com",
+            "username": "seconduser",
+            "password": "test-password-123",
+            "role": "admin",
+            "first_name": "Second",
+            "last_name": "User",
+            "middle_name": None,
+            "contact": None,
+            "is_active": True,
+            "performed_by": None,
+        },
+    ]
+
+    for payload in payloads:
+        response = client.post("/api/v1/users/", json=payload)
+        assert response.status_code == 201
+
+    response = client.get("/api/v1/users/?limit=1&offset=0&sort_order=asc&sort_by=email")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body["data"]) == 1
+    assert body["data"][0]["email"] == payloads[0]["email"]
+    assert body["meta"] == {
+        "pagination": {
+            "total": 2,
+            "count": 1,
+            "limit": 1,
+            "offset": 0,
+            "has_next": True,
+            "has_prev": False,
+        },
+        "filters": {
+            "sort_order": "asc",
+            "sort_by": "email",
+            "include_deleted": False,
+            "role": None,
+            "is_active": None,
+            "search": None,
+        },
+    }
+
+
+def test_list_users_filters_by_role_and_is_active(client):
+    payloads = [
+        {
+            "email": "admin-active@example.com",
+            "username": "adminactive",
+            "password": "test-password-123",
+            "role": "admin",
+            "first_name": "Admin",
+            "last_name": "Active",
+            "middle_name": None,
+            "contact": None,
+            "is_active": True,
+            "performed_by": None,
+        },
+        {
+            "email": "staff-inactive@example.com",
+            "username": "staffinactive",
+            "password": "test-password-123",
+            "role": "staff",
+            "first_name": "Staff",
+            "last_name": "Inactive",
+            "middle_name": None,
+            "contact": None,
+            "is_active": False,
+            "performed_by": None,
+        },
+    ]
+
+    for payload in payloads:
+        response = client.post("/api/v1/users/", json=payload)
+        assert response.status_code == 201
+
+    response = client.get("/api/v1/users/?role=admin&is_active=true")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body["data"]) == 1
+    assert body["data"][0]["email"] == payloads[0]["email"]
+    assert body["meta"]["pagination"]["total"] == 1
+    assert body["meta"]["filters"]["role"] == "admin"
+    assert body["meta"]["filters"]["is_active"] is True
+
+
+def test_list_users_filters_by_search(client):
+    payloads = [
+        {
+            "email": "jane.doe@example.com",
+            "username": "janedoe",
+            "password": "test-password-123",
+            "role": "admin",
+            "first_name": "Jane",
+            "last_name": "Doe",
+            "middle_name": None,
+            "contact": None,
+            "is_active": True,
+            "performed_by": None,
+        },
+        {
+            "email": "john.smith@example.com",
+            "username": "johnsmith",
+            "password": "test-password-123",
+            "role": "staff",
+            "first_name": "John",
+            "last_name": "Smith",
+            "middle_name": None,
+            "contact": None,
+            "is_active": True,
+            "performed_by": None,
+        },
+    ]
+
+    for payload in payloads:
+        response = client.post("/api/v1/users/", json=payload)
+        assert response.status_code == 201
+
+    response = client.get("/api/v1/users/?search=jane")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body["data"]) == 1
+    assert body["data"][0]["email"] == payloads[0]["email"]
+    assert body["meta"]["pagination"]["total"] == 1
+    assert body["meta"]["filters"]["search"] == "jane"
+
+
+def test_list_users_uses_stable_secondary_sort_for_ties(client):
+    payloads = [
+        {
+            "email": "tie-one@example.com",
+            "username": "tieone",
+            "password": "test-password-123",
+            "role": "admin",
+            "first_name": "Tie",
+            "last_name": "Same",
+            "middle_name": None,
+            "contact": None,
+            "is_active": True,
+            "performed_by": None,
+        },
+        {
+            "email": "tie-two@example.com",
+            "username": "tietwo",
+            "password": "test-password-123",
+            "role": "admin",
+            "first_name": "Tie",
+            "last_name": "Same",
+            "middle_name": None,
+            "contact": None,
+            "is_active": True,
+            "performed_by": None,
+        },
+    ]
+
+    created_ids: list[str] = []
+    for payload in payloads:
+        response = client.post("/api/v1/users/", json=payload)
+        assert response.status_code == 201
+        created_ids.append(response.json()["data"]["id"])
+
+    asc_response = client.get("/api/v1/users/?sort_by=last_name&sort_order=asc")
+    assert asc_response.status_code == 200
+    asc_ids = [item["id"] for item in asc_response.json()["data"]]
+    assert asc_ids == [str(value) for value in sorted((UUID(user_id) for user_id in created_ids))]
+
+    desc_response = client.get("/api/v1/users/?sort_by=last_name&sort_order=desc")
+    assert desc_response.status_code == 200
+    desc_ids = [item["id"] for item in desc_response.json()["data"]]
+    assert desc_ids == [str(value) for value in sorted((UUID(user_id) for user_id in created_ids), reverse=True)]

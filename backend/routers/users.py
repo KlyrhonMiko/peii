@@ -1,23 +1,58 @@
+from typing import Annotated, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Query, status
+from fastapi import APIRouter, Depends, Query, status
 
 from core.deps import DBSession
-from core.responses import success_response
+from core.responses import list_meta_response, success_response
 from schemas.common import APIResponse
-from schemas.user import UserCreate, UserDelete, UserRead, UserUpdate
+from schemas.user import UserCreate, UserDelete, UserListQueryParams, UserRead, UserUpdate
 from services import user_service
 
 router = APIRouter()
 
 
+def get_user_list_query_params(
+    limit: int = Query(default=20, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    sort_order: Literal["asc", "desc"] = Query(default="desc"),
+    include_deleted: bool = Query(default=False),
+    sort_by: Literal["created_at", "email", "username", "last_name"] = Query(default="created_at"),
+    role: str | None = Query(default=None),
+    is_active: bool | None = Query(default=None),
+    search: str | None = Query(default=None, min_length=1),
+) -> UserListQueryParams:
+    return UserListQueryParams(
+        limit=limit,
+        offset=offset,
+        sort_order=sort_order,
+        include_deleted=include_deleted,
+        sort_by=sort_by,
+        role=role,
+        is_active=is_active,
+        search=search.strip() if search else None,
+    )
+
+
+UserListParams = Annotated[UserListQueryParams, Depends(get_user_list_query_params)]
+
+
 @router.get("/", response_model=APIResponse[list[UserRead]])
 def list_users(
     session: DBSession,
-    include_deleted: bool = Query(default=False),
+    params: UserListParams,
 ) -> APIResponse[list[UserRead]]:
-    users = user_service.list_users(session, include_deleted=include_deleted)
-    return success_response(users, meta={"include_deleted": include_deleted, "count": len(users)})
+    users, total = user_service.list_users(session, params)
+    return success_response(
+        users,
+        meta=list_meta_response(
+            filters=params,
+            total=total,
+            count=len(users),
+            limit=params.limit,
+            offset=params.offset,
+        ),
+    )
 
 
 @router.post("/", response_model=APIResponse[UserRead], status_code=status.HTTP_201_CREATED)

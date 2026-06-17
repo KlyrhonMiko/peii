@@ -5,5 +5,6 @@ def test_health_check(client):
     assert response.json() == {
         "data": {"status": "ok"},
         "message": "Success",
+        "errors": None,
         "meta": None,
     }
