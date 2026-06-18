@@ -1,21 +1,42 @@
 # Schemas Guide
 
 ## Purpose
-`schemas/` owns request/response shapes and typed query-param models.
+`schemas/` owns the typed API contract: request bodies, response bodies, and query-param
+models. Schemas are the boundary between HTTP data and internal model/service code.
 
-## Shared Vs Specific
-- Keep truly shared schemas in `common.py`.
-- Keep resource-specific list/query schemas in the resource module, for example `UserListQueryParams` in `user.py`.
-- Do not move endpoint-specific filters into `common.py` just because they live under `meta.filters`.
-- Use `ConfigDict(from_attributes=True)` on read-oriented schemas when they are populated directly from SQLModel instances.
+## Shared Vs Resource-Specific
+- Put only truly shared API shapes in `common.py`.
+- Keep resource-specific schemas in the resource module, such as `schemas/user.py`.
+- Do not move endpoint-specific filters into `common.py` just because they appear under
+  `meta.filters`.
+- Keep resource-specific `sort_by` literals in the resource schema so validation,
+  OpenAPI docs, and service allow-lists stay aligned.
+- Use `ConfigDict(from_attributes=True)` for schemas populated from SQLModel objects.
 
-## Response Contracts
-- Preserve `APIResponse` as the universal top-level envelope.
-- Keep shared list response metadata types in `common.py`, including shared pagination structure.
-- The `filters` slot in list metadata is shared structurally, but its field set is resource-specific.
-- Exclude sensitive fields from read schemas. Current user reads deliberately omit the stored password hash column.
+## Current Shared Contract
+- `APIResponse[T]` is the universal top-level envelope.
+- `PaginationMeta` is the shared pagination shape for list endpoints.
+- `ListMeta[F]` preserves the pattern that pagination is shared while filters are typed
+  per endpoint.
+- `ListQueryParams` contains cross-resource list fields: `limit`, `offset`,
+  `sort_order`, and `include_deleted`.
+- `AuditQueryParams` extends shared list fields with audit timestamps and `performed_by`.
 
-## Query Params
-- Shared list params belong in `ListQueryParams`.
-- Audit-style shared query params can exist, but only expose them from routes that actually need them.
-- Resource-specific `sort_by` literals should stay tight to the resource schema so the allowed values are explicit in both validation and docs.
+## Request And Response Rules
+- Keep create/update/delete/restore request schemas explicit; avoid untyped dict payloads
+  at route boundaries.
+- Read schemas must exclude sensitive fields. Current user reads omit the persisted
+  `password` column because it contains a hash.
+- Password input can exist on create/update request schemas, but password output must not
+  exist on read schemas.
+- Keep optional update fields optional and use service-layer `exclude_unset=True` updates
+  rather than requiring clients to resend entire records.
+- Keep response schemas aligned with the model fields the frontend actually needs.
+
+## Query Param Rules
+- Shared query-param models should only contain fields useful across multiple resources.
+- Resource-specific list params should extend `ListQueryParams`.
+- Route dependency functions may use FastAPI `Query(...)` for validation and docs, then
+  return the schema object.
+- If the route normalizes HTTP input, such as trimming search text, the schema should
+  represent the normalized value that services receive.

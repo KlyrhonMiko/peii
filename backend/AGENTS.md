@@ -1,49 +1,117 @@
 # Backend Guide
 
 ## Scope
-This file applies to everything under `backend/` unless a deeper `AGENTS.md` overrides it.
+This file applies to all of `backend/`. Directory-local guides add stricter rules for their
+own area:
 
-## Development Flow
-- Treat `backend/README.md` plus the committed config files here as the source of truth for commands and structure.
-- Run backend work from `backend/`.
-- Use `python3.14 -m venv .venv`, `./.venv/bin/pip install -r requirements.txt`, `./.venv/bin/uvicorn main:app --reload`, `env DEBUG=false ./.venv/bin/pytest -q`, `./.venv/bin/ruff check .`, `./.venv/bin/mypy .`, and `alembic upgrade head` as the normal command surface.
-- The app loads the repo-root `.env` through `core/config.py`; keep `.env.example` aligned when config keys or modes change.
-- Database selection is environment-driven through `DB_MODE`, `LOCAL_DATABASE_URL`, and `SUPABASE_DATABASE_URL`.
+- `core/AGENTS.md`
+- `models/AGENTS.md`
+- `schemas/AGENTS.md`
+- `routers/AGENTS.md`
+- `services/AGENTS.md`
+- `utils/AGENTS.md`
+- `tests/AGENTS.md`
+- `alembic/AGENTS.md`
+- `alembic/versions/AGENTS.md`
+
+Read this file first, then the guide closest to the files you are changing.
+
+## Command Surface
+- Run backend commands from `backend/` unless a command explicitly says otherwise.
+- Use the repo-local virtualenv: `python3.14 -m venv .venv` and
+  `./.venv/bin/pip install -r requirements.txt`.
+- Start the API with `./.venv/bin/uvicorn main:app --reload`.
+- Apply migrations with `alembic upgrade head`.
+- Run the backend validation gate with:
+  - `./.venv/bin/ruff check .`
+  - `./.venv/bin/mypy .`
+  - `env DEBUG=false ./.venv/bin/pytest -q`
+- The committed config is Python 3.14-oriented: `ruff.toml` targets `py314`, `mypy.ini`
+  uses `python_version = 3.14`, and the Docker image is `python:3.14-slim`.
+- The root `.pre-commit-config.yaml` runs backend Ruff, mypy, and pytest on
+  `pre-commit`; pytest also runs on `pre-push`.
+
+## Runtime Configuration
+- `core/config.py` loads the repo-root `.env` with Pydantic settings.
+- Keep `.env.example` aligned whenever backend config keys, modes, or expected formats change.
+- Database selection is environment-driven:
+  - `DB_MODE=local` uses `LOCAL_DATABASE_URL`.
+  - `DB_MODE=supabase` uses `SUPABASE_DATABASE_URL`.
+- `SQL_ECHO` controls SQLAlchemy logging; keep normal development output quiet unless
+  debugging SQL specifically.
+- `BACKEND_CORS_ORIGINS` is parsed as a list by settings. Keep examples valid for Pydantic.
 
 ## Architecture
-- `main.py` wires `FastAPI`, CORS, exception handlers, and the versioned API router.
-- Keep routers thin. Parse HTTP input in routers, keep business rules and ORM queries in `services/`, and keep shared infrastructure in `core/`.
-- Prefer explicit Pydantic schemas over ad hoc dict payloads.
-- Keep route registration centralized in `routers/api.py`.
-- There is no real authentication or authorization dependency wired yet. Do not describe route protection as implemented unless you add the full login and current-user flow.
+- `main.py` only wires the FastAPI app, CORS, exception handlers, and the versioned
+  router from `routers/api.py`.
+- Keep route registration centralized in `routers/api.py`; do not mount feature routers
+  directly from `main.py`.
+- Keep routers thin: parse HTTP input, depend on shared dependencies, call services, and
+  assemble the shared response envelope.
+- Keep ORM queries, transactions, conflict checks, business rules, soft-delete behavior,
+  and persistence transforms in `services/`.
+- Keep SQLModel table definitions and field-level persistence constraints in `models/`.
+- Keep request, response, and query-param shapes in `schemas/`.
+- Keep shared infrastructure in `core/`, and only put a helper in `utils/` when it is
+  genuinely reusable outside one resource.
+- Prefer explicit typed schemas and return models over ad hoc dictionaries at API boundaries.
 
-## API Contracts
-- Preserve the universal response envelope from `core/responses.py`: `data`, `message`, `errors`, `meta`.
-- Keep success and error payloads going through `success_response()` and `error_response()`.
-- Keep list responses on the shared shape returned by `list_meta_response()`: `meta.pagination` plus `meta.filters`.
-- `meta.pagination` is shared across list endpoints. `meta.filters` always exists structurally, but its fields are endpoint-specific.
-- Custom app failures should continue to raise `core.exceptions.AppError` so `core/handlers.py` can convert them into the shared error envelope.
-
-## Filtering And Sorting
-- Shared list params belong in `schemas/common.py` and `core/deps.py` only when they are genuinely cross-resource.
-- Keep resource-specific query parsing near the resource route, as `routers/users.py` does with `get_user_list_query_params()`.
-- Put resource-specific filter schemas in the owning schema module, for example `schemas/user.py`.
-- Map allowed `sort_by` fields explicitly per service. Never pass raw client field names directly into ORM ordering.
-- Use `utils/sorting.py:stable_order_by()` so primary sort ties fall back to `id`.
+## API Contract
+- Preserve the universal response envelope: `data`, `message`, `errors`, `meta`.
+- Successful responses should go through `core.responses.success_response()`.
+- Expected app failures should raise `core.exceptions.AppError` so `core.handlers` can
+  render the shared error envelope.
+- Validation failures and SQL integrity failures are handled globally in `core/handlers.py`;
+  do not reimplement those shapes per route.
+- List responses use `core.responses.list_meta_response()` and must include:
+  - `meta.pagination`: shared pagination fields.
+  - `meta.filters`: the endpoint-specific filters that were applied.
+- Keep `meta.filters` structurally present for list endpoints even when individual filter
+  values are `None`.
 
 ## Data And Persistence
-- The shared SQLModel base in `models/base_model.py` defines UUIDv7 ids, audit timestamps, soft-delete fields, and `performed_by`.
-- Current persistence uses SQLModel with explicit `select(...)` queries and service-level filter helpers.
-- When a model needs to be visible to SQLModel metadata or Alembic autogenerate, ensure it is imported from the live metadata wiring modules such as `core/database.py` and `alembic/env.py`.
-- Treat `include_deleted` as query behavior, not as permission enforcement.
+- The shared SQLModel base is `models/base_model.py`. It provides UUIDv7 ids,
+  `created_at`, `updated_at`, soft-delete fields, and `performed_by`.
+- Persistence currently uses explicit SQLModel `select(...)` queries and service-level
+  helper functions for filters.
+- New models must be exported from `models/__init__.py` and imported by metadata wiring
+  such as `core/database.py` and `alembic/env.py` so tests, table creation, and Alembic
+  autogenerate see them.
+- Treat `include_deleted` as query behavior. It is not authorization.
+- The current user `password` column stores an Argon2 hash, not plaintext. Request schemas
+  may accept password input, but read schemas must not expose it.
 
-## Validation
-- Backend gate from `backend/`: `./.venv/bin/ruff check .`, `./.venv/bin/mypy .`, `env DEBUG=false ./.venv/bin/pytest -q`.
-- If PATH does not expose the tools, fall back to the repo-local binaries in `backend/.venv/bin/`.
-- The root `.pre-commit-config.yaml` currently runs backend `ruff`, `mypy`, and `pytest` before a commit completes, and reruns `pytest` on `pre-push`.
-- Keep tests deterministic. The current suite uses an async `httpx` client against a localhost `uvicorn` server plus a dependency override to an in-memory SQLite engine in `tests/conftest.py`.
+## Filtering And Sorting
+- Shared list query fields live in `schemas/common.py` and `core/deps.py` only when they
+  are truly cross-resource.
+- Resource-specific query parsing stays with the resource route, as `routers/users.py`
+  does with `get_user_list_query_params()`.
+- Resource-specific filter/query schemas stay in the owning schema module.
+- Each service must map allowed `sort_by` values to ORM columns explicitly.
+- Never pass raw client field names into ORM ordering.
+- Use `utils.sorting.stable_order_by()` for sorted lists so ties fall back to `id`.
+
+## Authentication Boundary
+- User records and Argon2 password hashing exist, but full authentication is not wired.
+- Do not describe login, current-user loading, route protection, or authorization as
+  implemented unless the backend includes real route dependencies and tests for that flow.
+- When auth is added, document the dependency path and enforce it per route rather than
+  relying on comments, naming, or response messaging.
 
 ## Migrations
-- For any `models/` change, run `alembic revision --autogenerate -m "..."` first, inspect the generated diff, then make manual fixes only if needed.
-- Add new migration files. Do not rewrite old shared revisions.
-- Commit model, schema, service or router contract, and migration changes together when they are part of one backend feature.
+- For every `models/` change that alters table shape, run
+  `alembic revision --autogenerate -m "describe change"` first.
+- Review the generated diff before making manual edits. Manual edits should be narrow and
+  explainable from the model change, data backfill, or database limitation.
+- Add a new revision for new schema work. Do not rewrite older shared or applied revisions.
+- Keep model, schema, service/router contract, tests, and migration files in sync when one
+  feature touches all of them.
+
+## Testing Standards
+- Tests live under `tests/` and are discovered by `pytest.ini`.
+- The current API tests are async, marked with `pytest.mark.anyio`, and use an `httpx`
+  client against a local Uvicorn server.
+- `tests/conftest.py` overrides `get_session()` with an in-memory SQLite SQLModel engine;
+  keep this deterministic pattern unless a test specifically needs another database.
+- Cover response-envelope changes, list metadata, filtering, sorting, soft delete/restore,
+  conflict behavior, and persistence transforms such as password hashing.

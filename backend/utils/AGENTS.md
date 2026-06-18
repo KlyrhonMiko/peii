@@ -1,18 +1,37 @@
 # Utils Guide
 
 ## Purpose
-`utils/` is for small shared helpers that are not tied to one resource or one HTTP route.
+`utils/` contains small reusable helpers that are not owned by one route, one resource,
+or shared FastAPI infrastructure.
 
-## Put Here
-- Reusable helpers like password hashing or stable list ordering.
-- Pure helpers with narrow responsibilities.
+## Belongs Here
+- Pure or near-pure helpers with narrow responsibilities.
+- Reusable security primitives such as password hashing and verification.
+- Reusable query helpers that do not know about a specific model or request.
 
-## Do Not Put Here
-- Endpoint-specific filter parsing.
-- Response envelope policy that belongs in `core/`.
-- One-off helpers that are only used by a single route and make more sense near that route or service.
+## Does Not Belong Here
+- FastAPI dependencies or response-envelope policy. Those belong in `core/`.
+- Endpoint-specific query parsing. That belongs in `routers/`.
+- Resource-specific filters, conflict checks, or write workflows. Those belong in
+  `services/`.
+- Helpers that need request context, database sessions, settings branching, or model-
+  specific behavior unless they are clearly shared across resources.
 
-## Current Conventions
-- `security.py` owns password hashing helpers.
-- `sorting.py` owns stable secondary ordering using `id` as the shared tiebreaker for sorted list endpoints.
-- Keep helpers narrow and reusable. If a helper needs request context, DB access, or resource-specific branching, it probably belongs in `routers/`, `services/`, or `core/` instead.
+## Current Helpers
+- `security.py` owns Argon2 password hashing through `hash_password()` and
+  `verify_password()`.
+- `sorting.py` owns `stable_order_by()`, which applies the primary order plus `id` as a
+  deterministic tiebreaker.
+
+## Security Helper Rules
+- Keep password hashing centralized in `security.py`; do not add one-off hashing inside
+  services or routers.
+- `verify_password()` should return `False` for mismatches without leaking the underlying
+  Argon2 exception.
+- Do not add authentication/session policy here until a real auth layer exists. Reusable
+  primitives can live here; route enforcement belongs in dependencies and routers.
+
+## Sorting Helper Rules
+- Keep `stable_order_by()` generic. Services choose the allowed primary column and pass it in.
+- Do not make sorting helpers accept raw client field names.
+- Keep tie-breaking deterministic for pagination stability.

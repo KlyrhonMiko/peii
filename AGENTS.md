@@ -1,9 +1,18 @@
-# Repository Guidelines
+# Repository Guide
 
-## Project Structure & Module Organization
-This repo has two apps: `frontend/` for the Next.js 16 UI and `backend/` for the FastAPI API. Frontend routes live in `frontend/src/app`; static files live in `frontend/public`.
+## Scope
+This repo contains two applications:
 
-Frontend guidance is intentionally delegated to the deeper guides under `frontend/`. Start with `frontend/AGENTS.md`, then follow the directory-local guide for the area you are changing:
+- `frontend/`: Next.js 16, React 19, TypeScript 5, Tailwind CSS 4, and shadcn-style
+  source components backed by Base UI primitives.
+- `backend/`: FastAPI, SQLModel, Alembic, Python 3.14, Ruff, mypy, and pytest.
+
+This root guide is the entrypoint only. Frontend-local and backend-local practices live in
+the deeper guides below. Read the closest guide before editing files in that area.
+
+## Guide Hierarchy
+Start frontend work with `frontend/AGENTS.md`, then use the local guide:
+
 - `frontend/src/app/AGENTS.md`
 - `frontend/src/app/admin/AGENTS.md`
 - `frontend/src/app/researcher/AGENTS.md`
@@ -13,7 +22,8 @@ Frontend guidance is intentionally delegated to the deeper guides under `fronten
 - `frontend/src/hooks/AGENTS.md`
 - `frontend/src/lib/AGENTS.md`
 
-Backend guidance is intentionally delegated to the deeper guides under `backend/`. Start with `backend/AGENTS.md`, then follow the directory-local guide for the area you are changing:
+Start backend work with `backend/AGENTS.md`, then use the local guide:
+
 - `backend/core/AGENTS.md`
 - `backend/models/AGENTS.md`
 - `backend/schemas/AGENTS.md`
@@ -24,42 +34,101 @@ Backend guidance is intentionally delegated to the deeper guides under `backend/
 - `backend/alembic/AGENTS.md`
 - `backend/alembic/versions/AGENTS.md`
 
-Do not duplicate or invent frontend-local or backend-local practices at the repo root when a deeper guide already defines them.
+Do not duplicate detailed frontend or backend rules at the repo root when a deeper guide
+already owns them.
 
-## Build, Test, and Development Commands
-Frontend commands run from `frontend/`: `npm install`, `npm run dev`, `npm run lint`, `npm run build`, and `npm run start`. The exact frontend linting, component, routing, and build expectations live in `frontend/AGENTS.md` and its deeper guides.
+## Project Structure
+- `frontend/src/app/` contains App Router layouts, pages, route segments, and
+  `globals.css`.
+- `frontend/src/components/` contains product-level reusable UI.
+- `frontend/src/components/ui/` contains generic shadcn-style primitives.
+- `frontend/src/hooks/` and `frontend/src/lib/` contain reusable hooks and utilities.
+- `frontend/public/` contains static assets.
+- `backend/main.py` wires FastAPI, CORS, exception handlers, and the API router.
+- `backend/core/` contains settings, database wiring, shared dependencies, responses, and
+  handlers.
+- `backend/models/`, `schemas/`, `routers/`, `services/`, and `utils/` define the API
+  layers.
+- `backend/alembic/` contains migration runtime config and revision history.
+- `backend/tests/` contains deterministic pytest coverage.
+
+## Command Surface
+Frontend commands run from `frontend/`:
+
+- `npm install`
+- `npm run dev`
+- `npm run lint`
+- `npm run build`
+- `npm run start`
 
 Backend commands run from `backend/`:
-- `python3.14 -m venv .venv && ./.venv/bin/pip install -r requirements.txt` installs backend dependencies into the repo-local venv.
-- `./.venv/bin/uvicorn main:app --reload` starts the API. The backend loads the repo-root `.env`.
-- `env DEBUG=false ./.venv/bin/pytest -q`, `./.venv/bin/ruff check .`, and `./.venv/bin/mypy .` run tests, linting, and type checks.
-- `alembic upgrade head` applies schema migrations.
-- `alembic revision --autogenerate -m "add users table"` creates a new migration after model changes.
 
-Use `docker compose up --build` from the repo root when you need the full stack: frontend, backend, PostgreSQL, and Adminer.
+- `python3.14 -m venv .venv`
+- `./.venv/bin/pip install -r requirements.txt`
+- `./.venv/bin/uvicorn main:app --reload`
+- `./.venv/bin/ruff check .`
+- `./.venv/bin/mypy .`
+- `env DEBUG=false ./.venv/bin/pytest -q`
+- `alembic upgrade head`
+- `alembic revision --autogenerate -m "describe change"`
 
-## Coding Style & Naming Conventions
-Follow the current Python style in `backend/`: 100-character lines, double quotes where the formatter chooses them, and import ordering that satisfies Ruff. Use `PascalCase` for React components and SQLModel classes, `snake_case` for Python modules, and `test_*.py` for deterministic pytest files.
+Use `docker compose up --build` from the repo root when you need the full stack:
+frontend, backend, PostgreSQL, and Adminer.
 
-For frontend architecture, route boundaries, component layering, hook patterns, strict TypeScript expectations, and lint/build conventions, defer to the deeper `frontend/**/AGENTS.md` files instead of restating those rules here.
+## Validation
+Before committing frontend work, run from `frontend/`:
 
-For backend architecture, response contracts, filtering, sorting, service patterns, test conventions, and migration handling, defer to the deeper `backend/**/AGENTS.md` files instead of restating those rules here.
+- `npm run lint`
+- `npm run build`
 
-## Testing, Linting, and Pre-Commit Practice
-Before committing backend work, run `./.venv/bin/ruff check .`, `./.venv/bin/mypy .`, and `env DEBUG=false ./.venv/bin/pytest -q` from `backend/`; for frontend work, run `npm run lint` and `npm run build` from `frontend/`.
+Before committing backend work, run from `backend/`:
 
-This repo now commits a shared pre-commit configuration at `.pre-commit-config.yaml`. The current hook strategy is:
-- `pre-commit`: backend `ruff`, backend `mypy`, backend `pytest`, frontend `lint`, frontend `build`
-- `pre-push`: backend `pytest`, frontend `build`
+- `./.venv/bin/ruff check .`
+- `./.venv/bin/mypy .`
+- `env DEBUG=false ./.venv/bin/pytest -q`
 
-This is intentionally strict. Expect `git commit` to run the full backend test suite and the frontend production build before a commit is created.
+The root `.pre-commit-config.yaml` is intentionally strict:
 
-## Migration & Configuration Practices
-Load runtime settings from the repo-root `.env`; update `.env.example` whenever config keys change.
+- `pre-commit`: backend Ruff, backend mypy, backend pytest, frontend lint,
+  frontend build.
+- `pre-push`: backend pytest, frontend build.
 
-For any `backend/models/` change, the migration flow is mandatory: run `alembic revision --autogenerate -m "..."` first, review the generated diff, then make manual fixes only if needed. Do not hand-write a fresh migration before autogenerate, and do not rewrite shared migration files; add a new revision instead.
+Expect `git commit` to run the backend test suite and the frontend production build.
 
-Backend model, schema, service, router, and migration changes should stay in sync. The exact directory-level expectations live in the deeper backend guides.
+## Frontend Standards
+- Defer detailed frontend rules to `frontend/AGENTS.md` and its nested guides.
+- Preserve strict TypeScript and type-aware ESLint settings.
+- Prefer server components by default; use `"use client"` only when client behavior is
+  required.
+- Prefer existing `src/components/ui/` primitives, semantic tokens, and `cn()` before
+  custom markup.
+- Keep Recharts and other client-only libraries behind focused client components.
+- Do not assume route protection or auth exists just because an admin page exists.
 
-## Commit & Pull Request Guidelines
-History is still minimal, so use short imperative commits such as `Add user service pagination` or `Create health endpoint tests`. PRs should describe scope, note env or migration changes, include screenshots for UI updates, and list the validation you ran.
+## Backend Standards
+- Defer detailed backend rules to `backend/AGENTS.md` and its nested guides.
+- Keep routers thin, services responsible for business logic and ORM queries, schemas for
+  API contracts, and models for persistence shape.
+- Preserve the shared response envelope: `data`, `message`, `errors`, and `meta`.
+- The current user `password` column stores an Argon2 hash; read schemas must not expose
+  password data.
+- Do not describe login, current-user loading, authorization, or route protection as
+  implemented unless real dependencies and tests exist.
+
+## Migration And Configuration Practices
+- Runtime settings load from the repo-root `.env`.
+- Update `.env.example` whenever config keys, modes, or expected formats change.
+- For every backend model change that alters table shape, the migration flow is mandatory:
+  run `alembic revision --autogenerate -m "..."` first, review the generated diff, then
+  make narrow manual fixes only if needed.
+- Add new Alembic revisions for new schema work. Do not rewrite older shared or applied
+  revisions.
+- Keep backend model, schema, service/router behavior, tests, and migrations aligned in
+  the same feature change.
+
+## Commit And Pull Request Guidelines
+Use short imperative commits, such as `Add user service pagination` or
+`Create health endpoint tests`.
+
+PRs should describe scope, note env or migration changes, include screenshots for UI
+updates, and list the validation commands that ran.
