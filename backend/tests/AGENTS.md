@@ -1,18 +1,50 @@
 # Tests Guide
 
 ## Purpose
-`tests/` holds deterministic backend tests.
+`tests/` holds deterministic backend tests that are safe for normal pytest discovery and
+for the repo's pre-commit/pre-push hooks.
 
-## Rules
-- Keep tests focused on stable backend behavior, not manual smoke scripts.
-- `test_*.py` should remain deterministic and safe for normal pytest discovery.
-- Cover response contract changes whenever you change `APIResponse`, list meta shape, filtering behavior, or sort behavior.
-- Prefer API-level tests through the shared async `httpx` client fixture in `conftest.py` unless a lower-level unit test is the clearest way to lock down behavior.
+## Command
+- Run from `backend/`: `env DEBUG=false ./.venv/bin/pytest -q`.
+- Keep tests compatible with `pytest.ini`, which discovers `tests/`.
+- Use repo-local tools from `./.venv/bin/` in docs and scripts.
+
+## Current Test Harness
+- Tests are async and use `pytest.mark.anyio`.
+- `conftest.py` starts a local Uvicorn server on an ephemeral localhost port.
+- The shared `client` fixture uses `httpx.AsyncClient` against the running app.
+- `conftest.py` overrides `core.database.get_session()` with an in-memory SQLite
+  SQLModel engine using `StaticPool`.
+- `SQLModel.metadata.create_all(engine)` is used for test tables, so new models must be
+  registered in metadata imports before tests can see them.
+- Dependency overrides are cleared after each client fixture.
+
+## Test Rules
+- Prefer API-level tests through the shared `client` fixture for route behavior, response
+  envelopes, filtering, sorting, and persistence workflows.
+- Use lower-level service or utility tests only when they isolate behavior more clearly
+  than an API test.
+- Keep tests deterministic. Do not depend on an external Postgres, Supabase project,
+  network service, clock-sensitive sleeps, or test order.
+- Use unique emails, usernames, or ids inside tests to avoid accidental cross-test coupling.
+- Keep manual smoke scripts out of `tests/`; pytest files should be automated assertions.
 
 ## What To Assert
-- Universal envelope fields: `data`, `message`, `errors`, `meta`.
-- For list endpoints, assert `meta.pagination` and `meta.filters`.
-- When sorting logic changes, add tie-case coverage so stable ordering is proven, not assumed.
-- When persistence transforms happen, assert the stored result too. Current user tests verify Argon2 hashing by opening the overridden test session and reading the row back.
-- Keep the in-memory SQLite override pattern in `conftest.py` unless a test truly needs another database behavior.
-- Keep tests compatible with the repo hook strategy: `env DEBUG=false ./.venv/bin/pytest -q` runs during both `pre-commit` and `pre-push`.
+- For every API response contract change, assert the universal envelope fields:
+  `data`, `message`, `errors`, and `meta`.
+- For list endpoints, assert both `meta.pagination` and `meta.filters`.
+- For filters, assert both returned rows and metadata echo.
+- For sorting changes, include tie-case coverage proving the stable `id` tiebreaker.
+- For soft delete and restore, assert default hiding, `include_deleted`, state fields,
+  and restored visibility.
+- For expected domain failures, assert the status code and shared error shape.
+- For persistence transforms, assert the stored value when it matters. Current user tests
+  read the row through the overridden session to verify Argon2 hashing.
+
+## Fixture Rules
+- Keep the in-memory SQLite override unless the behavior being tested specifically depends
+  on another database.
+- If a test needs direct DB inspection, use the same overridden `get_session()` dependency
+  rather than creating an unrelated engine.
+- Keep server startup and teardown in `conftest.py`; individual tests should not start
+  their own app server.
