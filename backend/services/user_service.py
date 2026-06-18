@@ -1,5 +1,3 @@
-from uuid import UUID
-
 from fastapi import status
 from sqlalchemy import func, or_
 from sqlmodel import Session, col, select
@@ -62,8 +60,8 @@ def list_users(session: Session, params: UserListQueryParams) -> tuple[list[User
     return users, total
 
 
-def get_user_by_id(session: Session, user_id: UUID, include_deleted: bool = False) -> User:
-    user = session.get(User, user_id)
+def get_user(session: Session, user_id: str, include_deleted: bool = False) -> User:
+    user = session.exec(select(User).where(col(User.user_id) == user_id)).first()
     if not user or (user.is_deleted and not include_deleted):
         raise AppError("User not found.", status_code=status.HTTP_404_NOT_FOUND)
     return user
@@ -93,6 +91,46 @@ def _raise_username_conflict(existing_user: User) -> None:
     )
 
 
+def batch_create_users(session: Session, payloads: list[UserCreate]) -> list[User]:
+    emails = [p.email for p in payloads]
+    usernames = [p.username for p in payloads]
+
+    if len(emails) != len(set(emails)):
+        raise AppError("Duplicate email in batch.", status_code=status.HTTP_400_BAD_REQUEST)
+    if len(usernames) != len(set(usernames)):
+        raise AppError("Duplicate username in batch.", status_code=status.HTTP_400_BAD_REQUEST)
+
+    existing_emails = session.exec(
+        select(User.email).where(col(User.email).in_(emails))
+    ).all()
+    if existing_emails:
+        raise AppError(
+            "Some emails already exist.", status_code=status.HTTP_400_BAD_REQUEST
+        )
+
+    existing_usernames = session.exec(
+        select(User.username).where(col(User.username).in_(usernames))
+    ).all()
+    if existing_usernames:
+        raise AppError(
+            "Some usernames already exist.", status_code=status.HTTP_400_BAD_REQUEST
+        )
+
+    users = []
+    for payload in payloads:
+        user_data = payload.model_dump(exclude={"password"})
+        user_data["password"] = hash_password(payload.password)
+        user_data["user_id"] = generate_business_id("USER")
+        user = User.model_validate(user_data)
+        session.add(user)
+        users.append(user)
+
+    session.commit()
+    for user in users:
+        session.refresh(user)
+    return users
+
+
 def create_user(session: Session, payload: UserCreate) -> User:
     existing_user = session.exec(select(User).where(col(User.email) == payload.email)).first()
     if existing_user:
@@ -114,8 +152,8 @@ def create_user(session: Session, payload: UserCreate) -> User:
     return user
 
 
-def update_user(session: Session, user_id: UUID, payload: UserUpdate) -> User:
-    user = get_user_by_id(session, user_id)
+def update_user(session: Session, user_id: str, payload: UserUpdate) -> User:
+    user = get_user(session, user_id)
     updates = payload.model_dump(exclude_unset=True)
 
     if "email" in updates and updates["email"] != user.email:
@@ -142,8 +180,8 @@ def update_user(session: Session, user_id: UUID, payload: UserUpdate) -> User:
     return user
 
 
-def soft_delete_user(session: Session, user_id: UUID, payload: UserDelete) -> User:
-    user = get_user_by_id(session, user_id)
+def soft_delete_user(session: Session, user_id: str, payload: UserDelete) -> User:
+    user = get_user(session, user_id)
     user.is_deleted = True
     user.deleted_at = utc_now()
     user.performed_by = payload.performed_by
@@ -154,8 +192,8 @@ def soft_delete_user(session: Session, user_id: UUID, payload: UserDelete) -> Us
     return user
 
 
-def restore_user(session: Session, user_id: UUID, payload: UserRestore) -> User:
-    user = get_user_by_id(session, user_id, include_deleted=True)
+def restore_user(session: Session, user_id: str, payload: UserRestore) -> User:
+    user = get_user(session, user_id, include_deleted=True)
     if not user.is_deleted:
         raise AppError("User is not deleted.", status_code=status.HTTP_400_BAD_REQUEST)
 

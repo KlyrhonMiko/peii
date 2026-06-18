@@ -1,5 +1,4 @@
 from typing import Annotated, Literal
-from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, status
 
@@ -7,6 +6,7 @@ from core.deps import DBSession
 from core.responses import list_meta_response, success_response
 from schemas.common import APIResponse
 from schemas.user import (
+    UserBatchCreate,
     UserCreate,
     UserDelete,
     UserListQueryParams,
@@ -65,6 +65,20 @@ def list_users(
     )
 
 
+@router.post(
+    "/batch",
+    response_model=APIResponse[list[UserRead]],
+    status_code=status.HTTP_201_CREATED,
+)
+def batch_create_users(
+    payload: UserBatchCreate, session: DBSession
+) -> APIResponse[list[UserRead]]:
+    users = user_service.batch_create_users(session, payload.users)
+    return success_response(
+        [UserRead.model_validate(u) for u in users], message="Users created."
+    )
+
+
 @router.post("/", response_model=APIResponse[UserRead], status_code=status.HTTP_201_CREATED)
 def create_user(payload: UserCreate, session: DBSession) -> APIResponse[UserRead]:
     user = user_service.create_user(session, payload)
@@ -72,14 +86,14 @@ def create_user(payload: UserCreate, session: DBSession) -> APIResponse[UserRead
 
 
 @router.get("/{user_id}", response_model=APIResponse[UserRead])
-def get_user(user_id: UUID, session: DBSession) -> APIResponse[UserRead]:
-    user = user_service.get_user_by_id(session, user_id)
+def get_user(user_id: str, session: DBSession) -> APIResponse[UserRead]:
+    user = user_service.get_user(session, user_id)
     return success_response(UserRead.model_validate(user))
 
 
 @router.patch("/{user_id}", response_model=APIResponse[UserRead])
 def update_user(
-    user_id: UUID,
+    user_id: str,
     payload: UserUpdate,
     session: DBSession,
 ) -> APIResponse[UserRead]:
@@ -89,7 +103,7 @@ def update_user(
 
 @router.delete("/{user_id}", response_model=APIResponse[UserRead])
 def delete_user(
-    user_id: UUID,
+    user_id: str,
     payload: UserDelete,
     session: DBSession,
 ) -> APIResponse[UserRead]:
@@ -99,7 +113,7 @@ def delete_user(
 
 @router.post("/{user_id}/restore", response_model=APIResponse[UserRead])
 def restore_user(
-    user_id: UUID,
+    user_id: str,
     payload: UserRestore,
     session: DBSession,
 ) -> APIResponse[UserRead]:

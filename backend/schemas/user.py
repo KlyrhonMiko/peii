@@ -27,6 +27,10 @@ class UserCreate(UserBase):
     performed_by: UUID | None = None
 
 
+class UserBatchCreate(BaseModel):
+    users: list[UserCreate]
+
+
 class UserUpdate(UserBaseSchema):
     email: EmailStr | None = None
     username: str | None = None
@@ -41,7 +45,6 @@ class UserUpdate(UserBaseSchema):
 
 
 class UserRead(UserBase):
-    id: UUID
     user_id: str
     created_at: datetime
     updated_at: datetime
