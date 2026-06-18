@@ -16,6 +16,8 @@ database change log, not as scratch files.
 ## Safe Change Patterns
 - For new non-null fields on existing tables, use a safe transition: add nullable or with
   a temporary default, backfill, then enforce non-null/constraints.
+- For new human-readable business id fields, backfill existing rows with unique prefixed
+  values before enforcing non-null and unique index constraints.
 - For persisted renames after a migration has already been applied, add a follow-up
   rename revision instead of editing the older file.
 - For unique fields, think through existing rows before creating the unique index.

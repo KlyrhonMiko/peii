@@ -24,7 +24,9 @@ def get_user_list_query_params(
     offset: int = Query(default=0, ge=0),
     sort_order: Literal["asc", "desc"] = Query(default="desc"),
     include_deleted: bool = Query(default=False),
-    sort_by: Literal["created_at", "email", "username", "last_name"] = Query(default="created_at"),
+    sort_by: Literal["created_at", "user_id", "email", "username", "last_name"] = Query(
+        default="created_at"
+    ),
     role: str | None = Query(default=None),
     is_active: bool | None = Query(default=None),
     search: str | None = Query(default=None, min_length=1),

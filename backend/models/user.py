@@ -6,6 +6,7 @@ from models.base_model import BaseModel
 class User(BaseModel, table=True):
     __tablename__ = "users"
 
+    user_id: str = Field(unique=True, index=True, max_length=20)
     email: str = Field(index=True, unique=True, max_length=255)
     username: str = Field(index=True, unique=True, max_length=100)
     password: str = Field(max_length=255)

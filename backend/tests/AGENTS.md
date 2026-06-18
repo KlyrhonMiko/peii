@@ -32,6 +32,9 @@ for the repo's pre-commit/pre-push hooks.
 ## What To Assert
 - For every API response contract change, assert the universal envelope fields:
   `data`, `message`, `errors`, and `meta`.
+- For generated business ids, assert that create responses expose the expected prefixed
+  shape, client payloads do not control the value, and list search/sort behavior includes
+  the field when the endpoint supports it.
 - For list endpoints, assert both `meta.pagination` and `meta.filters`.
 - For filters, assert both returned rows and metadata echo.
 - For sorting changes, include tie-case coverage proving the stable `id` tiebreaker.
