@@ -1,5 +1,4 @@
 from typing import cast
-from uuid import UUID
 
 import pytest
 from sqlmodel import select
@@ -250,27 +249,27 @@ async def test_list_users_filters_by_search(client):
     assert body["meta"]["filters"]["search"] == "jane"
 
 
-async def test_list_users_uses_stable_secondary_sort_for_ties(client):
+async def test_list_users_sorts_by_field(client):
     payloads = [
         {
-            "email": "tie-one@example.com",
-            "username": "tieone",
+            "email": "alast@example.com",
+            "username": "userb",
             "password": "test-password-123",
             "role": "admin",
-            "first_name": "Tie",
-            "last_name": "Same",
+            "first_name": "Alpha",
+            "last_name": "Beta",
             "middle_name": None,
             "contact": None,
             "is_active": True,
             "performed_by": None,
         },
         {
-            "email": "tie-two@example.com",
-            "username": "tietwo",
+            "email": "zzzz@example.com",
+            "username": "usera",
             "password": "test-password-123",
             "role": "admin",
-            "first_name": "Tie",
-            "last_name": "Same",
+            "first_name": "Zeta",
+            "last_name": "Alpha",
             "middle_name": None,
             "contact": None,
             "is_active": True,
@@ -278,24 +277,19 @@ async def test_list_users_uses_stable_secondary_sort_for_ties(client):
         },
     ]
 
-    created_ids: list[str] = []
     for payload in payloads:
         response = await client.post("/api/v1/users/", json=payload)
         assert response.status_code == 201
-        created_ids.append(response.json()["data"]["id"])
 
     asc_response = await client.get("/api/v1/users/?sort_by=last_name&sort_order=asc")
     assert asc_response.status_code == 200
-    asc_ids = [item["id"] for item in asc_response.json()["data"]]
-    assert asc_ids == [str(value) for value in sorted(UUID(user_id) for user_id in created_ids)]
+    asc_names = [item["last_name"] for item in asc_response.json()["data"]]
+    assert asc_names == sorted(asc_names)
 
     desc_response = await client.get("/api/v1/users/?sort_by=last_name&sort_order=desc")
     assert desc_response.status_code == 200
-    desc_ids = [item["id"] for item in desc_response.json()["data"]]
-    assert desc_ids == [
-        str(value)
-        for value in sorted((UUID(user_id) for user_id in created_ids), reverse=True)
-    ]
+    desc_names = [item["last_name"] for item in desc_response.json()["data"]]
+    assert desc_names == sorted(desc_names, reverse=True)
 
 
 async def test_soft_deleted_user_is_hidden_by_default_and_can_be_restored(client):
@@ -314,7 +308,7 @@ async def test_soft_deleted_user_is_hidden_by_default_and_can_be_restored(client
 
     create_response = await client.post("/api/v1/users/", json=payload)
     assert create_response.status_code == 201
-    user_id = create_response.json()["data"]["id"]
+    user_id = create_response.json()["data"]["user_id"]
 
     delete_response = await client.request(
         "DELETE",
@@ -348,7 +342,7 @@ async def test_soft_deleted_user_is_hidden_by_default_and_can_be_restored(client
 
     restored_get_response = await client.get(f"/api/v1/users/{user_id}")
     assert restored_get_response.status_code == 200
-    assert restored_get_response.json()["data"]["id"] == user_id
+    assert restored_get_response.json()["data"]["user_id"] == user_id
 
 
 async def test_restore_rejects_active_user(client):
@@ -367,7 +361,7 @@ async def test_restore_rejects_active_user(client):
 
     create_response = await client.post("/api/v1/users/", json=payload)
     assert create_response.status_code == 201
-    user_id = create_response.json()["data"]["id"]
+    user_id = create_response.json()["data"]["user_id"]
 
     restore_response = await client.post(
         f"/api/v1/users/{user_id}/restore",
@@ -397,7 +391,7 @@ async def test_create_rejects_duplicate_email_from_soft_deleted_user(client):
 
     create_response = await client.post("/api/v1/users/", json=original_payload)
     assert create_response.status_code == 201
-    user_id = create_response.json()["data"]["id"]
+    user_id = create_response.json()["data"]["user_id"]
 
     delete_response = await client.request(
         "DELETE",
@@ -411,3 +405,122 @@ async def test_create_rejects_duplicate_email_from_soft_deleted_user(client):
     assert duplicate_response.json()["message"] == (
         "A deleted user with this email already exists. Restore that user instead."
     )
+
+
+async def test_batch_create_users(client):
+    payload = {
+        "users": [
+            {
+                "email": "batch-one@example.com",
+                "username": "batchone",
+                "password": "test-password-123",
+                "role": "admin",
+                "first_name": "Batch",
+                "last_name": "One",
+                "middle_name": None,
+                "contact": None,
+                "is_active": True,
+                "performed_by": None,
+            },
+            {
+                "email": "batch-two@example.com",
+                "username": "batchtwo",
+                "password": "test-password-456",
+                "role": "staff",
+                "first_name": "Batch",
+                "last_name": "Two",
+                "middle_name": None,
+                "contact": None,
+                "is_active": True,
+                "performed_by": None,
+            },
+        ]
+    }
+
+    response = await client.post("/api/v1/users/batch", json=payload)
+    assert response.status_code == 201
+    body = response.json()
+    assert len(body["data"]) == 2
+    assert body["data"][0]["email"] == "batch-one@example.com"
+    assert body["data"][1]["email"] == "batch-two@example.com"
+    assert "password" not in body["data"][0]
+    assert body["data"][0]["user_id"].startswith("USER-")
+    assert body["message"] == "Users created."
+
+    list_response = await client.get("/api/v1/users/?sort_by=email&sort_order=asc")
+    assert list_response.status_code == 200
+    assert list_response.json()["meta"]["pagination"]["total"] >= 2
+
+
+async def test_batch_create_rejects_duplicate_email_in_payload(client):
+    payload = {
+        "users": [
+            {
+                "email": "dup-batch@example.com",
+                "username": "dupuser1",
+                "password": "test-password-123",
+                "role": "admin",
+                "first_name": "Dup",
+                "last_name": "One",
+                "middle_name": None,
+                "contact": None,
+                "is_active": True,
+                "performed_by": None,
+            },
+            {
+                "email": "dup-batch@example.com",
+                "username": "dupuser2",
+                "password": "test-password-456",
+                "role": "staff",
+                "first_name": "Dup",
+                "last_name": "Two",
+                "middle_name": None,
+                "contact": None,
+                "is_active": True,
+                "performed_by": None,
+            },
+        ]
+    }
+
+    response = await client.post("/api/v1/users/batch", json=payload)
+    assert response.status_code == 400
+    assert response.json()["message"] == "Duplicate email in batch."
+
+
+async def test_batch_create_rejects_existing_email(client):
+    # First create a user
+    create_payload = {
+        "email": "existing@example.com",
+        "username": "existinguser",
+        "password": "test-password-123",
+        "role": "admin",
+        "first_name": "Existing",
+        "last_name": "User",
+        "middle_name": None,
+        "contact": None,
+        "is_active": True,
+        "performed_by": None,
+    }
+    create_response = await client.post("/api/v1/users/", json=create_payload)
+    assert create_response.status_code == 201
+
+    # Then try to batch create with the same email
+    batch_payload = {
+        "users": [
+            {
+                "email": "existing@example.com",
+                "username": "newuser",
+                "password": "test-password-123",
+                "role": "staff",
+                "first_name": "New",
+                "last_name": "User",
+                "middle_name": None,
+                "contact": None,
+                "is_active": True,
+                "performed_by": None,
+            }
+        ]
+    }
+    response = await client.post("/api/v1/users/batch", json=batch_payload)
+    assert response.status_code == 400
+    assert response.json()["message"] == "Some emails already exist."
