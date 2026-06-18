@@ -42,6 +42,7 @@ class UserUpdate(UserBaseSchema):
 
 class UserRead(UserBase):
     id: UUID
+    user_id: str
     created_at: datetime
     updated_at: datetime
     is_deleted: bool
@@ -61,4 +62,6 @@ class UserListQueryParams(ListQueryParams):
     role: str | None = None
     is_active: bool | None = None
     search: str | None = None
-    sort_by: Literal["created_at", "email", "username", "last_name"] = "created_at"
+    sort_by: Literal["created_at", "user_id", "email", "username", "last_name"] = (
+        "created_at"
+    )

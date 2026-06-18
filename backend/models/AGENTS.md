@@ -16,6 +16,10 @@ database shape; they should not know about HTTP requests.
 - Keep models focused on persisted columns and field-level database constraints.
 - Use `Field(...)` for max lengths, indexes, uniqueness, nullability, and defaults that
   are part of the database contract.
+- Every new table should include a human-readable business id column for UI display and
+  support workflows. Keep the UUID `id` inherited from `BaseModel` as the primary key.
+- Name resource business id fields explicitly, for example `user_id`, `survey_id`, or
+  `response_id`, and make them unique and indexed.
 - Keep request parsing, query-param defaults, filter behavior, and sort allow-lists out
   of model classes.
 - Keep business rules and commits in services, not model methods.
@@ -30,6 +34,8 @@ database shape; they should not know about HTTP requests.
   tests and Alembic autogenerate see the table.
 - If a field is added, renamed, retyped, made nullable/non-nullable, indexed, or removed,
   treat it as a migration-triggering model change.
+- For new tables, choose the business id prefix while adding the model so service,
+  schema, tests, and migration code use one consistent convention.
 - Keep model constraints aligned with schema validation and service conflict checks.
 
 ## Migration Discipline

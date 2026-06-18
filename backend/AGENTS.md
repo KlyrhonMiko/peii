@@ -72,6 +72,9 @@ Read this file first, then the guide closest to the files you are changing.
 ## Data And Persistence
 - The shared SQLModel base is `models/base_model.py`. It provides UUIDv7 ids,
   `created_at`, `updated_at`, soft-delete fields, and `performed_by`.
+- Every new table should also have a human-readable, UI-facing business id generated
+  through `utils.identifiers.generate_business_id()`. Keep the UUID `id` as the internal
+  primary key; the business id is for display, search, sorting, and user-facing references.
 - Persistence currently uses explicit SQLModel `select(...)` queries and service-level
   helper functions for filters.
 - New models must be exported from `models/__init__.py` and imported by metadata wiring
@@ -80,6 +83,21 @@ Read this file first, then the guide closest to the files you are changing.
 - Treat `include_deleted` as query behavior. It is not authorization.
 - The current user `password` column stores an Argon2 hash, not plaintext. Request schemas
   may accept password input, but read schemas must not expose it.
+
+## Human-Readable Business IDs
+- Use `utils.identifiers.generate_business_id(prefix)` for UI-facing ids.
+- Name the persisted field after the resource, for example `user_id`, not `business_id`,
+  when that is the clearest API contract for the table.
+- Business id columns should be unique, indexed, non-null after migration backfill, and
+  long enough for the configured prefix plus random suffix.
+- Generate business ids in services during create flows. Do not accept them from create or
+  update request payloads unless a feature explicitly requires an imported external id.
+- Expose business ids from read schemas when the frontend needs a stable human-readable
+  reference.
+- Include business ids in list search and `sort_by` allow-lists when the UI displays or
+  filters by them.
+- Do not use business ids as a substitute for authorization or as proof that a record is
+  safe to access.
 
 ## Filtering And Sorting
 - Shared list query fields live in `schemas/common.py` and `core/deps.py` only when they
@@ -103,6 +121,9 @@ Read this file first, then the guide closest to the files you are changing.
   `alembic revision --autogenerate -m "describe change"` first.
 - Review the generated diff before making manual edits. Manual edits should be narrow and
   explainable from the model change, data backfill, or database limitation.
+- When adding a required business id to an existing table, use a safe migration sequence:
+  add nullable, backfill existing rows with unique prefixed values, alter to non-null, then
+  add the unique index.
 - Add a new revision for new schema work. Do not rewrite older shared or applied revisions.
 - Keep model, schema, service/router contract, tests, and migration files in sync when one
   feature touches all of them.
@@ -115,3 +136,6 @@ Read this file first, then the guide closest to the files you are changing.
   keep this deterministic pattern unless a test specifically needs another database.
 - Cover response-envelope changes, list metadata, filtering, sorting, soft delete/restore,
   conflict behavior, and persistence transforms such as password hashing.
+- When adding a business id to a resource, cover creation, read-schema exposure, prefix
+  shape, search/sort behavior when applicable, and the fact that create/update payloads do
+  not control the generated value.

@@ -26,6 +26,9 @@ parsing, status codes, response models, and response assembly.
 ## List Endpoint Rules
 - Parse query params with FastAPI `Query(...)` so validation and OpenAPI docs stay useful.
 - Return a typed query-param schema object to the service.
+- Keep route-level `sort_by` literals aligned with the resource schema and service
+  allow-list. Include the resource business id when the UI exposes it for list search or
+  sorting.
 - Normalize small HTTP-facing values here when appropriate, such as trimming search text.
 - Do not compute total counts in routers. Services should return rows plus filtered total.
 - Build list metadata with `list_meta_response()` using the same query-param schema passed

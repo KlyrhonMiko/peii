@@ -8,6 +8,7 @@ from core.exceptions import AppError
 from models.user import User
 from schemas.user import UserCreate, UserDelete, UserListQueryParams, UserRestore, UserUpdate
 from services.base_service import apply_updates, utc_now
+from utils.identifiers import generate_business_id
 from utils.security import hash_password
 from utils.sorting import stable_order_by
 
@@ -24,6 +25,7 @@ def _apply_user_list_filters(statement, params: UserListQueryParams):
         search_term = f"%{params.search}%"
         statement = statement.where(
             or_(
+                col(User.user_id).ilike(search_term),
                 col(User.email).ilike(search_term),
                 col(User.username).ilike(search_term),
                 col(User.first_name).ilike(search_term),
@@ -43,6 +45,7 @@ def list_users(session: Session, params: UserListQueryParams) -> tuple[list[User
 
     sort_columns = {
         "created_at": User.created_at,
+        "user_id": User.user_id,
         "email": User.email,
         "username": User.username,
         "last_name": User.last_name,
@@ -103,6 +106,7 @@ def create_user(session: Session, payload: UserCreate) -> User:
 
     user_data = payload.model_dump(exclude={"password"})
     user_data["password"] = hash_password(payload.password)
+    user_data["user_id"] = generate_business_id("USER")
     user = User.model_validate(user_data)
     session.add(user)
     session.commit()
