@@ -1,15 +1,13 @@
 import { AppSidebar } from "@/components/app-sidebar"
-import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar"
+import { SidebarProvider } from "@/components/ui/sidebar"
+import { NavBar } from "@/components/nav-bar"
 
 export default function UsersPage() {
   return (
     <SidebarProvider>
       <AppSidebar />
       <main className="flex-1 overflow-auto bg-gray-50 min-h-screen">
-        <div className="p-4 bg-white border-b flex items-center">
-          <SidebarTrigger />
-          <h1 className="ml-4 font-semibold text-lg text-foreground">Admin Portal</h1>
-        </div>
+        <NavBar title="Admin Portal" />
         <div className="p-6 space-y-6">
           <div>
             <h2 className="text-2xl font-bold tracking-tight">User Management</h2>

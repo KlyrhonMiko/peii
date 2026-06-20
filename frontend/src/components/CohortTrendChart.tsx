@@ -27,11 +27,11 @@ const data = [
 
 export function CohortTrendChart() {
   return (
-    <div className="h-full min-h-[320px] w-full min-w-0 relative">
+    <div className="h-full w-full min-w-0 relative">
       <ResponsiveContainer width="100%" height="100%">
         <LineChart
           data={data}
-          margin={{ top: 8, right: 16, left: -10, bottom: 4 }}
+          margin={{ top: 8, right: 16, left: -10, bottom: 20 }}
         >
           <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
           <XAxis
