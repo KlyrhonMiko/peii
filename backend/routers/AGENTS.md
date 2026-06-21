@@ -43,6 +43,12 @@ parsing, status codes, response models, and response assembly.
   field visibility.
 - Keep route messages stable when tests assert them.
 
+## Async & Request ID Handlers
+- All new and existing route handlers must be declared as `async def`.
+- Always inject `core.deps.AsyncDBSession` (instead of the synchronous `DBSession`) for database operations.
+- Pass the FastAPI `Request` object to services to extract client-facing details (like `request.client.host` for the `ip_address` field in audit logging).
+- Annotate every endpoint route decorator with explicit `summary` and `description` fields to ensure Swagger UI is properly populated.
+
 ## Auth Boundary
 - No route-level authentication or authorization dependency is currently wired.
 - Do not imply an endpoint is protected unless the route depends on a real auth/current-user

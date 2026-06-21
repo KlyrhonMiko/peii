@@ -6,7 +6,7 @@ from uuid6 import uuid7
 
 
 def utc_now() -> datetime:
-    return datetime.now(UTC)
+    return datetime.now(UTC).replace(tzinfo=None)
 
 
 class TimestampedUUIDModel(SQLModel):

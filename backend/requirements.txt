@@ -3,6 +3,8 @@ alembic==1.18.4
 annotated-doc==0.0.4
 annotated-types==0.7.0
 anyio==4.12.1
+asyncpg==0.30.0
+aiosqlite==0.20.0
 click==8.3.1
 dnspython==2.8.0
 email-validator==2.3.0
@@ -32,3 +34,5 @@ typing_extensions==4.15.0
 uuid6==2025.0.1
 uvicorn==0.41.0
 websockets==15.0.1
+structlog==25.1.0
+

@@ -23,6 +23,23 @@ class UserBase(UserBaseSchema):
 
 
 class UserCreate(UserBase):
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "email": "jane.doe@example.com",
+                "username": "janedoe",
+                "password": "securepassword123",
+                "role": "staff",
+                "first_name": "Jane",
+                "last_name": "Doe",
+                "middle_name": "Marie",
+                "contact": "+1234567890",
+                "is_active": True,
+                "performed_by": "018f4a1a-7b3b-7d0e-913a-c5f1c5c1c5c2",
+            }
+        }
+    )
+
     password: str
     performed_by: UUID | None = None
 
@@ -32,6 +49,16 @@ class UserBatchCreate(BaseModel):
 
 
 class UserUpdate(UserBaseSchema):
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "first_name": "Janet",
+                "contact": "+1987654321",
+                "performed_by": "018f4a1a-7b3b-7d0e-913a-c5f1c5c1c5c2",
+            }
+        }
+    )
+
     email: EmailStr | None = None
     username: str | None = None
     password: str | None = None
@@ -45,6 +72,28 @@ class UserUpdate(UserBaseSchema):
 
 
 class UserRead(UserBase):
+    model_config = ConfigDict(
+        from_attributes=True,
+        json_schema_extra={
+            "example": {
+                "email": "jane.doe@example.com",
+                "username": "janedoe",
+                "role": "staff",
+                "first_name": "Jane",
+                "last_name": "Doe",
+                "middle_name": "Marie",
+                "contact": "+1234567890",
+                "is_active": True,
+                "user_id": "USER-123456",
+                "created_at": "2026-06-21T12:00:00Z",
+                "updated_at": "2026-06-21T12:30:00Z",
+                "is_deleted": False,
+                "deleted_at": None,
+                "performed_by": "018f4a1a-7b3b-7d0e-913a-c5f1c5c1c5c2",
+            }
+        },
+    )
+
     user_id: str
     created_at: datetime
     updated_at: datetime

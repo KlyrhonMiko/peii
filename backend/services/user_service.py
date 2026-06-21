@@ -1,10 +1,12 @@
 from fastapi import status
 from sqlalchemy import func, or_
-from sqlmodel import Session, col, select
+from sqlmodel import col, select
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from core.exceptions import AppError
 from models.user import User
 from schemas.user import UserCreate, UserDelete, UserListQueryParams, UserRestore, UserUpdate
+from services.audit_service import record_audit
 from services.base_service import apply_updates, utc_now
 from utils.identifiers import generate_business_id
 from utils.security import hash_password
@@ -34,12 +36,13 @@ def _apply_user_list_filters(statement, params: UserListQueryParams):
     return statement
 
 
-def list_users(session: Session, params: UserListQueryParams) -> tuple[list[User], int]:
+async def list_users(session: AsyncSession, params: UserListQueryParams) -> tuple[list[User], int]:
     statement = select(User)
     statement = _apply_user_list_filters(statement, params)
 
     total_statement = _apply_user_list_filters(select(func.count()).select_from(User), params)
-    total = session.exec(total_statement).one()
+    total_result = await session.exec(total_statement)
+    total = total_result.one()
 
     sort_columns = {
         "created_at": User.created_at,
@@ -56,12 +59,14 @@ def list_users(session: Session, params: UserListQueryParams) -> tuple[list[User
         id_column=User.id,
     )
     statement = statement.offset(params.offset).limit(params.limit)
-    users = list(session.exec(statement).all())
+    users_result = await session.exec(statement)
+    users = list(users_result.all())
     return users, total
 
 
-def get_user(session: Session, user_id: str, include_deleted: bool = False) -> User:
-    user = session.exec(select(User).where(col(User.user_id) == user_id)).first()
+async def get_user(session: AsyncSession, user_id: str, include_deleted: bool = False) -> User:
+    result = await session.exec(select(User).where(col(User.user_id) == user_id))
+    user = result.first()
     if not user or (user.is_deleted and not include_deleted):
         raise AppError("User not found.", status_code=status.HTTP_404_NOT_FOUND)
     return user
@@ -91,7 +96,9 @@ def _raise_username_conflict(existing_user: User) -> None:
     )
 
 
-def batch_create_users(session: Session, payloads: list[UserCreate]) -> list[User]:
+async def batch_create_users(
+    session: AsyncSession, payloads: list[UserCreate], ip_address: str | None = None
+) -> list[User]:
     emails = [p.email for p in payloads]
     usernames = [p.username for p in payloads]
 
@@ -100,17 +107,19 @@ def batch_create_users(session: Session, payloads: list[UserCreate]) -> list[Use
     if len(usernames) != len(set(usernames)):
         raise AppError("Duplicate username in batch.", status_code=status.HTTP_400_BAD_REQUEST)
 
-    existing_emails = session.exec(
+    existing_emails_result = await session.exec(
         select(User.email).where(col(User.email).in_(emails))
-    ).all()
+    )
+    existing_emails = existing_emails_result.all()
     if existing_emails:
         raise AppError(
             "Some emails already exist.", status_code=status.HTTP_400_BAD_REQUEST
         )
 
-    existing_usernames = session.exec(
+    existing_usernames_result = await session.exec(
         select(User.username).where(col(User.username).in_(usernames))
-    ).all()
+    )
+    existing_usernames = existing_usernames_result.all()
     if existing_usernames:
         raise AppError(
             "Some usernames already exist.", status_code=status.HTTP_400_BAD_REQUEST
@@ -125,20 +134,32 @@ def batch_create_users(session: Session, payloads: list[UserCreate]) -> list[Use
         session.add(user)
         users.append(user)
 
-    session.commit()
+    await session.commit()
     for user in users:
-        session.refresh(user)
+        await session.refresh(user)
+        await record_audit(
+            session,
+            action="create",
+            resource_type="user",
+            resource_id=user.user_id,
+            performed_by=user.performed_by,
+            ip_address=ip_address,
+        )
     return users
 
 
-def create_user(session: Session, payload: UserCreate) -> User:
-    existing_user = session.exec(select(User).where(col(User.email) == payload.email)).first()
+async def create_user(
+    session: AsyncSession, payload: UserCreate, ip_address: str | None = None
+) -> User:
+    existing_user_result = await session.exec(select(User).where(col(User.email) == payload.email))
+    existing_user = existing_user_result.first()
     if existing_user:
         _raise_email_conflict(existing_user)
 
-    existing_username = session.exec(
+    existing_username_result = await session.exec(
         select(User).where(col(User.username) == payload.username)
-    ).first()
+    )
+    existing_username = existing_username_result.first()
     if existing_username:
         _raise_username_conflict(existing_username)
 
@@ -147,26 +168,47 @@ def create_user(session: Session, payload: UserCreate) -> User:
     user_data["user_id"] = generate_business_id("USER")
     user = User.model_validate(user_data)
     session.add(user)
-    session.commit()
-    session.refresh(user)
+    await session.commit()
+    await session.refresh(user)
+    await record_audit(
+        session,
+        action="create",
+        resource_type="user",
+        resource_id=user.user_id,
+        performed_by=user.performed_by,
+        ip_address=ip_address,
+    )
     return user
 
 
-def update_user(session: Session, user_id: str, payload: UserUpdate) -> User:
-    user = get_user(session, user_id)
+async def update_user(
+    session: AsyncSession, user_id: str, payload: UserUpdate, ip_address: str | None = None
+) -> User:
+    user = await get_user(session, user_id)
     updates = payload.model_dump(exclude_unset=True)
 
+    # Compute changes for auditing
+    changes = {}
+    for key, val in updates.items():
+        if key in ("password", "performed_by"):
+            continue
+        old_val = getattr(user, key)
+        if old_val != val:
+            changes[key] = val
+
     if "email" in updates and updates["email"] != user.email:
-        existing_user = session.exec(
+        existing_user_result = await session.exec(
             select(User).where(col(User.email) == updates["email"])
-        ).first()
+        )
+        existing_user = existing_user_result.first()
         if existing_user and existing_user.id != user.id:
             _raise_email_conflict(existing_user)
 
     if "username" in updates and updates["username"] != user.username:
-        existing_user = session.exec(
+        existing_user_result = await session.exec(
             select(User).where(col(User.username) == updates["username"])
-        ).first()
+        )
+        existing_user = existing_user_result.first()
         if existing_user and existing_user.id != user.id:
             _raise_username_conflict(existing_user)
 
@@ -175,25 +217,46 @@ def update_user(session: Session, user_id: str, payload: UserUpdate) -> User:
 
     apply_updates(user, updates)
     session.add(user)
-    session.commit()
-    session.refresh(user)
+    await session.commit()
+    await session.refresh(user)
+    await record_audit(
+        session,
+        action="update",
+        resource_type="user",
+        resource_id=user.user_id,
+        performed_by=payload.performed_by,
+        changes=changes if changes else None,
+        ip_address=ip_address,
+    )
     return user
 
 
-def soft_delete_user(session: Session, user_id: str, payload: UserDelete) -> User:
-    user = get_user(session, user_id)
+async def soft_delete_user(
+    session: AsyncSession, user_id: str, payload: UserDelete, ip_address: str | None = None
+) -> User:
+    user = await get_user(session, user_id)
     user.is_deleted = True
     user.deleted_at = utc_now()
     user.performed_by = payload.performed_by
     user.updated_at = utc_now()
     session.add(user)
-    session.commit()
-    session.refresh(user)
+    await session.commit()
+    await session.refresh(user)
+    await record_audit(
+        session,
+        action="delete",
+        resource_type="user",
+        resource_id=user.user_id,
+        performed_by=payload.performed_by,
+        ip_address=ip_address,
+    )
     return user
 
 
-def restore_user(session: Session, user_id: str, payload: UserRestore) -> User:
-    user = get_user(session, user_id, include_deleted=True)
+async def restore_user(
+    session: AsyncSession, user_id: str, payload: UserRestore, ip_address: str | None = None
+) -> User:
+    user = await get_user(session, user_id, include_deleted=True)
     if not user.is_deleted:
         raise AppError("User is not deleted.", status_code=status.HTTP_400_BAD_REQUEST)
 
@@ -202,6 +265,16 @@ def restore_user(session: Session, user_id: str, payload: UserRestore) -> User:
     user.performed_by = payload.performed_by
     user.updated_at = utc_now()
     session.add(user)
-    session.commit()
-    session.refresh(user)
+    await session.commit()
+    await session.refresh(user)
+    await record_audit(
+        session,
+        action="restore",
+        resource_type="user",
+        resource_id=user.user_id,
+        performed_by=payload.performed_by,
+        ip_address=ip_address,
+    )
     return user
+
+

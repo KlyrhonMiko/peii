@@ -1,8 +1,8 @@
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, Query, Request, status
 
-from core.deps import DBSession
+from core.deps import AsyncDBSession
 from core.responses import list_meta_response, success_response
 from schemas.common import APIResponse
 from schemas.user import (
@@ -46,12 +46,17 @@ def get_user_list_query_params(
 UserListParams = Annotated[UserListQueryParams, Depends(get_user_list_query_params)]
 
 
-@router.get("/", response_model=APIResponse[list[UserRead]])
-def list_users(
-    session: DBSession,
+@router.get(
+    "/",
+    response_model=APIResponse[list[UserRead]],
+    summary="List Users",
+    description="Query and list user records with offset pagination, filtering, and sorting.",
+)
+async def list_users(
+    session: AsyncDBSession,
     params: UserListParams,
 ) -> APIResponse[list[UserRead]]:
-    users, total = user_service.list_users(session, params)
+    users, total = await user_service.list_users(session, params)
     response_users = [UserRead.model_validate(user) for user in users]
     return success_response(
         response_users,
@@ -69,53 +74,95 @@ def list_users(
     "/batch",
     response_model=APIResponse[list[UserRead]],
     status_code=status.HTTP_201_CREATED,
+    summary="Batch Create Users",
+    description=(
+        "Create multiple users at once under a single database transaction. "
+        "Excludes password hashes from logs."
+    ),
 )
-def batch_create_users(
-    payload: UserBatchCreate, session: DBSession
+async def batch_create_users(
+    payload: UserBatchCreate, session: AsyncDBSession, request: Request
 ) -> APIResponse[list[UserRead]]:
-    users = user_service.batch_create_users(session, payload.users)
+    ip_address = request.client.host if request.client else None
+    users = await user_service.batch_create_users(session, payload.users, ip_address=ip_address)
     return success_response(
         [UserRead.model_validate(u) for u in users], message="Users created."
     )
 
 
-@router.post("/", response_model=APIResponse[UserRead], status_code=status.HTTP_201_CREATED)
-def create_user(payload: UserCreate, session: DBSession) -> APIResponse[UserRead]:
-    user = user_service.create_user(session, payload)
+@router.post(
+    "/",
+    response_model=APIResponse[UserRead],
+    status_code=status.HTTP_201_CREATED,
+    summary="Create User",
+    description="Create a single user record with a unique business ID and Argon2 hashed password.",
+)
+async def create_user(
+    payload: UserCreate, session: AsyncDBSession, request: Request
+) -> APIResponse[UserRead]:
+    ip_address = request.client.host if request.client else None
+    user = await user_service.create_user(session, payload, ip_address=ip_address)
     return success_response(UserRead.model_validate(user), message="User created.")
 
 
-@router.get("/{user_id}", response_model=APIResponse[UserRead])
-def get_user(user_id: str, session: DBSession) -> APIResponse[UserRead]:
-    user = user_service.get_user(session, user_id)
+@router.get(
+    "/{user_id}",
+    response_model=APIResponse[UserRead],
+    summary="Get User",
+    description="Retrieve a single user record by their unique business ID.",
+)
+async def get_user(user_id: str, session: AsyncDBSession) -> APIResponse[UserRead]:
+    user = await user_service.get_user(session, user_id)
     return success_response(UserRead.model_validate(user))
 
 
-@router.patch("/{user_id}", response_model=APIResponse[UserRead])
-def update_user(
+@router.patch(
+    "/{user_id}",
+    response_model=APIResponse[UserRead],
+    summary="Update User",
+    description="Partially update a user record. Passwords will be re-hashed if updated.",
+)
+async def update_user(
     user_id: str,
     payload: UserUpdate,
-    session: DBSession,
+    session: AsyncDBSession,
+    request: Request,
 ) -> APIResponse[UserRead]:
-    user = user_service.update_user(session, user_id, payload)
+    ip_address = request.client.host if request.client else None
+    user = await user_service.update_user(session, user_id, payload, ip_address=ip_address)
     return success_response(UserRead.model_validate(user), message="User updated.")
 
 
-@router.delete("/{user_id}", response_model=APIResponse[UserRead])
-def delete_user(
+@router.delete(
+    "/{user_id}",
+    response_model=APIResponse[UserRead],
+    summary="Delete User (Soft)",
+    description="Soft delete a user record by marking is_deleted=True.",
+)
+async def delete_user(
     user_id: str,
     payload: UserDelete,
-    session: DBSession,
+    session: AsyncDBSession,
+    request: Request,
 ) -> APIResponse[UserRead]:
-    user = user_service.soft_delete_user(session, user_id, payload)
+    ip_address = request.client.host if request.client else None
+    user = await user_service.soft_delete_user(session, user_id, payload, ip_address=ip_address)
     return success_response(UserRead.model_validate(user), message="User deleted.")
 
 
-@router.post("/{user_id}/restore", response_model=APIResponse[UserRead])
-def restore_user(
+@router.post(
+    "/{user_id}/restore",
+    response_model=APIResponse[UserRead],
+    summary="Restore User",
+    description="Restore a soft-deleted user record.",
+)
+async def restore_user(
     user_id: str,
     payload: UserRestore,
-    session: DBSession,
+    session: AsyncDBSession,
+    request: Request,
 ) -> APIResponse[UserRead]:
-    user = user_service.restore_user(session, user_id, payload)
+    ip_address = request.client.host if request.client else None
+    user = await user_service.restore_user(session, user_id, payload, ip_address=ip_address)
     return success_response(UserRead.model_validate(user), message="User restored.")
+

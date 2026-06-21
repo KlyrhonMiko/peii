@@ -38,6 +38,11 @@ database shape; they should not know about HTTP requests.
   schema, tests, and migration code use one consistent convention.
 - Keep model constraints aligned with schema validation and service conflict checks.
 
+
+## Timezone and Driver Rules
+- Postgres `TIMESTAMP WITHOUT TIME ZONE` columns will reject timezone-aware Python datetimes when using `asyncpg`.
+- Always strip timezone info using `dt.replace(tzinfo=None)` or the helper `utc_now()` before writing datetimes to the database.
+
 ## Migration Discipline
 - After every table-shape change, run
   `alembic revision --autogenerate -m "describe change"` from `backend/`.

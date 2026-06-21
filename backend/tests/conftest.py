@@ -2,22 +2,24 @@ import asyncio
 import socket
 import sys
 import threading
-from collections.abc import AsyncIterator, Iterator
+from collections.abc import AsyncGenerator, AsyncIterator, Iterator
 from pathlib import Path
 
 import httpx
 import pytest
 import uvicorn
 from dotenv import load_dotenv
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel, create_engine
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 PROJECT_ROOT = ROOT_DIR.parent
 sys.path.insert(0, str(ROOT_DIR))
 load_dotenv(PROJECT_ROOT / ".env", override=True)
 
-from core.database import get_session  # noqa: E402
+from core.database import get_async_session, get_session  # noqa: E402
 from main import app  # noqa: E402
 
 
@@ -28,6 +30,7 @@ def anyio_backend() -> str:
 
 @pytest.fixture
 async def client() -> AsyncIterator[httpx.AsyncClient]:
+    # Sync engine for any direct sync DB access (if needed)
     engine = create_engine(
         "sqlite://",
         connect_args={"check_same_thread": False},
@@ -39,7 +42,27 @@ async def client() -> AsyncIterator[httpx.AsyncClient]:
         with Session(engine) as session:
             yield session
 
+    # Async engine for app routes
+    async_engine = create_async_engine(
+        "sqlite+aiosqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    async with async_engine.begin() as conn:
+        await conn.run_sync(SQLModel.metadata.create_all)
+
+    async_session_factory = async_sessionmaker(
+        async_engine,
+        class_=AsyncSession,
+        expire_on_commit=False,
+    )
+
+    async def override_get_async_session() -> AsyncGenerator[AsyncSession]:
+        async with async_session_factory() as session:
+            yield session
+
     app.dependency_overrides[get_session] = override_get_session
+    app.dependency_overrides[get_async_session] = override_get_async_session
 
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         sock.bind(("127.0.0.1", 0))

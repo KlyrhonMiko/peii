@@ -44,10 +44,10 @@ for the repo's pre-commit/pre-push hooks.
 - For persistence transforms, assert the stored value when it matters. Current user tests
   read the row through the overridden session to verify Argon2 hashing.
 
-## Fixture Rules
-- Keep the in-memory SQLite override unless the behavior being tested specifically depends
-  on another database.
-- If a test needs direct DB inspection, use the same overridden `get_session()` dependency
-  rather than creating an unrelated engine.
-- Keep server startup and teardown in `conftest.py`; individual tests should not start
-  their own app server.
+## Fixture & Database Override Rules
+- `conftest.py` overrides both sync `get_session` and async `get_async_session` with an in-memory SQLite database (`aiosqlite`).
+- If a test needs direct database inspection, use the overridden `get_async_session` generator. Call `await anext(session_generator)` to resolve the session and `await session_generator.aclose()` in a `finally` block to close it.
+- Always assert that the `meta` dict in any response contains a valid `request_id` trace string.
+- Assert database side effects—such as the creation of audit logs on mutations—by executing queries against the active database.
+- Keep server startup and teardown in `conftest.py`; individual tests should not start their own app server.
+
