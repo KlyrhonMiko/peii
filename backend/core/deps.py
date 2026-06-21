@@ -4,11 +4,14 @@ from uuid import UUID
 
 from fastapi import Depends, Query
 from sqlmodel import Session
+from sqlmodel.ext.asyncio.session import AsyncSession
 
-from core.database import get_session
+from core.database import get_async_session, get_session
 from schemas.common import AuditQueryParams, ListQueryParams
 
 DBSession = Annotated[Session, Depends(get_session)]
+AsyncDBSession = Annotated[AsyncSession, Depends(get_async_session)]
+
 
 
 def get_list_query_params(

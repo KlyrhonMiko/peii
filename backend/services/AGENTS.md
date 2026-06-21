@@ -57,6 +57,12 @@ checks, persistence transforms, transaction boundaries, and domain errors.
 - Do not return password data from services for API use; routers should convert to read
   schemas that exclude it.
 
+## Async & Auditing Rules
+- All service operations must be asynchronous (`async def`) and accept `sqlmodel.ext.asyncio.session.AsyncSession` instead of a sync session.
+- Every mutating operation (create, update, soft-delete, restore) must record an audit entry using `record_audit` from `services.audit_service`.
+- Service operations that mutate data must accept an optional `ip_address: str | None = None` parameter and pass it to the audit logger.
+- On updates, calculate the diff (excluding sensitive passwords and system metadata) and supply it as a `changes` dictionary to `record_audit`.
+
 ## Soft Delete
 - Treat soft delete as state mutation on the row: `is_deleted`, `deleted_at`,
   `performed_by`, and `updated_at`.

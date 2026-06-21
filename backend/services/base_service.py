@@ -2,7 +2,7 @@ from datetime import UTC, datetime
 
 
 def utc_now() -> datetime:
-    return datetime.now(UTC)
+    return datetime.now(UTC).replace(tzinfo=None)
 
 
 def apply_updates(instance: object, updates: dict[str, object]) -> object:

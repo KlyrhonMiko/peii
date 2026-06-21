@@ -35,6 +35,10 @@ models. Schemas are the boundary between HTTP data and internal model/service co
   rather than requiring clients to resend entire records.
 - Keep response schemas aligned with the model fields the frontend actually needs.
 
+## OpenAPI Schema Example Enrichment
+- Enrich Pydantic schema examples by defining `json_schema_extra` under `model_config` with realistic examples of the payload fields. This automatically populates customized example bodies in the `/api/v1/docs` (Swagger UI).
+
+
 ## Query Param Rules
 - Shared query-param models should only contain fields useful across multiple resources.
 - Resource-specific list params should extend `ListQueryParams`.

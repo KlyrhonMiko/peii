@@ -3,7 +3,7 @@ from typing import cast
 import pytest
 from sqlmodel import select
 
-from core.database import get_session
+from core.database import get_async_session
 from main import app
 from models.user import User
 from utils.security import verify_password
@@ -69,13 +69,14 @@ async def test_password_is_stored_as_argon2_hash(client):
     create_response = await client.post("/api/v1/users/", json=payload)
     assert create_response.status_code == 201
 
-    override = app.dependency_overrides[get_session]
+    override = app.dependency_overrides[get_async_session]
     session_generator = override()
-    session = next(session_generator)
+    session = await anext(session_generator)
     try:
-        user = session.exec(select(User).where(User.email == payload["email"])).first()
+        result = await session.exec(select(User).where(User.email == payload["email"]))
+        user = result.first()
     finally:
-        session_generator.close()
+        await session_generator.aclose()
 
     assert user is not None
     hashed_password = cast(str, user.password)
@@ -87,12 +88,11 @@ async def test_user_not_found_uses_universal_error_shape(client):
     response = await client.get("/api/v1/users/00000000-0000-0000-0000-000000000000")
 
     assert response.status_code == 404
-    assert response.json() == {
-        "data": None,
-        "message": "User not found.",
-        "errors": None,
-        "meta": None,
-    }
+    body = response.json()
+    assert body["data"] is None
+    assert body["message"] == "User not found."
+    assert body["errors"] is None
+    assert "request_id" in body["meta"]
 
 
 async def test_validation_error_uses_universal_error_shape(client):
@@ -103,7 +103,7 @@ async def test_validation_error_uses_universal_error_shape(client):
     assert body["data"] is None
     assert body["message"] == "Validation error."
     assert isinstance(body["errors"], list)
-    assert body["meta"] is None
+    assert "request_id" in body["meta"]
 
 
 async def test_list_users_uses_shared_query_params(client):
@@ -144,23 +144,22 @@ async def test_list_users_uses_shared_query_params(client):
     body = response.json()
     assert len(body["data"]) == 1
     assert body["data"][0]["email"] == payloads[0]["email"]
-    assert body["meta"] == {
-        "pagination": {
-            "total": 2,
-            "count": 1,
-            "limit": 1,
-            "offset": 0,
-            "has_next": True,
-            "has_prev": False,
-        },
-        "filters": {
-            "sort_order": "asc",
-            "sort_by": "email",
-            "include_deleted": False,
-            "role": None,
-            "is_active": None,
-            "search": None,
-        },
+    assert "request_id" in body["meta"]
+    assert body["meta"]["pagination"] == {
+        "total": 2,
+        "count": 1,
+        "limit": 1,
+        "offset": 0,
+        "has_next": True,
+        "has_prev": False,
+    }
+    assert body["meta"]["filters"] == {
+        "sort_order": "asc",
+        "sort_by": "email",
+        "include_deleted": False,
+        "role": None,
+        "is_active": None,
+        "search": None,
     }
 
 
