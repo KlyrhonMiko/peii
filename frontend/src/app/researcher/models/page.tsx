@@ -159,7 +159,7 @@ export default function ModelsPage() {
       {/* Model Cards */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         {models.map((model) => {
-          const colors = accentMap[model.accent]
+          const colors = accentMap[model.accent as keyof typeof accentMap]
           return (
             <div
               key={model.id}

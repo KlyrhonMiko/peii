@@ -1,5 +1,6 @@
 "use client"
 
+import { useMemo } from "react"
 import { Line, LineChart, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts"
 
 type TooltipValue = number | string | readonly (number | string)[] | undefined
@@ -16,7 +17,7 @@ function formatTooltipValue(value: TooltipValue) {
   return value ?? ""
 }
 
-const data = [
+const baseData = [
   { year: "2020", score: 0.62 },
   { year: "2021", score: 0.68 },
   { year: "2022", score: 0.74 },
@@ -25,7 +26,37 @@ const data = [
   { year: "2025", score: 0.88 },
 ]
 
-export function CohortTrendChart() {
+export interface CohortTrendChartProps {
+  filters?: { department: string; batch: string }
+}
+
+export function CohortTrendChart({ filters }: CohortTrendChartProps) {
+  const data = useMemo(() => {
+    let multiplier = 1
+    if (filters?.department && filters.department !== "All Departments") multiplier *= 0.9
+    
+    let chartData = baseData.map(d => {
+      const yearVal = parseInt(d.year) || 0
+      const offset = ((yearVal % 5) / 5) * 0.04 - 0.02 // Deterministic offset
+      return {
+        ...d,
+        score: Number(Math.min(1.0, Math.max(0, d.score * multiplier + offset)).toFixed(2))
+      }
+    })
+
+    if (filters?.batch && filters.batch !== "All Batches") {
+      // If a specific batch is selected, only show data around that batch or just that batch point
+      // To keep it looking like a trend, we'll just show data up to that batch year if it exists
+      chartData = chartData.filter(d => d.year <= filters.batch)
+      if (chartData.length === 0) {
+        // Fallback if batch is not in our data
+        chartData = [{ year: filters.batch, score: 0.75 }]
+      }
+    }
+
+    return chartData
+  }, [filters])
+
   return (
     <div className="h-full w-full min-w-0 relative">
       <ResponsiveContainer width="100%" height="100%" minWidth={0}>
