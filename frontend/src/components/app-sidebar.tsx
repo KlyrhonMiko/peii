@@ -13,15 +13,15 @@ import {
   SidebarHeader,
   SidebarFooter,
 } from "@/components/ui/sidebar"
-import { LayoutDashboard, BarChart3, Users, Settings, FlaskConical, LogOut } from "lucide-react"
+import { LayoutDashboard, BarChart3, Settings, FlaskConical, LogOut, Cpu } from "lucide-react"
 
 const mainItems = [
   { title: "Dashboard", url: "/researcher/dashboard", icon: LayoutDashboard },
   { title: "Analytics", url: "/researcher/analytics", icon: BarChart3 },
+  { title: "Models", url: "/researcher/models", icon: Cpu },
 ]
 
 const managementItems = [
-  { title: "User Management", url: "/admin/users", icon: Users },
   { title: "Settings", url: "#", icon: Settings },
 ]
 

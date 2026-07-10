@@ -1,4 +1,5 @@
 import { ClientCohortTrendChart } from "@/components/ClientCohortTrendChart"
+import { ProgramFilter } from "@/components/ProgramFilter"
 import { TrendingUp, Users, Briefcase, Sparkles, ArrowUpRight } from "lucide-react"
 
 const stats = [
@@ -103,11 +104,7 @@ export default function DashboardPage() {
             <h3 className="text-[14px] font-semibold text-slate-900">Cohort Trend Analysis</h3>
             <p className="text-[12px] text-slate-400 mt-0.5">Historical PEII scores across recent graduating years</p>
           </div>
-          <select className="text-[12px] font-medium border border-slate-200 rounded-lg text-slate-600 bg-slate-50 h-8 pl-3 pr-7 hover:border-slate-300 transition-colors cursor-pointer focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-300">
-            <option>All Programs</option>
-            <option>Engineering</option>
-            <option>Business</option>
-          </select>
+          <ProgramFilter />
         </div>
         <div className="h-[320px] w-full px-4 py-4">
           <ClientCohortTrendChart />

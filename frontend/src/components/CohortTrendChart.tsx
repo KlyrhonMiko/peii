@@ -28,7 +28,7 @@ const data = [
 export function CohortTrendChart() {
   return (
     <div className="h-full w-full min-w-0 relative">
-      <ResponsiveContainer width="100%" height="100%">
+      <ResponsiveContainer width="100%" height="100%" minWidth={0}>
         <LineChart
           data={data}
           margin={{ top: 8, right: 16, left: -10, bottom: 20 }}

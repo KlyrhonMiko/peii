@@ -1,4 +1,5 @@
 import { Button } from "@/components/ui/button"
+import { SurveySelect } from "@/components/SurveySelect"
 import {
   ClipboardList,
   Briefcase,
@@ -62,33 +63,17 @@ export default async function SurveyPage({
             <p className="mb-4 text-[13px] leading-relaxed text-slate-400">
               Select the option that best describes your current work situation.
             </p>
-            <div className="relative">
-              <select
-                id="employment-select"
-                className="w-full cursor-pointer appearance-none rounded-lg border border-slate-200 bg-white px-3.5 py-3 text-sm text-slate-700 transition-colors hover:border-slate-300 focus:border-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/10"
-              >
-                <option value="">Select an option…</option>
-                <option>Employed Full-Time</option>
-                <option>Employed Part-Time</option>
-                <option>Seeking Employment</option>
-                <option>Further Studies</option>
-              </select>
-              <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-3.5 text-slate-400">
-                <svg
-                  className="size-4"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth="2"
-                    d="M19 9l-7 7-7-7"
-                  />
-                </svg>
-              </div>
-            </div>
+            <SurveySelect
+              id="employment-select"
+              name="employment"
+              options={[
+                "Employed Full-Time",
+                "Employed Part-Time",
+                "Seeking Employment",
+                "Further Studies",
+              ]}
+              placeholder="Select an option…"
+            />
           </fieldset>
 
           {/* Income Range */}
@@ -112,33 +97,17 @@ export default async function SurveyPage({
             <p className="mb-4 text-[13px] leading-relaxed text-slate-400">
               This information helps us assess employment quality outcomes.
             </p>
-            <div className="relative">
-              <select
-                id="income-select"
-                className="w-full cursor-pointer appearance-none rounded-lg border border-slate-200 bg-white px-3.5 py-3 text-sm text-slate-700 transition-colors hover:border-slate-300 focus:border-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/10"
-              >
-                <option value="">Select an option…</option>
-                <option>Prefer not to say</option>
-                <option>Below ₱250,000</option>
-                <option>₱250,000 – ₱500,000</option>
-                <option>Above ₱500,000</option>
-              </select>
-              <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-3.5 text-slate-400">
-                <svg
-                  className="size-4"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth="2"
-                    d="M19 9l-7 7-7-7"
-                  />
-                </svg>
-              </div>
-            </div>
+            <SurveySelect
+              id="income-select"
+              name="income"
+              options={[
+                "Prefer not to say",
+                "Below ₱250,000",
+                "₱250,000 – ₱500,000",
+                "Above ₱500,000",
+              ]}
+              placeholder="Select an option…"
+            />
           </fieldset>
 
           {/* Degree Relevance */}
