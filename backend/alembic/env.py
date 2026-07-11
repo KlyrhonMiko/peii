@@ -17,7 +17,15 @@ sys.path.insert(0, str(BACKEND_DIR))
 load_dotenv(ROOT_DIR / ".env", override=False)
 
 from core.config import settings  # noqa: E402
-from models import AuditLog, User  # noqa: F401,E402
+from models import (  # noqa: F401,E402
+    AuditLog,
+    Survey,
+    SurveyDistribution,
+    SurveyQuestion,
+    SurveyResponse,
+    SurveySection,
+    User,
+)
 
 config = context.config
 config.set_main_option("sqlalchemy.url", settings.database_url)

@@ -9,6 +9,7 @@ Follow `ui/AGENTS.md` when editing primitive building blocks under `src/componen
 - `app-sidebar.tsx` contains shared portal navigation.
 - `ClientCohortTrendChart.tsx` and `ClientFeatureImportanceChart.tsx` isolate
   client-only dynamic chart imports.
+- `ClientSurveyForm.tsx` renders the public survey intake with section-per-page navigation.
 - `CohortTrendChart.tsx` contains the Recharts line chart.
 - `FeatureImportanceChart.tsx` contains the Recharts bar chart.
 

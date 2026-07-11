@@ -11,6 +11,8 @@ interface SurveySelectProps {
   options: string[]
   placeholder?: string
   defaultValue?: string
+  value: string | undefined
+  onChange: (value: string) => void
 }
 
 export function SurveySelect({
@@ -19,9 +21,14 @@ export function SurveySelect({
   options,
   placeholder = "Select an option…",
   defaultValue = "",
+  value: controlledValue,
+  onChange,
 }: SurveySelectProps) {
-  const [selected, setSelected] = useState(defaultValue)
+  const [internalValue, setInternalValue] = useState(defaultValue)
   const [open, setOpen] = useState(false)
+
+  const selected = controlledValue ?? internalValue
+  const setSelected = onChange ?? setInternalValue
 
   return (
     <div className="relative w-full">
