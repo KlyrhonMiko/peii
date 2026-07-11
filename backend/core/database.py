@@ -7,7 +7,15 @@ from sqlmodel import Session, create_engine
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from core.config import settings
-from models import AuditLog, User  # noqa: F401
+from models import (  # noqa: F401
+    AuditLog,
+    Survey,
+    SurveyDistribution,
+    SurveyQuestion,
+    SurveyResponse,
+    SurveySection,
+    User,
+)
 
 sync_connect_args = {"check_same_thread": False} if settings.is_sqlite else {}
 async_connect_args: dict[str, Any] = (
