@@ -897,42 +897,56 @@ export default function SurveyPage() {
         </div>
       </div>
 
-      {/* ── Create / View / Settings Sheet ─────────────────────────────── */}
-      <Sheet
-        open={modalState !== null}
+      {/* ── Create / Edit Survey Dialog ─────────────────────────────── */}
+      <Dialog
+        open={modalState !== null && (modalState.type === "create" || modalState.type === "edit")}
         onOpenChange={(open) => !open && handleCloseModal()}
       >
-        <SheetContent
-          className={cn(
-            (modalState?.type === "create" || modalState?.type === "edit") && "sm:max-w-lg"
-          )}
+        <DialogContent 
+          showCloseButton={false}
+          className="sm:max-w-6xl max-w-6xl w-[95vw] h-[90vh] p-0 overflow-hidden flex flex-col gap-0 border-slate-200/60 rounded-xl shadow-2xl bg-slate-50/50"
         >
-          {/* ── Create / Edit Survey ───────────────────────────────────── */}
-          {(modalState?.type === "create" || modalState?.type === "edit") && (
-            <>
-              <SheetHeader className="gap-3 border-b border-slate-100 pb-5">
-                <div className="flex items-center gap-3">
-                  <div className="flex size-10 items-center justify-center rounded-xl bg-indigo-50 ring-1 ring-indigo-100">
-                    <ClipboardList className="size-5 text-indigo-600" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <SheetTitle className="text-base font-semibold text-slate-900">
-                      {modalState.type === "create" ? "Create New Survey" : "Edit Survey"}
-                    </SheetTitle>
-                    <SheetDescription className="text-[13px] text-slate-500 mt-0.5">
-                      {modalState.type === "create" 
-                        ? "Define a new survey for the PEII system." 
-                        : "Modify the title, target cohort, description, and questions for this survey."}
-                    </SheetDescription>
-                  </div>
-                </div>
-              </SheetHeader>
+          <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200/80 bg-white shrink-0">
+            <div className="flex items-center gap-3">
+              <div className="flex size-10 items-center justify-center rounded-xl bg-indigo-50 ring-1 ring-indigo-100">
+                <ClipboardList className="size-5 text-indigo-600" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <DialogTitle className="text-base font-semibold text-slate-900">
+                  {modalState?.type === "create" ? "Create New Survey" : "Edit Survey"}
+                </DialogTitle>
+                <DialogDescription className="text-[13px] text-slate-500 mt-0.5">
+                  {modalState?.type === "create" 
+                    ? "Define a new survey for the PEII system." 
+                    : "Modify the title, target cohort, description, and questions for this survey."}
+                </DialogDescription>
+              </div>
+            </div>
+            <div className="flex items-center gap-3">
+              <Button variant="outline" onClick={handleCloseModal} className="h-9">
+                Cancel
+              </Button>
+              <Button
+                onClick={handleSaveSurvey}
+                disabled={!surveyTitle.trim() || saving}
+                className="gap-2 bg-indigo-600 hover:bg-indigo-700 text-white h-9"
+              >
+                {saving ? (
+                  <Loader2 className="size-4 animate-spin" />
+                ) : modalState?.type === "create" ? (
+                  <Check className="size-4" />
+                ) : (
+                  <Pencil className="size-4" />
+                )}
+                {modalState?.type === "create" ? "Create Survey" : "Save Changes"}
+              </Button>
+            </div>
+          </div>
 
-              {/* Scrollable form body */}
-              <div className="flex-1 overflow-y-auto px-5 py-5">
-                <div className="space-y-6">
-                  {/* ── Section: Details ─────────────────────────────── */}
-                  <fieldset className="space-y-4">
+          <div className="flex flex-1 overflow-hidden">
+            {/* Left Sidebar: Details */}
+            <div className="w-[340px] shrink-0 border-r border-slate-200/80 bg-slate-50/50 p-6 overflow-y-auto">
+              <fieldset className="space-y-4">
                     <legend className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-slate-400 mb-1">
                       <span className="flex size-5 items-center justify-center rounded-md bg-slate-100 text-[10px] font-bold text-slate-500">
                         1
@@ -1017,7 +1031,12 @@ export default function SurveyPage() {
                   </fieldset>
 
                   {/* ── Section: Questions (Sections) ────────────────── */}
-                  <fieldset className="space-y-4">
+            </div>
+
+            {/* Right Main Area: Questions */}
+            <div className="flex-1 bg-white p-8 overflow-y-auto">
+              <div className="max-w-3xl mx-auto pb-20">
+                <fieldset className="space-y-4">
                     <legend className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-slate-400 mb-1">
                       <span className="flex size-5 items-center justify-center rounded-md bg-slate-100 text-[10px] font-bold text-slate-500">
                         2
@@ -1490,27 +1509,19 @@ export default function SurveyPage() {
                       </div>
                     )}
                   </fieldset>
-                </div>
               </div>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
-              {/* Sticky footer */}
-              <SheetFooter className="flex-row justify-end gap-2 border-t border-slate-100 bg-white px-5 py-3">
-                <Button variant="outline" onClick={handleCloseModal}>
-                  Cancel
-                </Button>
-                <Button 
-                  onClick={handleSaveSurvey}
-                  disabled={saving}
-                  className="bg-indigo-600 hover:bg-indigo-700 text-white border-0 gap-2"
-                >
-                  {saving && <Loader2 className="size-4 animate-spin" />}
-                  {modalState.type === "create" ? "Create Survey" : "Save Changes"}
-                </Button>
-              </SheetFooter>
-            </>
-          )}
-
-          {/* ── View / Settings ──────────────────────────────────────────── */}
+      {/* ── View / Settings Sheet ─────────────────────────────── */}
+      <Sheet
+        open={modalState !== null && (modalState.type === "view" || modalState.type === "settings")}
+        onOpenChange={(open) => !open && handleCloseModal()}
+      >
+        <SheetContent>
+          
           {modalState?.type === "view" && (
             (() => {
               const survey = surveys.find(s => s.id === modalState.id)
@@ -1823,77 +1834,89 @@ export default function SurveyPage() {
         open={showGeneratePreview}
         onOpenChange={(open) => !open && setShowGeneratePreview(false)}
       >
-        <DialogContent className="max-w-2xl max-h-[85vh] flex flex-col p-0 gap-0" showCloseButton={false}>
-          <div className="h-[100px] shrink-0 bg-gradient-to-br from-indigo-600 via-indigo-500 to-violet-500" />
-
-          <div className="flex-1 overflow-y-auto px-6 -mt-[70px] pb-6">
-            <div className="relative mb-4 overflow-hidden rounded-xl border-t-[6px] border-t-indigo-500 bg-white shadow-sm ring-1 ring-black/[0.04]">
-              <div className="px-6 pb-5 pt-6">
-                <div className="mb-3 flex items-center gap-2">
-                  <div className="flex size-8 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600">
-                    <ClipboardList className="size-[16px]" />
-                  </div>
-                  <span className="text-[11px] font-semibold uppercase tracking-wider text-indigo-600">
-                    Preview Questionnaire
-                  </span>
-                </div>
-                <h2 className="text-xl font-semibold tracking-tight text-slate-900">
+        <DialogContent className="sm:max-w-3xl max-w-[95vw] max-h-[85vh] flex flex-col p-0 gap-0 overflow-hidden border-slate-200/60 rounded-2xl shadow-2xl bg-slate-50/50" showCloseButton={false}>
+          {/* Header */}
+          <div className="flex items-center justify-between px-8 py-6 border-b border-slate-200/80 bg-white shrink-0">
+            <div className="flex items-center gap-4">
+              <div className="flex size-12 items-center justify-center rounded-2xl bg-indigo-50/80 ring-1 ring-indigo-100 shadow-sm">
+                <ClipboardList className="size-6 text-indigo-600" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <h2 className="text-lg font-semibold tracking-tight text-slate-900 flex items-center gap-2">
                   Alumni Survey Questionnaire
+                  <span className="inline-flex items-center rounded-full bg-indigo-50 px-2 py-0.5 text-[10px] font-medium text-indigo-600 ring-1 ring-inset ring-indigo-500/10 uppercase tracking-wider">Preview</span>
                 </h2>
-                <p className="mt-1.5 text-[14px] leading-relaxed text-slate-500">
-                  This comprehensive survey helps us understand your post-graduation journey — from employment
-                  outcomes and degree-to-career alignment to socioeconomic impact and personal growth.
+                <p className="text-[13px] text-slate-500 mt-1 max-w-xl leading-relaxed">
+                  Review the predefined sections and questions before generating the survey structure.
                 </p>
-                <div className="mt-3 flex items-center gap-2 text-xs text-slate-400">
-                  <span className="inline-flex items-center gap-1 rounded-md bg-slate-100 px-2 py-0.5 font-medium text-slate-600">
-                    {ALUMNI_QUESTIONNAIRE.length} sections
-                  </span>
-                  <span className="inline-flex items-center gap-1 rounded-md bg-slate-100 px-2 py-0.5 font-medium text-slate-600">
-                    {ALUMNI_QUESTIONNAIRE.reduce((acc, s) => acc + s.questions.length, 0)} questions
-                  </span>
-                </div>
               </div>
             </div>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => setShowGeneratePreview(false)}
+              className="text-slate-400 hover:text-slate-600 hover:bg-slate-100 -mr-2"
+            >
+              <X className="size-4" />
+            </Button>
+          </div>
 
-            <div className="space-y-4">
+          {/* Body */}
+          <div className="flex-1 overflow-y-auto p-8 space-y-8 bg-slate-50/30">
+            <div className="grid gap-6">
               {ALUMNI_QUESTIONNAIRE.map((sec, secIdx) => (
-                <div key={secIdx}>
-                  <div className="mb-2 rounded-xl border-l-4 border-l-violet-500 bg-white px-5 py-3.5 shadow-sm ring-1 ring-black/[0.04]">
-                    <h3 className="text-sm font-semibold text-slate-900">
-                      {secIdx + 1}. {sec.title}
-                    </h3>
-                    <p className="mt-0.5 text-[12px] leading-relaxed text-slate-500">
-                      {sec.description}
-                    </p>
+                <div key={secIdx} className="rounded-xl bg-white border border-slate-200/60 shadow-sm overflow-hidden transition-all hover:shadow-md hover:border-slate-300/80">
+                  <div className="bg-slate-50/50 px-6 py-4 border-b border-slate-100 flex items-start gap-4">
+                    <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-white border border-slate-200 shadow-sm text-sm font-bold text-slate-700">
+                      {secIdx + 1}
+                    </div>
+                    <div>
+                      <h3 className="text-base font-semibold text-slate-900 tracking-tight">
+                        {sec.title}
+                      </h3>
+                      <p className="mt-1 text-[13px] leading-relaxed text-slate-500">
+                        {sec.description}
+                      </p>
+                    </div>
                   </div>
-                  <div className="space-y-2">
+                  
+                  <div className="p-6 divide-y divide-slate-100">
                     {sec.questions.map((q, qIdx) => (
-                      <div
-                        key={qIdx}
-                        className="rounded-lg bg-white px-5 py-3 shadow-sm ring-1 ring-black/[0.04]"
-                      >
-                        <div className="flex items-start gap-2">
-                          <span className="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-md bg-indigo-50 text-[10px] font-bold text-indigo-600">
-                            {qIdx + 1}
-                          </span>
-                          <div className="min-w-0 flex-1">
-                            <p className="text-[13px] font-medium text-slate-800">
-                              {q.question_text}
-                            </p>
-                            {q.options && q.options.length > 0 && (
-                              <div className="mt-1.5 flex flex-wrap gap-1.5">
-                                {q.options.map((opt, optIdx) => (
-                                  <span
-                                    key={optIdx}
-                                    className="inline-flex items-center rounded-md border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] text-slate-600"
-                                  >
-                                    {opt}
-                                  </span>
+                      <div key={qIdx} className="py-4 first:pt-0 last:pb-0 flex items-start gap-4 group">
+                         <span className="mt-0.5 text-[12px] font-medium text-slate-400 group-hover:text-indigo-500 transition-colors w-6">
+                           {secIdx + 1}.{qIdx + 1}
+                         </span>
+                         <div className="min-w-0 flex-1">
+                           <p className="text-[14px] font-medium text-slate-800 leading-snug group-hover:text-slate-900 transition-colors">
+                             {q.question_text}
+                           </p>
+                           {q.options && q.options.length > 0 && (
+                             <div className="mt-3 flex flex-wrap gap-2">
+                               {q.options.map((opt, optIdx) => (
+                                 <span
+                                   key={optIdx}
+                                   className="inline-flex items-center rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-[12px] text-slate-600 shadow-sm transition-colors group-hover:border-slate-300 group-hover:bg-slate-50"
+                                 >
+                                   {opt}
+                                 </span>
+                               ))}
+                             </div>
+                           )}
+                           {q.question_type === "text" && (
+                             <div className="mt-3 h-12 w-full max-w-lg rounded-lg border border-slate-200 bg-slate-50/50 flex items-center px-3 text-slate-400 text-[12px] shadow-sm">
+                               Text response...
+                             </div>
+                           )}
+                           {q.question_type === "scale" && (
+                              <div className="mt-3 flex gap-2">
+                                {[1, 2, 3, 4, 5].map(rating => (
+                                  <div key={rating} className="size-8 rounded-lg border border-slate-200 bg-white flex items-center justify-center text-slate-400 text-[12px] shadow-sm transition-colors group-hover:border-slate-300 group-hover:bg-slate-50">
+                                    {rating}
+                                  </div>
                                 ))}
                               </div>
-                            )}
-                          </div>
-                        </div>
+                           )}
+                         </div>
                       </div>
                     ))}
                   </div>
@@ -1902,25 +1925,32 @@ export default function SurveyPage() {
             </div>
           </div>
 
-          <div className="flex shrink-0 items-center justify-between border-t border-slate-100 bg-white px-6 py-3">
-            <p className="text-[11px] text-slate-400">
-              {ALUMNI_QUESTIONNAIRE.length} sections &middot;{" "}
-              {ALUMNI_QUESTIONNAIRE.reduce((acc, s) => acc + s.questions.length, 0)} questions
-            </p>
-            <div className="flex gap-2">
+          {/* Footer */}
+          <div className="flex shrink-0 items-center justify-between border-t border-slate-200/80 bg-white px-8 py-5">
+            <div className="flex items-center gap-3 text-[13px] text-slate-500 font-medium">
+              <span className="flex items-center gap-1.5"><ClipboardList className="size-4 text-slate-400" /> {ALUMNI_QUESTIONNAIRE.length} Sections</span>
+              <span className="text-slate-300">&bull;</span>
+              <span className="flex items-center gap-1.5"><ListChecks className="size-4 text-slate-400" /> {ALUMNI_QUESTIONNAIRE.reduce((acc, s) => acc + s.questions.length, 0)} Questions</span>
+            </div>
+            <div className="flex gap-3">
               <Button
                 variant="outline"
                 onClick={() => setShowGeneratePreview(false)}
+                className="h-10 px-5 text-[13px] font-medium"
               >
                 Cancel
               </Button>
               <Button
                 onClick={handleConfirmGenerate}
                 disabled={generating}
-                className="gap-2 bg-indigo-600 hover:bg-indigo-700 text-white border-0"
+                className="h-10 px-5 text-[13px] font-medium gap-2 bg-indigo-600 hover:bg-indigo-700 text-white shadow-md shadow-indigo-600/20 border-0 transition-all active:scale-[0.98]"
               >
-                {generating && <Loader2 className="size-4 animate-spin" />}
-                Create Survey
+                {generating ? (
+                  <Loader2 className="size-4 animate-spin" />
+                ) : (
+                  <Check className="size-4" />
+                )}
+                Generate Survey
               </Button>
             </div>
           </div>
