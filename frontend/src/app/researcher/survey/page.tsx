@@ -1657,270 +1657,279 @@ export default function SurveyPage() {
         </DialogContent>
       </Dialog>
 
-      {/* ── View / Settings Sheet ─────────────────────────────── */}
-      <Sheet
+      {/* ── View / Settings Modal ─────────────────────────────── */}
+      <Dialog
         open={modalState !== null && (modalState.type === "view" || modalState.type === "settings")}
         onOpenChange={(open) => !open && handleCloseModal()}
       >
-        <SheetContent className={cn(modalState?.type === "view" ? "sm:max-w-2xl overflow-y-auto" : "")}>
-          
+        <DialogContent 
+          showCloseButton={false}
+          className="sm:max-w-4xl max-w-4xl w-[95vw] h-[90vh] p-0 overflow-hidden flex flex-col gap-0 border-slate-200/60 rounded-xl shadow-2xl bg-slate-50/50"
+        >
           {modalState?.type === "view" && (
             (() => {
               const survey = surveys.find(s => s.id === modalState.id)
               if (!survey) return null
               return (
                 <>
-                  <SheetHeader className="gap-3 border-b border-slate-100 pb-5">
-                    <div className="flex items-center gap-3">
-                      <div className="flex size-10 items-center justify-center rounded-xl bg-indigo-50 ring-1 ring-indigo-100">
-                        <FileText className="size-5 text-indigo-600" />
+                  <div className="flex items-center justify-between px-8 py-5 border-b border-slate-200/80 bg-white shrink-0">
+                    <div className="flex items-center gap-4">
+                      <div className="flex size-12 items-center justify-center rounded-2xl bg-indigo-50/80 ring-1 ring-indigo-100 shadow-sm">
+                        <FileText className="size-6 text-indigo-600" />
                       </div>
                       <div className="flex-1 min-w-0">
-                        <SheetTitle className="text-base font-semibold text-slate-900">
+                        <DialogTitle className="text-lg font-semibold text-slate-900 tracking-tight">
                           {survey.title}
-                        </SheetTitle>
-                        <SheetDescription className="text-[13px] text-slate-500 mt-0.5">
+                        </DialogTitle>
+                        <DialogDescription className="text-[13px] text-slate-500 mt-0.5">
                           Created {formatDate(survey.dateCreated)}
-                        </SheetDescription>
+                        </DialogDescription>
                       </div>
                     </div>
-                  </SheetHeader>
+                    <Button variant="ghost" size="icon" onClick={handleCloseModal} className="text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-full">
+                      <X className="size-5" />
+                    </Button>
+                  </div>
                   
-                  <div className="flex-1 overflow-y-auto px-5 py-5 space-y-6">
-                    {/* Analytics Overview */}
-                    <div>
-                      <h4 className="text-[13px] font-semibold text-slate-900 mb-3">Overview</h4>
-                      <div className="grid grid-cols-2 gap-3">
-                        <div className="rounded-xl border border-slate-200/80 bg-slate-50/50 p-4">
-                          <div className="flex items-center gap-2 text-slate-500 mb-1">
-                            <Users className="size-4" />
-                            <span className="text-[12px] font-medium">Responses</span>
+                  <div className="flex-1 overflow-y-auto px-8 py-8 space-y-8 bg-slate-50/30">
+                    <div className="max-w-3xl mx-auto space-y-8 pb-12">
+                      {/* Analytics Overview */}
+                      <div>
+                        <h4 className="text-sm font-semibold text-slate-900 mb-4">Overview</h4>
+                        <div className="grid grid-cols-2 gap-4">
+                          <div className="rounded-xl border border-slate-200/80 bg-white p-5 shadow-sm">
+                            <div className="flex items-center gap-2 text-slate-500 mb-2">
+                              <Users className="size-4" />
+                              <span className="text-[13px] font-medium">Responses</span>
+                            </div>
+                            <div className="text-3xl font-semibold text-slate-900">
+                              {survey.responses}
+                            </div>
                           </div>
-                          <div className="text-2xl font-semibold text-slate-900">
-                            {survey.responses}
-                          </div>
-                        </div>
-                        <div className="rounded-xl border border-slate-200/80 bg-slate-50/50 p-4">
-                          <div className="flex items-center gap-2 text-slate-500 mb-1">
-                            <FileText className="size-4" />
-                            <span className="text-[12px] font-medium">Status</span>
-                          </div>
-                          <div className="text-lg font-semibold text-slate-900 mt-1">
-                            <span
-                              className={cn(
-                                "inline-flex items-center px-2.5 py-1 rounded-md text-[12px] font-medium",
-                                survey.status === "Active" && "bg-emerald-50 text-emerald-700",
-                                survey.status === "Draft" && "bg-amber-50 text-amber-700",
-                                survey.status === "Closed" && "bg-slate-100 text-slate-600"
-                              )}
-                            >
-                              {survey.status}
-                            </span>
+                          <div className="rounded-xl border border-slate-200/80 bg-white p-5 shadow-sm">
+                            <div className="flex items-center gap-2 text-slate-500 mb-2">
+                              <FileText className="size-4" />
+                              <span className="text-[13px] font-medium">Status</span>
+                            </div>
+                            <div className="text-xl font-semibold text-slate-900 mt-1">
+                              <span
+                                className={cn(
+                                  "inline-flex items-center px-3 py-1.5 rounded-md text-[13px] font-medium",
+                                  survey.status === "Active" && "bg-emerald-50 text-emerald-700",
+                                  survey.status === "Draft" && "bg-amber-50 text-amber-700",
+                                  survey.status === "Closed" && "bg-slate-100 text-slate-600"
+                                )}
+                              >
+                                {survey.status}
+                              </span>
+                            </div>
                           </div>
                         </div>
                       </div>
-                    </div>
 
-                    {/* Tabs */}
-                    <div className="flex items-center gap-1 p-1 bg-slate-100/80 rounded-lg w-full">
-                      <button
-                        onClick={() => setViewTab("questions")}
-                        className={cn(
-                          "flex-1 py-1.5 text-[13px] font-medium rounded-md transition-all",
-                          viewTab === "questions" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700"
-                        )}
-                      >
-                        Questions
-                      </button>
-                      <button
-                        onClick={() => setViewTab("responses")}
-                        className={cn(
-                          "flex-1 py-1.5 text-[13px] font-medium rounded-md transition-all flex items-center justify-center gap-2",
-                          viewTab === "responses" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700"
-                        )}
-                      >
-                        Responses
-                        {survey.responses > 0 && (
-                          <span className="bg-indigo-100 text-indigo-700 py-0.5 px-1.5 rounded-full text-[10px] font-bold leading-none">
-                            {survey.responses}
-                          </span>
-                        )}
-                      </button>
-                    </div>
+                      {/* Tabs */}
+                      <div className="flex items-center gap-1 p-1.5 bg-slate-200/50 rounded-xl w-full">
+                        <button
+                          onClick={() => setViewTab("questions")}
+                          className={cn(
+                            "flex-1 py-2 text-[14px] font-medium rounded-lg transition-all",
+                            viewTab === "questions" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700 hover:bg-slate-200/50"
+                          )}
+                        >
+                          Questions
+                        </button>
+                        <button
+                          onClick={() => setViewTab("responses")}
+                          className={cn(
+                            "flex-1 py-2 text-[14px] font-medium rounded-lg transition-all flex items-center justify-center gap-2",
+                            viewTab === "responses" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700 hover:bg-slate-200/50"
+                          )}
+                        >
+                          Responses
+                          {survey.responses > 0 && (
+                            <span className={cn(
+                              "py-0.5 px-2 rounded-full text-[11px] font-bold leading-none",
+                              viewTab === "responses" ? "bg-indigo-100 text-indigo-700" : "bg-slate-200 text-slate-600"
+                            )}>
+                              {survey.responses}
+                            </span>
+                          )}
+                        </button>
+                      </div>
 
-                    {/* Content */}
-                    {viewTab === "questions" ? (
-                      <div>
-                        {(!survey.sections || survey.sections.length === 0) ? (
-                          <p className="text-xs text-slate-500 italic py-2">No sections added yet.</p>
-                        ) : (
-                          <div className="space-y-4">
-                            {survey.sections.map((sec, secIdx) => (
-                              <div key={sec.id || secIdx} className="rounded-xl border border-slate-200/80 bg-white">
-                                <div className="px-4 py-3 border-b border-slate-100">
-                                  <span className="text-sm font-semibold text-slate-900">
-                                    {secIdx + 1}. {sec.title || "Untitled Section"}
-                                  </span>
-                                  {sec.description && (
-                                    <p className="text-xs text-slate-500 mt-0.5">{sec.description}</p>
-                                  )}
-                                </div>
-                                <div className="px-4 py-3 space-y-3">
-                                  {(!sec.questions || sec.questions.length === 0) ? (
-                                    <p className="text-xs text-slate-400 italic">No questions in this section.</p>
-                                  ) : (
-                                    sec.questions.map((q, qIdx) => (
-                                      <div key={q.id || qIdx} className="text-sm text-slate-600">
-                                        <span className="font-medium text-slate-900 block mb-1">
-                                          {qIdx + 1}. {q.text || "Untitled Question"}
-                                        </span>
-                                        {q.type === "scale" && (
-                                          <div className="mt-2 space-y-1">
-                                            {!!(q.config?.min_label || q.config?.max_label) && (
-                                              <div className="flex items-center gap-1.5 text-xs text-slate-400">
-                                                {!!q.config?.min_label && <span>{String(q.config.min_label)}</span>}
-                                                <span>({(q.config?.min as number) ?? 1} to {(q.config?.max as number) ?? (q.options?.length ?? 4)})</span>
-                                                {!!q.config?.max_label && <span>{String(q.config.max_label)}</span>}
+                      {/* Content */}
+                      {viewTab === "questions" ? (
+                        <div className="space-y-6">
+                          {(!survey.sections || survey.sections.length === 0) ? (
+                            <div className="py-12 flex flex-col items-center justify-center rounded-xl border border-slate-200 border-dashed bg-white">
+                              <p className="text-sm text-slate-500 font-medium">No sections added yet.</p>
+                            </div>
+                          ) : (
+                            <div className="space-y-6">
+                              {survey.sections.map((sec, secIdx) => (
+                                <div key={sec.id || secIdx} className="rounded-xl border border-slate-200/80 bg-white shadow-sm overflow-hidden">
+                                  <div className="px-6 py-4 border-b border-slate-100 bg-slate-50/30">
+                                    <span className="text-base font-semibold text-slate-900">
+                                      {secIdx + 1}. {sec.title || "Untitled Section"}
+                                    </span>
+                                    {sec.description && (
+                                      <p className="text-[13px] text-slate-500 mt-1">{sec.description}</p>
+                                    )}
+                                  </div>
+                                  <div className="p-6 space-y-6 divide-y divide-slate-100">
+                                    {(!sec.questions || sec.questions.length === 0) ? (
+                                      <p className="text-sm text-slate-400 italic">No questions in this section.</p>
+                                    ) : (
+                                      sec.questions.map((q, qIdx) => (
+                                        <div key={q.id || qIdx} className="pt-6 first:pt-0 text-sm text-slate-600">
+                                          <span className="font-medium text-slate-900 block mb-2 text-[15px]">
+                                            {qIdx + 1}. {q.text || "Untitled Question"}
+                                          </span>
+                                          {q.type === "scale" && (
+                                            <div className="mt-3 space-y-2">
+                                              {!!(q.config?.min_label || q.config?.max_label) && (
+                                                <div className="flex items-center gap-2 text-[13px] text-slate-500">
+                                                  {!!q.config?.min_label && <span>{String(q.config.min_label)}</span>}
+                                                  <span>({(q.config?.min as number) ?? 1} to {(q.config?.max as number) ?? (q.options?.length ?? 4)})</span>
+                                                  {!!q.config?.max_label && <span>{String(q.config.max_label)}</span>}
+                                                </div>
+                                              )}
+                                              <div className="flex gap-2">
+                                                {Array.from(
+                                                  { length: ((q.config?.max as number) ?? (q.options?.length ?? 4)) - ((q.config?.min as number) ?? 1) + 1 },
+                                                  (_, i) => ((q.config?.min as number) ?? 1) + i
+                                                ).map(rating => (
+                                                  <div key={rating} className="size-10 rounded-lg border border-slate-200 bg-slate-50 flex items-center justify-center text-slate-500 text-sm shadow-sm">
+                                                    {rating}
+                                                  </div>
+                                                ))}
                                               </div>
-                                            )}
-                                            <div className="flex gap-2">
-                                              {Array.from(
-                                                { length: ((q.config?.max as number) ?? (q.options?.length ?? 4)) - ((q.config?.min as number) ?? 1) + 1 },
-                                                (_, i) => ((q.config?.min as number) ?? 1) + i
-                                              ).map(rating => (
-                                                <div key={rating} className="size-8 rounded-md border border-slate-200 bg-slate-50 flex items-center justify-center text-slate-500 text-xs">
-                                                  {rating}
+                                            </div>
+                                          )}
+                                          {q.type === "text" && (
+                                            <div className="h-20 rounded-lg border border-slate-200 bg-slate-50 mt-3 p-3 text-slate-400 text-[13px] shadow-sm">
+                                              Text response area...
+                                            </div>
+                                          )}
+                                          {["single_choice", "multiple_choice", "ranking"].includes(q.type) && (
+                                            <div className="space-y-2 mt-3">
+                                              {(q.options ?? []).map((opt, optIdx) => (
+                                                <div key={optIdx} className="flex items-center gap-2.5 text-[13px]">
+                                                  <span className="flex size-5 shrink-0 items-center justify-center rounded-full border border-slate-300 text-[10px] font-semibold text-slate-500 bg-white shadow-sm">
+                                                    {String.fromCharCode(65 + optIdx)}
+                                                  </span>
+                                                  <span className="text-slate-700">{opt || `Option ${optIdx + 1}`}</span>
                                                 </div>
                                               ))}
                                             </div>
-                                          </div>
-                                        )}
-                                        {q.type === "text" && (
-                                          <div className="h-16 rounded-md border border-slate-200 bg-slate-50 mt-2 p-2 text-slate-400 text-xs">
-                                            Text response area...
-                                          </div>
-                                        )}
-                                        {["single_choice", "multiple_choice", "ranking"].includes(q.type) && (
-                                          <div className="space-y-1.5 mt-2">
-                                            {(q.options ?? []).map((opt, optIdx) => (
-                                              <div key={optIdx} className="flex items-center gap-2 text-xs">
-                                                <span className="flex size-4 shrink-0 items-center justify-center rounded-full border border-slate-300 text-[9px] font-semibold text-slate-400">
-                                                  {String.fromCharCode(65 + optIdx)}
-                                                </span>
-                                                <span className="text-slate-700">{opt || `Option ${optIdx + 1}`}</span>
+                                          )}
+                                          {q.type === "matrix" && (
+                                            <div className="mt-3 space-y-3 bg-slate-50/50 p-4 rounded-xl border border-slate-100">
+                                              <div className="text-[11px] text-slate-400 font-semibold uppercase tracking-wider">Rows:</div>
+                                              <div className="space-y-1.5 pl-2">
+                                                {(q.options ?? []).map((opt, optIdx) => (
+                                                  <div key={optIdx} className="text-[13px] text-slate-600 flex items-center gap-2">
+                                                    <div className="size-1 rounded-full bg-slate-300"></div>
+                                                    {opt || `Row ${optIdx + 1}`}
+                                                  </div>
+                                                ))}
                                               </div>
-                                            ))}
+                                              <div className="text-[11px] text-slate-400 font-semibold uppercase tracking-wider mt-4">Columns:</div>
+                                              <div className="flex flex-wrap gap-2 pl-2">
+                                                 {((q.config?.columns as string[]) ?? []).map((col, colIdx) => (
+                                                   <span key={colIdx} className="inline-flex items-center px-2.5 py-1 rounded-md bg-white border border-slate-200 shadow-sm text-[11px] font-medium text-slate-600">
+                                                     {col || `Col ${colIdx + 1}`}
+                                                   </span>
+                                                 ))}
+                                              </div>
+                                            </div>
+                                          )}
+                                        </div>
+                                      ))
+                                    )}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="space-y-6">
+                          {survey.responses === 0 ? (
+                            <div className="py-16 flex flex-col items-center justify-center rounded-xl border border-slate-200 border-dashed bg-white shadow-sm">
+                              <div className="size-16 bg-slate-50 rounded-full flex items-center justify-center mb-3 ring-8 ring-slate-50/50">
+                                <Users className="size-8 text-slate-400" />
+                              </div>
+                              <p className="text-base font-medium text-slate-700">Waiting for responses</p>
+                              <p className="text-[13px] text-slate-500 mt-1 max-w-sm text-center">Once users start submitting their feedback, you'll see charts and detailed response breakdowns here.</p>
+                            </div>
+                          ) : (
+                            <div className="space-y-8">
+                              {survey.sections?.map((sec, secIdx) => (
+                                <div key={secIdx} className="space-y-5">
+                                  <h5 className="text-lg font-semibold text-slate-900 border-b border-slate-200 pb-3">{sec.title || `Section ${secIdx + 1}`}</h5>
+                                  {sec.questions?.map((q, qIdx) => {
+                                    const qTexts = responseTexts[q.id] || []
+                                    const qCounts = responseCounts[q.id] || {}
+                                    const totalAnswers = Object.values(qCounts).reduce((a, b) => a + b, 0)
+                                    
+                                    return (
+                                      <div key={qIdx} className="rounded-xl border border-slate-200/80 bg-white p-6 shadow-sm hover:shadow-md transition-shadow">
+                                        <p className="text-[15px] font-medium text-slate-900 mb-6">{qIdx + 1}. {q.text}</p>
+                                        
+                                        {q.type === "text" ? (
+                                          <div className="space-y-3">
+                                            {qTexts.length > 0 ? (
+                                              qTexts.map((txt, tIdx) => (
+                                                <div key={tIdx} className="bg-slate-50 border border-slate-100 p-4 rounded-xl text-[14px] text-slate-700 italic shadow-sm">"{txt}"</div>
+                                              ))
+                                            ) : (
+                                              <div className="text-[14px] text-slate-400 italic py-2">No text responses yet.</div>
+                                            )}
                                           </div>
-                                        )}
-                                        {q.type === "matrix" && (
-                                          <div className="mt-2 space-y-2">
-                                            <div className="text-[10px] text-slate-400 font-semibold uppercase">Rows:</div>
-                                            <div className="space-y-1 pl-2">
-                                              {(q.options ?? []).map((opt, optIdx) => (
-                                                <div key={optIdx} className="text-xs text-slate-650">• {opt || `Row ${optIdx + 1}`}</div>
-                                              ))}
-                                            </div>
-                                            <div className="text-[10px] text-slate-400 font-semibold uppercase mt-1">Columns:</div>
-                                            <div className="flex flex-wrap gap-1.5 pl-2">
-                                               {((q.config?.columns as string[]) ?? []).map((col, colIdx) => (
-                                                 <span key={colIdx} className="inline-flex items-center px-1.5 py-0.5 rounded bg-slate-100 text-[10px] font-medium text-slate-600">
-                                                   {col || `Col ${colIdx + 1}`}
-                                                 </span>
-                                               ))}
-                                            </div>
+                                        ) : (
+                                          <div className="space-y-4">
+                                            {((q.options?.length ? q.options : ["Option 1", "Option 2", "Option 3"])).map((opt, optIdx) => {
+                                              const isFirst = optIdx === 0
+                                              const count = qCounts[opt] || 0
+                                              const percent = totalAnswers > 0 ? Math.round((count / surveyResponses.length) * 100) : 0
+                                              
+                                              return (
+                                                <div key={optIdx} className="group">
+                                                  <div className="flex justify-between text-[13px] mb-2">
+                                                    <span className="text-slate-600 font-medium truncate pr-4">
+                                                      {opt} {count > 0 && <span className="text-slate-400 ml-1.5">({count})</span>}
+                                                    </span>
+                                                    <span className="font-semibold text-slate-900">{percent}%</span>
+                                                  </div>
+                                                  <div className="h-3 w-full bg-slate-100/80 rounded-full overflow-hidden shadow-inner">
+                                                    <div 
+                                                      className={cn("h-full rounded-full transition-all duration-500", isFirst ? "bg-indigo-500 shadow-sm" : "bg-indigo-300 group-hover:bg-indigo-400")} 
+                                                      style={{ width: `${percent}%` }}
+                                                    />
+                                                  </div>
+                                                </div>
+                                              )
+                                            })}
                                           </div>
                                         )}
                                       </div>
-                                    ))
-                                  )}
+                                    )
+                                  })}
                                 </div>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    ) : (
-                      <div className="space-y-6">
-                        {survey.responses === 0 ? (
-                          <div className="py-12 flex flex-col items-center justify-center rounded-xl border border-slate-200 border-dashed bg-slate-50/50">
-                            <Users className="size-8 text-slate-300 mb-2" />
-                            <p className="text-sm font-medium text-slate-600">Waiting for responses</p>
-                            <p className="text-xs text-slate-400 mt-1">This survey hasn't received any responses yet.</p>
-                          </div>
-                        ) : (
-                          <div className="space-y-6">
-                            {survey.sections?.map((sec, secIdx) => (
-                              <div key={secIdx} className="space-y-4">
-                                <h5 className="text-sm font-semibold text-slate-900 border-b border-slate-100 pb-2">{sec.title || `Section ${secIdx + 1}`}</h5>
-                                {sec.questions?.map((q, qIdx) => {
-                                  const qTexts = responseTexts[q.id] || []
-                                  const qCounts = responseCounts[q.id] || {}
-                                  const totalAnswers = Object.values(qCounts).reduce((a, b) => a + b, 0)
-                                  
-                                  return (
-                                    <div key={qIdx} className="rounded-xl border border-slate-200/80 bg-white p-5 shadow-sm">
-                                      <p className="text-[13px] font-medium text-slate-900 mb-4">{qIdx + 1}. {q.text}</p>
-                                      
-                                      {q.type === "text" ? (
-                                        <div className="space-y-2.5">
-                                          {qTexts.length > 0 ? (
-                                            qTexts.map((txt, tIdx) => (
-                                              <div key={tIdx} className="bg-slate-50 border border-slate-100 p-3 rounded-lg text-[13px] text-slate-600 italic">"{txt}"</div>
-                                            ))
-                                          ) : (
-                                            <div className="text-[13px] text-slate-400 italic">No responses yet.</div>
-                                          )}
-                                        </div>
-                                      ) : (
-                                        <div className="space-y-3.5">
-                                          {((q.options?.length ? q.options : ["Option 1", "Option 2", "Option 3"])).map((opt, optIdx) => {
-                                            const isFirst = optIdx === 0
-                                            const count = qCounts[opt] || 0
-                                            const percent = totalAnswers > 0 ? Math.round((count / surveyResponses.length) * 100) : 0
-                                            
-                                            return (
-                                              <div key={optIdx} className="group">
-                                                <div className="flex justify-between text-xs mb-1.5">
-                                                  <span className="text-slate-600 font-medium truncate pr-4">
-                                                    {opt} {count > 0 && <span className="text-slate-400 ml-1">({count})</span>}
-                                                  </span>
-                                                  <span className="font-semibold text-slate-900">{percent}%</span>
-                                                </div>
-                                                <div className="h-2 w-full bg-slate-100 rounded-full overflow-hidden">
-                                                  <div 
-                                                    className={cn("h-full rounded-full transition-all duration-500", isFirst ? "bg-indigo-500" : "bg-indigo-300 group-hover:bg-indigo-400")} 
-                                                    style={{ width: `${percent}%` }}
-                                                  />
-                                                </div>
-                                              </div>
-                                            )
-                                          })}
-                                        </div>
-                                      )}
-                                    </div>
-                                  )
-                                })}
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    )}
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
                   </div>
-
-                  <SheetFooter className="flex-row justify-end gap-2 border-t border-slate-100 bg-white px-5 py-3">
-                    <Button variant="outline" onClick={handleCloseModal}>
-                      Close
-                    </Button>
-                  </SheetFooter>
                 </>
               )
             })()
           )}
-
-
-        </SheetContent>
-      </Sheet>
+        </DialogContent>
+      </Dialog>
 
       {/* ── Generate Preview Dialog ──────────────────────────────────── */}
       <Dialog
