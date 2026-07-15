@@ -3,7 +3,10 @@
 import { useState } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Loader2, Sparkles, AlertCircle, ArrowRight, BrainCircuit } from "lucide-react";
+import { Loader2, Sparkles, AlertCircle, BrainCircuit } from "lucide-react";
+
+const TL_MODEL_ID = "dost-asti/RoBERTa-tl-sentiment-analysis";
+const EN_MODEL_ID = "distilbert-base-uncased-finetuned-sst-2-english";
 
 export default function SentimentTestPage() {
   const [text, setText] = useState("");
@@ -19,12 +22,15 @@ export default function SentimentTestPage() {
     setError(null);
 
     try {
-      const response = await fetch("http://localhost:8000/api/v1/ml/sentiment", {
+      const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api/v1";
+      const response = await fetch(`${API_BASE}/ml/sentiment`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ text }),
+        body: JSON.stringify({
+          text,
+        }),
       });
 
       const data = await response.json();
@@ -34,8 +40,8 @@ export default function SentimentTestPage() {
       }
 
       setResult(data.data);
-    } catch (err: any) {
-      setError(err.message || "An unexpected error occurred.");
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "An unexpected error occurred.");
     } finally {
       setIsLoading(false);
     }
@@ -57,21 +63,6 @@ export default function SentimentTestPage() {
     }
   };
 
-  const getSentimentEmoji = (label: string) => {
-    switch (label.toUpperCase()) {
-      case "POSITIVE":
-      case "LABEL_1":
-      case "LABEL_2":
-        return "😊";
-      case "NEGATIVE":
-      case "LABEL_0":
-        return "😔";
-      case "NEUTRAL":
-        return "😐";
-      default:
-        return "🤔";
-    }
-  };
 
   return (
     <div className="relative min-h-screen bg-white text-slate-900 font-sans selection:bg-indigo-600 selection:text-white overflow-hidden flex flex-col items-center py-20 px-6">
@@ -99,7 +90,7 @@ export default function SentimentTestPage() {
             Sentiment <span className="text-transparent bg-clip-text bg-gradient-to-r from-indigo-600 via-blue-600 to-indigo-500">Analysis.</span>
           </h1>
           <p className="text-slate-400 text-[15px] max-w-lg mx-auto leading-relaxed">
-            Test our locally running RoBERTa language model. Enter a Tagalog sentence below to analyze its emotional sentiment.
+            Test our locally running sentiment analysis models. Input text is automatically routed to either the Tagalog RoBERTa or English DistilBERT model based on language detection.
           </p>
         </div>
 
@@ -108,19 +99,19 @@ export default function SentimentTestPage() {
           <CardHeader className="border-b border-slate-100 bg-slate-50/50 pb-5">
             <CardTitle className="text-slate-900 text-lg">Text Input</CardTitle>
             <CardDescription className="text-slate-500">
-              Type or paste Tagalog text (e.g. "Ang ganda ng serbisyo!")
+              Type or paste Tagalog, English, or Taglish text to analyze.
             </CardDescription>
           </CardHeader>
-          <CardContent className="pt-6">
-            <div className="space-y-5">
+          <CardContent className="pt-0">
+            <div className="space-y-6">
               <textarea
                 value={text}
                 onChange={(e) => setText(e.target.value)}
-                placeholder="Enter Tagalog text here..."
+                placeholder="Enter Tagalog or English text here..."
                 className="w-full min-h-[160px] p-4 bg-white border border-slate-200 rounded-xl focus:ring-4 focus:ring-indigo-600/10 focus:border-indigo-600 transition-all outline-none text-slate-700 placeholder:text-slate-400 resize-y text-[15px] leading-relaxed shadow-sm"
                 onKeyDown={(e) => {
                   if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-                    analyzeSentiment();
+                    void analyzeSentiment();
                   }
                 }}
               />
@@ -181,9 +172,18 @@ export default function SentimentTestPage() {
 
                     {/* Metadata */}
                     <div className="w-full pt-4 border-t border-slate-200/60 flex justify-between items-center text-[12px] text-slate-500">
-                      <div className="flex items-center gap-1.5">
-                        <BrainCircuit className="w-3.5 h-3.5" />
-                        <span>{result.model}</span>
+                      <div className="flex flex-col items-start gap-1">
+                        <div className="flex items-center gap-1.5">
+                          <BrainCircuit className="w-3.5 h-3.5 text-indigo-500" />
+                          <span className="font-semibold text-slate-700">
+                            {result.model === TL_MODEL_ID
+                              ? "Tagalog Sentiment Analyzer (RoBERTa)"
+                              : result.model === EN_MODEL_ID
+                              ? "English Sentiment Analyzer (DistilBERT)"
+                              : result.model}
+                          </span>
+                        </div>
+                        <span className="text-[10px] text-slate-400 font-mono pl-5">{result.model}</span>
                       </div>
                       <span>Confidence: <strong className="text-slate-700">{(result.score * 100).toFixed(1)}%</strong></span>
                     </div>
