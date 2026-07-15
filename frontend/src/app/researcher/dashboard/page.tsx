@@ -7,14 +7,15 @@ import { TrendingUp, Users, Briefcase, Sparkles, ArrowUpRight } from "lucide-rea
 
 const baseStats = [
   {
-    label: "Average PEII Score",
+    label: "Post-Graduation PEII Score",
     baseValue: 0.82,
-    change: "+0.04",
-    changeLabel: "from last year",
+    change: "+0.11",
+    changeLabel: "vs Pre-Grad Baseline",
     icon: TrendingUp,
     iconBg: "bg-emerald-50",
     iconColor: "text-emerald-600",
     changeColor: "text-emerald-600",
+    badge: false,
   },
   {
     label: "Total Alumni Tracked",
@@ -27,28 +28,27 @@ const baseStats = [
     changeColor: "text-blue-600",
   },
   {
-    label: "Employment Rate",
-    baseValue: 91,
+    label: "Transformative Gain",
+    baseValue: 0.11,
     change: null,
-    changeLabel: "Within 6 months of graduation",
-    icon: Briefcase,
+    changeLabel: "Avg gap between Pre & Post scores",
+    icon: Sparkles,
     iconBg: "bg-violet-50",
     iconColor: "text-violet-600",
     changeColor: "text-slate-500",
-    isPercent: true,
+    isFloat: true,
   },
   {
-    label: "Highest Impact Tier",
-    baseValue: 1,
-    change: null,
-    changeLabel: "Highly Transformative",
-    icon: Sparkles,
+    label: "Sentiment Divergence",
+    baseValue: 8.5,
+    change: "-1.2%",
+    changeLabel: "vs previous cohort",
+    icon: Briefcase, // maybe an alert or eye icon would be better, but let's stick to existing imports for now
     iconBg: "bg-amber-50",
     iconColor: "text-amber-600",
     changeColor: "text-emerald-600",
-    valueColor: "text-emerald-600",
-    badge: true,
-    isTier: true,
+    valueColor: "text-amber-600",
+    isPercent: true,
   },
 ]
 
@@ -63,18 +63,18 @@ export default function DashboardPage() {
 
     return baseStats.map(stat => {
       let value: string | number = stat.baseValue
-      if (typeof value === 'number' && !stat.isTier && !stat.isPercent) {
+      if (typeof value === 'number' && !stat.isPercent && !stat.isFloat) {
         value = Math.floor(value * multiplier)
-        if (stat.label === "Average PEII Score") {
+        if (stat.label === "Post-Graduation PEII Score") {
            // Score should stay between 0.6 and 0.95
-           value = (0.7 + (multiplier * 0.15)).toFixed(2)
+           value = (0.7 + (multiplier * 0.12)).toFixed(2)
         } else {
            value = value.toLocaleString()
         }
       } else if (stat.isPercent) {
-         value = `${Math.min(99, Math.floor(stat.baseValue - (1 - multiplier) * 10))}%`
-      } else if (stat.isTier) {
-         value = `Tier ${stat.baseValue}`
+         value = `${(stat.baseValue * multiplier).toFixed(1)}%`
+      } else if (stat.isFloat) {
+         value = `+${(stat.baseValue * multiplier).toFixed(2)}`
       }
 
       return {

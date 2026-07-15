@@ -2,7 +2,6 @@ from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends
-from sqlmodel.ext.asyncio.session import AsyncSession
 
 from core.deps import AsyncDBSession
 from core.responses import APIResponse, list_meta_response, success_response

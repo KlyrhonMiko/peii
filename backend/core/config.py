@@ -18,6 +18,7 @@ class Settings(BaseSettings):
     LOCAL_DATABASE_URL: str
     SUPABASE_DATABASE_URL: str
     BACKEND_CORS_ORIGINS: list[str]
+    HF_API_TOKEN: str | None = None
 
     model_config = SettingsConfigDict(
         env_file=str(ROOT_ENV_FILE),
