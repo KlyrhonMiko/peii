@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useMemo } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import {
@@ -27,7 +27,7 @@ import {
 import {
   Plus,
   Eye,
-  Settings,
+
   Trash,
   FileText,
   Users,
@@ -72,8 +72,9 @@ import {
   createDistribution,
   fetchDistributions,
   revokeDistribution,
+  fetchResponses,
 } from "@/lib/surveys"
-import type { Survey, SurveyQuestion, SurveySection, Distribution } from "@/lib/surveys"
+import type { Survey, SurveyQuestion, SurveySection, Distribution, SurveyResponse } from "@/lib/surveys"
 import { SurveyPreview } from "@/components/SurveyPreview"
 
 const ALUMNI_QUESTIONNAIRE = [
@@ -255,31 +256,66 @@ type ModalState =
   | { type: "settings"; id: string }
   | null
 
+function aggregateResponses(responses: SurveyResponse[]) {
+  const counts: Record<string, Record<string, number>> = {}
+  const texts: Record<string, string[]> = {}
+
+  for (const r of responses) {
+    if (!r.answers) continue
+    for (const [qId, answer] of Object.entries(r.answers)) {
+      if (typeof answer === "string" || typeof answer === "number") {
+        if (!counts[qId]) counts[qId] = {}
+        counts[qId][String(answer)] = (counts[qId][String(answer)] || 0) + 1
+
+        if (!texts[qId]) texts[qId] = []
+        texts[qId].push(String(answer))
+      } else if (Array.isArray(answer)) {
+        for (const item of answer) {
+          if (!counts[qId]) counts[qId] = {}
+          counts[qId][String(item)] = (counts[qId][String(item)] || 0) + 1
+        }
+      } else if (typeof answer === "object" && answer !== null) {
+        for (const [row, colAnswer] of Object.entries(answer)) {
+          const compositeKey = `${row}::${colAnswer}`
+          if (!counts[qId]) counts[qId] = {}
+          counts[qId][compositeKey] = (counts[qId][compositeKey] || 0) + 1
+        }
+      }
+    }
+  }
+  return { counts, texts }
+}
+
 export default function SurveyPage() {
   const [surveys, setSurveys] = useState<Survey[]>([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [generating, setGenerating] = useState(false)
   const [modalState, setModalState] = useState<ModalState>(null)
+  const [viewTab, setViewTab] = useState<"questions" | "responses">("questions")
   const [sections, setSections] = useState<SurveySection[]>([])
   const [originalSections, setOriginalSections] = useState<SurveySection[]>([])
   const [targetCohort, setTargetCohort] = useState("Class of 2024")
   const [cohortOpen, setCohortOpen] = useState(false)
   const [openQuestionSelectId, setOpenQuestionSelectId] = useState<string | null>(null)
-  const [settingsCohortOpen, setSettingsCohortOpen] = useState(false)
-  const [settingsTargetCohort, setSettingsTargetCohort] = useState("Class of 2024")
-  const [settingsStatusOpen, setSettingsStatusOpen] = useState(false)
-  const [settingsStatus, setSettingsStatus] = useState("Active")
+  const [statusOpen, setStatusOpen] = useState(false)
+  const [surveyStatus, setSurveyStatus] = useState("Draft")
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null)
   const [surveyTitle, setSurveyTitle] = useState("")
   const [surveyDescription, setSurveyDescription] = useState("")
-  const [settingsTitle, setSettingsTitle] = useState("")
   const [previewSurvey, setPreviewSurvey] = useState<Survey | null>(null)
   const [previewLoading, setPreviewLoading] = useState(false)
   const [showGeneratePreview, setShowGeneratePreview] = useState(false)
   const [distributeSurveyId, setDistributeSurveyId] = useState<string | null>(null)
   const [distributions, setDistributions] = useState<Distribution[]>([])
   const [distLoading, setDistLoading] = useState(false)
+  const [surveyResponses, setSurveyResponses] = useState<SurveyResponse[]>([])
+  const [responsesLoading, setResponsesLoading] = useState(false)
+  
+  const { counts: responseCounts, texts: responseTexts } = useMemo(
+    () => aggregateResponses(surveyResponses),
+    [surveyResponses]
+  )
   const [distCreating, setDistCreating] = useState(false)
   const [copiedToken, setCopiedToken] = useState<string | null>(null)
 
@@ -313,12 +349,15 @@ export default function SurveyPage() {
     setSurveyTitle("")
     setSurveyDescription("")
     setTargetCohort("Class of 2024")
+    setSurveyStatus("Draft")
+    setViewTab("questions")
   }
 
   const handleOpenCreate = () => {
     setSurveyTitle("")
     setSurveyDescription("")
     setTargetCohort("Class of 2024")
+    setSurveyStatus("Draft")
     setSections([{
       id: Date.now().toString(),
       title: "",
@@ -329,6 +368,29 @@ export default function SurveyPage() {
     setModalState({ type: "create" })
   }
 
+  const handleOpenView = async (id: string) => {
+    const survey = surveys.find((s) => s.id === id)
+    if (!survey) return
+    setResponsesLoading(true)
+    try {
+      const full = await fetchSurvey(survey.surveyId)
+      setSurveys((prev) => prev.map((s) => (s.id === id ? { ...s, ...full } : s)))
+      
+      if (full.responses > 0) {
+        const { responses } = await fetchResponses(full.id)
+        setSurveyResponses(responses)
+      } else {
+        setSurveyResponses([])
+      }
+      
+      setModalState({ type: "view", id })
+    } catch {
+      // silently fail
+    } finally {
+      setResponsesLoading(false)
+    }
+  }
+
   const handleOpenEdit = async (id: string) => {
     const survey = surveys.find((s) => s.id === id)
     if (!survey) return
@@ -337,6 +399,7 @@ export default function SurveyPage() {
       setSurveyTitle(full.title)
       setSurveyDescription(full.description ?? "")
       setTargetCohort(full.targetCohort ?? "Class of 2024")
+      setSurveyStatus(full.status ?? "Draft")
       const loaded = full.sections ?? []
       setOriginalSections(loaded)
       setSections(loaded)
@@ -371,6 +434,7 @@ export default function SurveyPage() {
             question_type: q.question_type,
             options: q.options ?? null,
             config: q.config ?? null,
+            is_required: true,
             section_id: createdSec.id,
           })
         }
@@ -394,7 +458,7 @@ export default function SurveyPage() {
           title: surveyTitle,
           description: surveyDescription || null,
           target_cohort: targetCohort,
-          status: "Draft",
+          status: surveyStatus,
         })
         const sectionIdMap: Record<string, string> = {}
         for (const sec of sections) {
@@ -409,6 +473,7 @@ export default function SurveyPage() {
               question_type: q.type,
               options: q.options ?? null,
               config: q.config ?? null,
+              is_required: q.isRequired ?? true,
               section_id: createdSec.id,
             })
           }
@@ -423,6 +488,7 @@ export default function SurveyPage() {
           title: surveyTitle,
           description: surveyDescription || null,
           target_cohort: targetCohort,
+          status: surveyStatus,
         })
 
         // -- Sections diff --
@@ -475,6 +541,7 @@ export default function SurveyPage() {
               if (
                 origQ.text !== q.text ||
                 origQ.type !== q.type ||
+                origQ.isRequired !== q.isRequired ||
                 JSON.stringify(origQ.options) !== JSON.stringify(q.options) ||
                 JSON.stringify(origQ.config) !== JSON.stringify(q.config)
               ) {
@@ -483,6 +550,7 @@ export default function SurveyPage() {
                   question_type: q.type,
                   options: q.options ?? null,
                   config: q.config ?? null,
+                  is_required: q.isRequired ?? true,
                 })
               }
             } else {
@@ -491,6 +559,7 @@ export default function SurveyPage() {
                 question_type: q.type,
                 options: q.options ?? null,
                 config: q.config ?? null,
+                is_required: q.isRequired ?? true,
                 section_id: backendSecId,
               })
             }
@@ -519,22 +588,7 @@ export default function SurveyPage() {
     }
   }
 
-  const handleSaveSettings = async () => {
-    if (modalState?.type !== "settings") return
-    const survey = surveys.find((s) => s.id === modalState.id)
-    if (!survey) return
-    try {
-      const payload: Parameters<typeof updateSurvey>[1] = {}
-      if (settingsTitle) payload.title = settingsTitle
-      payload.status = settingsStatus
-      payload.target_cohort = settingsTargetCohort || null
-      const updated = await updateSurvey(survey.surveyId, payload)
-      setSurveys((prev) => prev.map((s) => (s.id === updated.id ? updated : s)))
-      handleCloseModal()
-    } catch {
-      // silently fail
-    }
-  }
+
 
   const handlePreview = async (surveyId: string) => {
     const survey = surveys.find((s) => s.id === surveyId)
@@ -558,7 +612,11 @@ export default function SurveyPage() {
     setDistributeSurveyId(surveyId)
     setDistLoading(true)
     try {
-      const items = await fetchDistributions(surveyId)
+      let items = await fetchDistributions(surveyId)
+      if (items.length === 0) {
+        const created = await createDistribution(surveyId)
+        items = [created]
+      }
       setDistributions(items)
     } catch {
       setDistributions([])
@@ -621,7 +679,7 @@ export default function SurveyPage() {
   const updateSection = (secIdx: number, patch: Partial<SurveySection>) => {
     setSections((prev) => {
       const next = [...prev]
-      Object.assign(next[secIdx]!, patch)
+      next[secIdx] = { ...next[secIdx]!, ...patch }
       return next
     })
   }
@@ -636,7 +694,7 @@ export default function SurveyPage() {
       const sec = { ...next[secIdx]! }
       sec.questions = [
         ...sec.questions,
-        { id: Date.now().toString(), text: "", type: "text", options: [""] },
+        { id: Date.now().toString(), text: "", type: "text", options: [""], isRequired: true },
       ]
       next[secIdx] = sec
       return next
@@ -648,7 +706,7 @@ export default function SurveyPage() {
       const next = [...prev]
       const sec = { ...next[secIdx]! }
       const qs = [...sec.questions]
-      Object.assign(qs[qIdx]!, patch)
+      qs[qIdx] = { ...qs[qIdx]!, ...patch }
       sec.questions = qs
       next[secIdx] = sec
       return next
@@ -838,9 +896,7 @@ export default function SurveyPage() {
                         <Button
                           variant="ghost"
                           size="icon"
-                          onClick={() =>
-                            setModalState({ type: "view", id: survey.id })
-                          }
+                          onClick={() => handleOpenView(survey.id)}
                           className="text-slate-400 hover:text-indigo-600 hover:bg-indigo-50"
                           title="View Details"
                         >
@@ -855,20 +911,7 @@ export default function SurveyPage() {
                         >
                           <Pencil className="size-4" />
                         </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => {
-                            setModalState({ type: "settings", id: survey.id })
-                            setSettingsTitle(survey.title)
-                            setSettingsTargetCohort(survey.targetCohort ?? "Class of 2024")
-                            setSettingsStatus(survey.status)
-                          }}
-                          className="text-slate-400 hover:text-slate-900"
-                          title="Settings"
-                        >
-                          <Settings className="size-4" />
-                        </Button>
+
                         <Button
                           variant="ghost"
                           size="icon"
@@ -984,7 +1027,8 @@ export default function SurveyPage() {
                         />
                         <PopoverContent
                           align="start"
-                          className="w-[var(--anchor-width)] p-1 flex flex-col gap-0.5 bg-white border border-slate-200 rounded-lg shadow-md animate-in fade-in-0 zoom-in-95 duration-100"
+                          style={{ width: "var(--anchor-width)" }}
+                          className="p-1 flex flex-col gap-0.5 bg-white border border-slate-200 rounded-lg shadow-md animate-in fade-in-0 zoom-in-95 duration-100"
                         >
                           {["Class of 2024", "Class of 2025", "All Alumni"].map((cohortOption) => {
                             const isSelected = targetCohort === cohortOption
@@ -1015,6 +1059,55 @@ export default function SurveyPage() {
 
                     <div className="space-y-1.5">
                       <label className="text-[13px] font-medium text-slate-700">
+                        Status
+                      </label>
+                      <Popover open={statusOpen} onOpenChange={setStatusOpen}>
+                        <PopoverTrigger
+                          render={
+                            <Button
+                              variant="outline"
+                              type="button"
+                              className="h-8 w-full justify-between font-normal text-sm border border-input bg-transparent hover:bg-slate-50/50 hover:border-slate-300 transition-colors cursor-pointer outline-none focus-visible:ring-3 focus-visible:ring-ring/50 select-none text-left"
+                            >
+                              <span>{surveyStatus}</span>
+                              <ChevronDown className="size-4 text-slate-400 shrink-0 opacity-60" />
+                            </Button>
+                          }
+                        />
+                        <PopoverContent
+                          align="start"
+                          style={{ width: "var(--anchor-width)" }}
+                          className="p-1 flex flex-col gap-0.5 bg-white border border-slate-200 rounded-lg shadow-md animate-in fade-in-0 zoom-in-95 duration-100"
+                        >
+                          {["Active", "Draft", "Closed"].map((statusOption) => {
+                            const isSelected = surveyStatus === statusOption
+                            return (
+                              <button
+                                type="button"
+                                key={statusOption}
+                                onClick={() => {
+                                  setSurveyStatus(statusOption)
+                                  setStatusOpen(false)
+                                }}
+                                className={`
+                                  flex items-center justify-between w-full px-2.5 py-1.5 text-xs font-medium rounded-md text-left transition-colors cursor-pointer outline-none
+                                  ${isSelected
+                                    ? "bg-indigo-50 text-indigo-700 font-semibold"
+                                    : "text-slate-650 hover:bg-slate-50 hover:text-slate-900"
+                                  }
+                                `}
+                              >
+                                <span>{statusOption}</span>
+                                {isSelected && <Check className="size-3.5 text-indigo-600" />}
+                              </button>
+                            )
+                          })}
+                        </PopoverContent>
+                      </Popover>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <label className="text-[13px] font-medium text-slate-700">
                         Description{" "}
                         <span className="font-normal text-slate-400">
                           (optional)
@@ -1022,10 +1115,20 @@ export default function SurveyPage() {
                       </label>
                       <textarea
                         rows={3}
-                        className="w-full rounded-lg border border-input bg-transparent px-2.5 py-2 text-sm outline-none transition-colors placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 resize-none"
+                        className="w-full rounded-lg border border-input bg-transparent px-2.5 py-2 text-sm outline-none transition-colors placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 resize-none overflow-hidden min-h-[80px]"
                         placeholder="Brief description of this survey's goals…"
                         value={surveyDescription}
-                        onChange={(e) => setSurveyDescription(e.target.value)}
+                        onChange={(e) => {
+                          setSurveyDescription(e.target.value)
+                          e.target.style.height = "auto"
+                          e.target.style.height = `${e.target.scrollHeight}px`
+                        }}
+                        ref={(el) => {
+                          if (el) {
+                            el.style.height = "auto"
+                            el.style.height = `${el.scrollHeight}px`
+                          }
+                        }}
                       />
                     </div>
                   </fieldset>
@@ -1089,14 +1192,22 @@ export default function SurveyPage() {
                                 />
                                 <textarea
                                   rows={1}
-                                  className="w-full rounded-lg border border-input bg-transparent px-2.5 py-1.5 text-xs outline-none transition-colors placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 resize-none"
+                                  className="w-full rounded-lg border border-input bg-transparent px-2.5 py-1.5 text-xs outline-none transition-colors placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 resize-none overflow-hidden min-h-[32px]"
                                   placeholder="Section description (optional)"
                                   value={sec.description ?? ""}
-                                  onChange={(e) =>
+                                  onChange={(e) => {
                                     updateSection(secIdx, {
                                       description: e.target.value,
                                     })
-                                  }
+                                    e.target.style.height = "auto"
+                                    e.target.style.height = `${e.target.scrollHeight}px`
+                                  }}
+                                  ref={(el) => {
+                                    if (el) {
+                                      el.style.height = "auto"
+                                      el.style.height = `${el.scrollHeight}px`
+                                    }
+                                  }}
                                 />
                               </div>
                               <Button
@@ -1136,16 +1247,21 @@ export default function SurveyPage() {
                                         </div>
 
                                         <div className="flex-1 min-w-0 space-y-2">
-                                          <Input
-                                            placeholder={`Question ${qIdx + 1}`}
-                                            value={q.text}
-                                            onChange={(e) =>
-                                              updateQuestion(secIdx, qIdx, {
-                                                text: e.target.value,
-                                              })
-                                            }
-                                            className="bg-slate-50/60 focus-visible:bg-white"
-                                          />
+                                          <div className="relative">
+                                            <Input
+                                              placeholder={`Question ${qIdx + 1}`}
+                                              value={q.text}
+                                              onChange={(e) =>
+                                                updateQuestion(secIdx, qIdx, {
+                                                  text: e.target.value,
+                                                })
+                                              }
+                                              className="bg-slate-50/60 focus-visible:bg-white pr-6"
+                                            />
+                                            {(q.isRequired ?? true) && (
+                                              <span className="text-red-500 absolute right-2.5 top-1/2 -translate-y-1/2 font-medium">*</span>
+                                            )}
+                                          </div>
 
                                           {/* Type selector */}
                                           <div className="relative">
@@ -1174,7 +1290,8 @@ export default function SurveyPage() {
                                               />
                                               <PopoverContent
                                                 align="start"
-                                                className="w-[var(--anchor-width)] p-1 flex flex-col gap-0.5 bg-white border border-slate-200 rounded-lg shadow-md animate-in fade-in-0 zoom-in-95 duration-100"
+                                                style={{ width: "var(--anchor-width)" }}
+                                                className="p-1 flex flex-col gap-0.5 bg-white border border-slate-200 rounded-lg shadow-md animate-in fade-in-0 zoom-in-95 duration-100"
                                               >
                                                 {QUESTION_TYPES.map((t) => {
                                                   const isSelected = q.type === t.value
@@ -1233,6 +1350,31 @@ export default function SurveyPage() {
                                         >
                                           <X className="size-3.5" />
                                         </Button>
+                                      </div>
+
+                                      <div className="px-3 pt-0 pb-1">
+                                        <div 
+                                          className="flex items-center gap-2 mt-1 w-max cursor-pointer"
+                                          onClick={() => updateQuestion(secIdx, qIdx, { isRequired: !(q.isRequired ?? true) })}
+                                        >
+                                          <button
+                                            type="button"
+                                            className={cn(
+                                              "relative inline-flex h-4 w-7 flex-shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-indigo-600 focus:ring-offset-2",
+                                              (q.isRequired ?? true) ? "bg-indigo-600" : "bg-slate-200"
+                                            )}
+                                          >
+                                            <span
+                                              className={cn(
+                                                "pointer-events-none inline-block h-3 w-3 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out",
+                                                (q.isRequired ?? true) ? "translate-x-3" : "translate-x-0"
+                                              )}
+                                            />
+                                          </button>
+                                          <span className="text-[11px] font-medium text-slate-500 select-none">
+                                            Required question
+                                          </span>
+                                        </div>
                                       </div>
 
                                       {q.type === "scale" && (
@@ -1520,7 +1662,7 @@ export default function SurveyPage() {
         open={modalState !== null && (modalState.type === "view" || modalState.type === "settings")}
         onOpenChange={(open) => !open && handleCloseModal()}
       >
-        <SheetContent>
+        <SheetContent className={cn(modalState?.type === "view" ? "sm:max-w-2xl overflow-y-auto" : "")}>
           
           {modalState?.type === "view" && (
             (() => {
@@ -1579,97 +1721,191 @@ export default function SurveyPage() {
                       </div>
                     </div>
 
-                    {/* Sections & Questions Preview */}
-                    <div>
-                      <h4 className="text-[13px] font-semibold text-slate-900 mb-3">Sections &amp; Questions</h4>
-                      {(!survey.sections || survey.sections.length === 0) ? (
-                        <p className="text-xs text-slate-500 italic py-2">No sections added yet.</p>
-                      ) : (
-                        <div className="space-y-4">
-                          {survey.sections.map((sec, secIdx) => (
-                            <div key={sec.id || secIdx} className="rounded-xl border border-slate-200/80 bg-white">
-                              <div className="px-4 py-3 border-b border-slate-100">
-                                <span className="text-sm font-semibold text-slate-900">
-                                  {secIdx + 1}. {sec.title || "Untitled Section"}
-                                </span>
-                                {sec.description && (
-                                  <p className="text-xs text-slate-500 mt-0.5">{sec.description}</p>
-                                )}
-                              </div>
-                              <div className="px-4 py-3 space-y-3">
-                                {(!sec.questions || sec.questions.length === 0) ? (
-                                  <p className="text-xs text-slate-400 italic">No questions in this section.</p>
-                                ) : (
-                                  sec.questions.map((q, qIdx) => (
-                                    <div key={q.id || qIdx} className="text-sm text-slate-600">
-                                      <span className="font-medium text-slate-900 block mb-1">
-                                        {qIdx + 1}. {q.text || "Untitled Question"}
-                                      </span>
-                                      {q.type === "scale" && (
-                                        <div className="mt-2 space-y-1">
-                                          {!!(q.config?.min_label || q.config?.max_label) && (
-                                            <div className="flex items-center gap-1.5 text-xs text-slate-400">
-                                              {!!q.config?.min_label && <span>{String(q.config.min_label)}</span>}
-                                              <span>({(q.config?.min as number) ?? 1} to {(q.config?.max as number) ?? (q.options?.length ?? 4)})</span>
-                                              {!!q.config?.max_label && <span>{String(q.config.max_label)}</span>}
+                    {/* Tabs */}
+                    <div className="flex items-center gap-1 p-1 bg-slate-100/80 rounded-lg w-full">
+                      <button
+                        onClick={() => setViewTab("questions")}
+                        className={cn(
+                          "flex-1 py-1.5 text-[13px] font-medium rounded-md transition-all",
+                          viewTab === "questions" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700"
+                        )}
+                      >
+                        Questions
+                      </button>
+                      <button
+                        onClick={() => setViewTab("responses")}
+                        className={cn(
+                          "flex-1 py-1.5 text-[13px] font-medium rounded-md transition-all flex items-center justify-center gap-2",
+                          viewTab === "responses" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700"
+                        )}
+                      >
+                        Responses
+                        {survey.responses > 0 && (
+                          <span className="bg-indigo-100 text-indigo-700 py-0.5 px-1.5 rounded-full text-[10px] font-bold leading-none">
+                            {survey.responses}
+                          </span>
+                        )}
+                      </button>
+                    </div>
+
+                    {/* Content */}
+                    {viewTab === "questions" ? (
+                      <div>
+                        {(!survey.sections || survey.sections.length === 0) ? (
+                          <p className="text-xs text-slate-500 italic py-2">No sections added yet.</p>
+                        ) : (
+                          <div className="space-y-4">
+                            {survey.sections.map((sec, secIdx) => (
+                              <div key={sec.id || secIdx} className="rounded-xl border border-slate-200/80 bg-white">
+                                <div className="px-4 py-3 border-b border-slate-100">
+                                  <span className="text-sm font-semibold text-slate-900">
+                                    {secIdx + 1}. {sec.title || "Untitled Section"}
+                                  </span>
+                                  {sec.description && (
+                                    <p className="text-xs text-slate-500 mt-0.5">{sec.description}</p>
+                                  )}
+                                </div>
+                                <div className="px-4 py-3 space-y-3">
+                                  {(!sec.questions || sec.questions.length === 0) ? (
+                                    <p className="text-xs text-slate-400 italic">No questions in this section.</p>
+                                  ) : (
+                                    sec.questions.map((q, qIdx) => (
+                                      <div key={q.id || qIdx} className="text-sm text-slate-600">
+                                        <span className="font-medium text-slate-900 block mb-1">
+                                          {qIdx + 1}. {q.text || "Untitled Question"}
+                                        </span>
+                                        {q.type === "scale" && (
+                                          <div className="mt-2 space-y-1">
+                                            {!!(q.config?.min_label || q.config?.max_label) && (
+                                              <div className="flex items-center gap-1.5 text-xs text-slate-400">
+                                                {!!q.config?.min_label && <span>{String(q.config.min_label)}</span>}
+                                                <span>({(q.config?.min as number) ?? 1} to {(q.config?.max as number) ?? (q.options?.length ?? 4)})</span>
+                                                {!!q.config?.max_label && <span>{String(q.config.max_label)}</span>}
+                                              </div>
+                                            )}
+                                            <div className="flex gap-2">
+                                              {Array.from(
+                                                { length: ((q.config?.max as number) ?? (q.options?.length ?? 4)) - ((q.config?.min as number) ?? 1) + 1 },
+                                                (_, i) => ((q.config?.min as number) ?? 1) + i
+                                              ).map(rating => (
+                                                <div key={rating} className="size-8 rounded-md border border-slate-200 bg-slate-50 flex items-center justify-center text-slate-500 text-xs">
+                                                  {rating}
+                                                </div>
+                                              ))}
                                             </div>
-                                          )}
-                                          <div className="flex gap-2">
-                                            {Array.from(
-                                              { length: ((q.config?.max as number) ?? (q.options?.length ?? 4)) - ((q.config?.min as number) ?? 1) + 1 },
-                                              (_, i) => ((q.config?.min as number) ?? 1) + i
-                                            ).map(rating => (
-                                              <div key={rating} className="size-8 rounded-md border border-slate-200 bg-slate-50 flex items-center justify-center text-slate-500 text-xs">
-                                                {rating}
+                                          </div>
+                                        )}
+                                        {q.type === "text" && (
+                                          <div className="h-16 rounded-md border border-slate-200 bg-slate-50 mt-2 p-2 text-slate-400 text-xs">
+                                            Text response area...
+                                          </div>
+                                        )}
+                                        {["single_choice", "multiple_choice", "ranking"].includes(q.type) && (
+                                          <div className="space-y-1.5 mt-2">
+                                            {(q.options ?? []).map((opt, optIdx) => (
+                                              <div key={optIdx} className="flex items-center gap-2 text-xs">
+                                                <span className="flex size-4 shrink-0 items-center justify-center rounded-full border border-slate-300 text-[9px] font-semibold text-slate-400">
+                                                  {String.fromCharCode(65 + optIdx)}
+                                                </span>
+                                                <span className="text-slate-700">{opt || `Option ${optIdx + 1}`}</span>
                                               </div>
                                             ))}
                                           </div>
-                                        </div>
-                                      )}
-                                      {q.type === "text" && (
-                                        <div className="h-16 rounded-md border border-slate-200 bg-slate-50 mt-2 p-2 text-slate-400 text-xs">
-                                          Text response area...
-                                        </div>
-                                      )}
-                                      {["single_choice", "multiple_choice", "ranking"].includes(q.type) && (
-                                        <div className="space-y-1.5 mt-2">
-                                          {(q.options ?? []).map((opt, optIdx) => (
-                                            <div key={optIdx} className="flex items-center gap-2 text-xs">
-                                              <span className="flex size-4 shrink-0 items-center justify-center rounded-full border border-slate-300 text-[9px] font-semibold text-slate-400">
-                                                {String.fromCharCode(65 + optIdx)}
-                                              </span>
-                                              <span className="text-slate-700">{opt || `Option ${optIdx + 1}`}</span>
+                                        )}
+                                        {q.type === "matrix" && (
+                                          <div className="mt-2 space-y-2">
+                                            <div className="text-[10px] text-slate-400 font-semibold uppercase">Rows:</div>
+                                            <div className="space-y-1 pl-2">
+                                              {(q.options ?? []).map((opt, optIdx) => (
+                                                <div key={optIdx} className="text-xs text-slate-650">• {opt || `Row ${optIdx + 1}`}</div>
+                                              ))}
                                             </div>
-                                          ))}
+                                            <div className="text-[10px] text-slate-400 font-semibold uppercase mt-1">Columns:</div>
+                                            <div className="flex flex-wrap gap-1.5 pl-2">
+                                               {((q.config?.columns as string[]) ?? []).map((col, colIdx) => (
+                                                 <span key={colIdx} className="inline-flex items-center px-1.5 py-0.5 rounded bg-slate-100 text-[10px] font-medium text-slate-600">
+                                                   {col || `Col ${colIdx + 1}`}
+                                                 </span>
+                                               ))}
+                                            </div>
+                                          </div>
+                                        )}
+                                      </div>
+                                    ))
+                                  )}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="space-y-6">
+                        {survey.responses === 0 ? (
+                          <div className="py-12 flex flex-col items-center justify-center rounded-xl border border-slate-200 border-dashed bg-slate-50/50">
+                            <Users className="size-8 text-slate-300 mb-2" />
+                            <p className="text-sm font-medium text-slate-600">Waiting for responses</p>
+                            <p className="text-xs text-slate-400 mt-1">This survey hasn't received any responses yet.</p>
+                          </div>
+                        ) : (
+                          <div className="space-y-6">
+                            {survey.sections?.map((sec, secIdx) => (
+                              <div key={secIdx} className="space-y-4">
+                                <h5 className="text-sm font-semibold text-slate-900 border-b border-slate-100 pb-2">{sec.title || `Section ${secIdx + 1}`}</h5>
+                                {sec.questions?.map((q, qIdx) => {
+                                  const qTexts = responseTexts[q.id] || []
+                                  const qCounts = responseCounts[q.id] || {}
+                                  const totalAnswers = Object.values(qCounts).reduce((a, b) => a + b, 0)
+                                  
+                                  return (
+                                    <div key={qIdx} className="rounded-xl border border-slate-200/80 bg-white p-5 shadow-sm">
+                                      <p className="text-[13px] font-medium text-slate-900 mb-4">{qIdx + 1}. {q.text}</p>
+                                      
+                                      {q.type === "text" ? (
+                                        <div className="space-y-2.5">
+                                          {qTexts.length > 0 ? (
+                                            qTexts.map((txt, tIdx) => (
+                                              <div key={tIdx} className="bg-slate-50 border border-slate-100 p-3 rounded-lg text-[13px] text-slate-600 italic">"{txt}"</div>
+                                            ))
+                                          ) : (
+                                            <div className="text-[13px] text-slate-400 italic">No responses yet.</div>
+                                          )}
                                         </div>
-                                      )}
-                                      {q.type === "matrix" && (
-                                        <div className="mt-2 space-y-2">
-                                          <div className="text-[10px] text-slate-400 font-semibold uppercase">Rows:</div>
-                                          <div className="space-y-1 pl-2">
-                                            {(q.options ?? []).map((opt, optIdx) => (
-                                              <div key={optIdx} className="text-xs text-slate-650">• {opt || `Row ${optIdx + 1}`}</div>
-                                            ))}
-                                          </div>
-                                          <div className="text-[10px] text-slate-400 font-semibold uppercase mt-1">Columns:</div>
-                                          <div className="flex flex-wrap gap-1.5 pl-2">
-                                             {((q.config?.columns as string[]) ?? []).map((col, colIdx) => (
-                                               <span key={colIdx} className="inline-flex items-center px-1.5 py-0.5 rounded bg-slate-100 text-[10px] font-medium text-slate-600">
-                                                 {col || `Col ${colIdx + 1}`}
-                                               </span>
-                                             ))}
-                                          </div>
+                                      ) : (
+                                        <div className="space-y-3.5">
+                                          {((q.options?.length ? q.options : ["Option 1", "Option 2", "Option 3"])).map((opt, optIdx) => {
+                                            const isFirst = optIdx === 0
+                                            const count = qCounts[opt] || 0
+                                            const percent = totalAnswers > 0 ? Math.round((count / surveyResponses.length) * 100) : 0
+                                            
+                                            return (
+                                              <div key={optIdx} className="group">
+                                                <div className="flex justify-between text-xs mb-1.5">
+                                                  <span className="text-slate-600 font-medium truncate pr-4">
+                                                    {opt} {count > 0 && <span className="text-slate-400 ml-1">({count})</span>}
+                                                  </span>
+                                                  <span className="font-semibold text-slate-900">{percent}%</span>
+                                                </div>
+                                                <div className="h-2 w-full bg-slate-100 rounded-full overflow-hidden">
+                                                  <div 
+                                                    className={cn("h-full rounded-full transition-all duration-500", isFirst ? "bg-indigo-500" : "bg-indigo-300 group-hover:bg-indigo-400")} 
+                                                    style={{ width: `${percent}%` }}
+                                                  />
+                                                </div>
+                                              </div>
+                                            )
+                                          })}
                                         </div>
                                       )}
                                     </div>
-                                  ))
-                                )}
+                                  )
+                                })}
                               </div>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
 
                   <SheetFooter className="flex-row justify-end gap-2 border-t border-slate-100 bg-white px-5 py-3">
@@ -1682,150 +1918,7 @@ export default function SurveyPage() {
             })()
           )}
 
-          {modalState?.type === "settings" && (
-            (() => {
-              const survey = surveys.find(s => s.id === modalState.id)
-              if (!survey) return null
-              return (
-                <>
-                  <SheetHeader className="gap-3 border-b border-slate-100 pb-5">
-                    <div className="flex items-center gap-3">
-                      <div className="flex size-10 items-center justify-center rounded-xl bg-slate-100 ring-1 ring-slate-200">
-                        <Settings className="size-5 text-slate-600" />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <SheetTitle className="text-base font-semibold text-slate-900">
-                          Survey Settings
-                        </SheetTitle>
-                        <SheetDescription className="text-[13px] text-slate-500 mt-0.5">
-                          Manage configuration for {survey.title}
-                        </SheetDescription>
-                      </div>
-                    </div>
-                  </SheetHeader>
-                  
-                  <div className="flex-1 overflow-y-auto px-5 py-5 space-y-6">
-                    <div className="space-y-4">
-                      <div className="space-y-1.5">
-                        <label className="text-[13px] font-medium text-slate-700">
-                          Survey Title
-                        </label>
-                        <Input
-                          value={settingsTitle}
-                          onChange={(e) => setSettingsTitle(e.target.value)}
-                        />
-                      </div>
 
-                      <div className="space-y-1.5">
-                        <label className="text-[13px] font-medium text-slate-700">
-                          Status
-                        </label>
-                        <Popover open={settingsStatusOpen} onOpenChange={setSettingsStatusOpen}>
-                          <PopoverTrigger
-                            render={
-                              <Button
-                                variant="outline"
-                                type="button"
-                                className="h-8 w-full justify-between font-normal text-sm border border-input bg-transparent hover:bg-slate-50/50 hover:border-slate-300 transition-colors cursor-pointer outline-none focus-visible:ring-3 focus-visible:ring-ring/50 select-none text-left"
-                              >
-                                <span>{settingsStatus}</span>
-                                <ChevronDown className="size-4 text-slate-400 shrink-0 opacity-60" />
-                              </Button>
-                            }
-                          />
-                          <PopoverContent
-                            align="start"
-                            className="w-[var(--anchor-width)] p-1 flex flex-col gap-0.5 bg-white border border-slate-200 rounded-lg shadow-md animate-in fade-in-0 zoom-in-95 duration-100"
-                          >
-                            {["Active", "Draft", "Closed"].map((statusOption) => {
-                              const isSelected = settingsStatus === statusOption
-                              return (
-                                <button
-                                  type="button"
-                                  key={statusOption}
-                                  onClick={() => {
-                                    setSettingsStatus(statusOption)
-                                    setSettingsStatusOpen(false)
-                                  }}
-                                  className={`
-                                    flex items-center justify-between w-full px-2.5 py-1.5 text-xs font-medium rounded-md text-left transition-colors cursor-pointer outline-none
-                                    ${isSelected
-                                      ? "bg-indigo-50 text-indigo-700 font-semibold"
-                                      : "text-slate-650 hover:bg-slate-50 hover:text-slate-900"
-                                    }
-                                  `}
-                                >
-                                  <span>{statusOption}</span>
-                                  {isSelected && <Check className="size-3.5 text-indigo-600" />}
-                                </button>
-                              )
-                            })}
-                          </PopoverContent>
-                        </Popover>
-                      </div>
-
-                      <div className="space-y-1.5">
-                        <label className="text-[13px] font-medium text-slate-700">
-                          Target Cohort
-                        </label>
-                        <Popover open={settingsCohortOpen} onOpenChange={setSettingsCohortOpen}>
-                          <PopoverTrigger
-                            render={
-                              <Button
-                                variant="outline"
-                                type="button"
-                                className="h-8 w-full justify-between font-normal text-sm border border-input bg-transparent hover:bg-slate-50/50 hover:border-slate-300 transition-colors cursor-pointer outline-none focus-visible:ring-3 focus-visible:ring-ring/50 select-none text-left"
-                              >
-                                <span>{settingsTargetCohort}</span>
-                                <ChevronDown className="size-4 text-slate-400 shrink-0 opacity-60" />
-                              </Button>
-                            }
-                          />
-                          <PopoverContent
-                            align="start"
-                            className="w-[var(--anchor-width)] p-1 flex flex-col gap-0.5 bg-white border border-slate-200 rounded-lg shadow-md animate-in fade-in-0 zoom-in-95 duration-100"
-                          >
-                            {["Class of 2024", "Class of 2025", "All Alumni"].map((cohortOption) => {
-                              const isSelected = settingsTargetCohort === cohortOption
-                              return (
-                                <button
-                                  type="button"
-                                  key={cohortOption}
-                                  onClick={() => {
-                                    setSettingsTargetCohort(cohortOption)
-                                    setSettingsCohortOpen(false)
-                                  }}
-                                  className={`
-                                    flex items-center justify-between w-full px-2.5 py-1.5 text-xs font-medium rounded-md text-left transition-colors cursor-pointer outline-none
-                                    ${isSelected
-                                      ? "bg-indigo-50 text-indigo-700 font-semibold"
-                                      : "text-slate-650 hover:bg-slate-50 hover:text-slate-900"
-                                    }
-                                  `}
-                                >
-                                  <span>{cohortOption}</span>
-                                  {isSelected && <Check className="size-3.5 text-indigo-600" />}
-                                </button>
-                              )
-                            })}
-                          </PopoverContent>
-                        </Popover>
-                      </div>
-                    </div>
-                  </div>
-
-                  <SheetFooter className="flex-row justify-end gap-2 border-t border-slate-100 bg-white px-5 py-3">
-                    <Button variant="outline" onClick={handleCloseModal}>
-                      Cancel
-                    </Button>
-                    <Button className="bg-slate-900 hover:bg-slate-800 text-white border-0" onClick={handleSaveSettings}>
-                      Save Changes
-                    </Button>
-                  </SheetFooter>
-                </>
-              )
-            })()
-          )}
         </SheetContent>
       </Sheet>
 
@@ -2002,93 +2095,78 @@ export default function SurveyPage() {
         open={distributeSurveyId !== null}
         onOpenChange={(open) => !open && setDistributeSurveyId(null)}
       >
-        <DialogContent className="max-w-lg max-h-[85vh] flex flex-col p-0 gap-0" showCloseButton={false}>
-          <div className="h-[80px] shrink-0 bg-gradient-to-br from-emerald-600 via-emerald-500 to-teal-500" />
-
-          <div className="flex-1 overflow-y-auto px-6 -mt-[50px] pb-6">
-            <div className="relative mb-4 overflow-hidden rounded-xl border-t-[6px] border-t-emerald-500 bg-white shadow-sm ring-1 ring-black/[0.04]">
-              <div className="px-6 pb-5 pt-6">
-                <div className="mb-3 flex items-center gap-2">
-                  <div className="flex size-8 items-center justify-center rounded-lg bg-emerald-50 text-emerald-600">
-                    <Share2 className="size-[16px]" />
-                  </div>
-                  <span className="text-[11px] font-semibold uppercase tracking-wider text-emerald-600">
-                    Distribute Survey
-                  </span>
-                </div>
-                <h2 className="text-xl font-semibold tracking-tight text-slate-900">
-                  Share with Alumni
-                </h2>
-                <p className="mt-1.5 text-[14px] leading-relaxed text-slate-500">
-                  Create shareable links to distribute this survey to alumni respondents.
-                </p>
+        <DialogContent className="max-w-md p-0 overflow-hidden bg-white border-slate-200 shadow-2xl sm:rounded-2xl">
+          <div className="px-6 pt-6 pb-4">
+            <div className="flex items-center gap-4">
+              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-slate-100/80 ring-1 ring-slate-200/50">
+                <Share2 className="size-5 text-slate-700" />
+              </div>
+              <div>
+                <h2 className="text-lg font-semibold text-slate-900 tracking-tight">Distribute Survey</h2>
+                <p className="text-sm text-slate-500">Create and manage shareable links.</p>
               </div>
             </div>
+          </div>
 
+          <div className="px-6 pb-6 space-y-4 bg-slate-50/30">
             {distLoading ? (
-              <div className="flex justify-center py-8">
-                <Loader2 className="size-5 animate-spin text-slate-400" />
+              <div className="flex justify-center py-12">
+                <Loader2 className="size-6 animate-spin text-slate-400" />
               </div>
             ) : (
-              <div className="space-y-3">
-                <Button
-                  onClick={handleCreateDistribution}
-                  disabled={distCreating}
-                  className="w-full gap-2 bg-emerald-600 hover:bg-emerald-700 text-white border-0"
-                >
-                  {distCreating ? (
-                    <Loader2 className="size-4 animate-spin" />
-                  ) : (
-                    <Link className="size-4" />
+              <>
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-medium text-slate-700">Active Link</span>
+                </div>
+
+                <div className="space-y-2 max-h-[40vh] overflow-y-auto pr-1 [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-slate-200 [&::-webkit-scrollbar-thumb]:rounded-full">
+                  {distributions.length === 0 && !distLoading && (
+                    <div className="flex flex-col items-center justify-center py-10 px-4 text-center rounded-xl border border-dashed border-slate-200 bg-white">
+                      <div className="rounded-full bg-slate-50 p-3 mb-3">
+                        <Link className="size-5 text-slate-400" />
+                      </div>
+                      <p className="text-sm font-medium text-slate-600">Generating link...</p>
+                    </div>
                   )}
-                  Create New Link
-                </Button>
 
-                {distributions.length === 0 && !distLoading && (
-                  <p className="pt-2 text-center text-xs text-slate-400">
-                    No distribution links created yet.
-                  </p>
-                )}
-
-                {distributions.map((d) => {
-                  const surveyUrl = `${typeof window !== "undefined" ? window.location.origin : ""}/survey/${d.token}`
-                  return (
-                    <div
-                      key={d.id}
-                      className={cn(
-                        "rounded-xl border bg-white px-5 py-4 shadow-sm ring-1 ring-black/[0.04] transition-opacity",
-                        !d.isActive && "opacity-50",
-                      )}
-                    >
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-2">
-                            <span
-                              className={cn(
-                                "inline-flex items-center rounded-md px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider",
-                                d.isActive
-                                  ? "bg-emerald-50 text-emerald-700"
-                                  : "bg-slate-100 text-slate-500",
-                              )}
-                            >
-                              {d.isActive ? "Active" : "Revoked"}
+                  {distributions.map((d) => {
+                    const surveyUrl = `${typeof window !== "undefined" ? window.location.origin : ""}/survey/${d.token}`
+                    const displayUrl = surveyUrl.replace(/^https?:\/\//, '')
+                    
+                    return (
+                      <div
+                        key={d.id}
+                        className={cn(
+                          "group relative flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white p-3 shadow-sm transition-all hover:border-slate-300 hover:shadow-md",
+                          !d.isActive && "opacity-60 bg-slate-50/50 grayscale-[50%]"
+                        )}
+                      >
+                        <div className="grid flex-1 gap-1.5 min-w-0">
+                          <div className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-2">
+                            <span className={cn(
+                              "relative flex size-2 shrink-0",
+                              !d.isActive && "opacity-60"
+                            )}>
+                              {d.isActive && <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75"></span>}
+                              <span className={cn("relative inline-flex size-2 rounded-full", d.isActive ? "bg-emerald-500" : "bg-slate-400")}></span>
                             </span>
-                            <span className="text-[11px] text-slate-400">
-                              {new Date(d.createdAt).toLocaleDateString()}
+                            <span className="truncate block text-xs font-medium text-slate-700">
+                              {displayUrl}
                             </span>
                           </div>
-                          <p className="mt-1.5 truncate text-[12px] font-mono text-slate-600">
-                            {surveyUrl}
-                          </p>
+                          <span className="truncate block text-[10px] text-slate-400 ml-4">
+                            Created {new Date(d.createdAt).toLocaleDateString()}
+                          </span>
                         </div>
-                        <div className="flex shrink-0 gap-1">
+
+                        <div className="flex shrink-0 items-center gap-1 sm:opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
                           {d.isActive && (
                             <>
                               <Button
                                 variant="ghost"
                                 size="icon-xs"
                                 onClick={() => handleCopyLink(d.token)}
-                                className="text-slate-400 hover:text-emerald-600 hover:bg-emerald-50"
+                                className="h-7 w-7 text-slate-500 hover:text-slate-900 hover:bg-slate-100 rounded-md"
                                 title="Copy link"
                               >
                                 {copiedToken === d.token ? (
@@ -2097,33 +2175,15 @@ export default function SurveyPage() {
                                   <Copy className="size-3.5" />
                                 )}
                               </Button>
-                              <Button
-                                variant="ghost"
-                                size="icon-xs"
-                                onClick={() => handleRevokeDistribution(d.id)}
-                                className="text-slate-400 hover:text-red-600 hover:bg-red-50"
-                                title="Revoke"
-                              >
-                                <Ban className="size-3.5" />
-                              </Button>
                             </>
                           )}
                         </div>
                       </div>
-                    </div>
-                  )
-                })}
-              </div>
+                    )
+                  })}
+                </div>
+              </>
             )}
-          </div>
-
-          <div className="flex shrink-0 items-center justify-end border-t border-slate-100 bg-white px-6 py-3">
-            <Button
-              variant="outline"
-              onClick={() => setDistributeSurveyId(null)}
-            >
-              Close
-            </Button>
           </div>
         </DialogContent>
       </Dialog>

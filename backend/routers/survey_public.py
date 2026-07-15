@@ -71,6 +71,7 @@ async def get_public_survey(
                 options=q_read.options,
                 config=q_read.config,
                 order_index=q_read.order_index,
+                is_required=q_read.is_required,
             )
             section_q_list.append(pq)
             all_public_questions.append(pq)

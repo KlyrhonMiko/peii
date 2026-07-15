@@ -49,7 +49,8 @@ export function SurveySelect({
         />
         <PopoverContent
           align="start"
-          className="w-[var(--anchor-width)] p-1 flex flex-col gap-0.5 bg-white border border-slate-200 rounded-lg shadow-md animate-in fade-in-0 zoom-in-95 duration-100"
+          style={{ width: "var(--anchor-width)" }}
+          className="p-1 flex flex-col gap-0.5 bg-white border border-slate-200 rounded-lg shadow-md animate-in fade-in-0 zoom-in-95 duration-100"
         >
           {placeholder && (
             <button

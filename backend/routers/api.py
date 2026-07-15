@@ -7,6 +7,7 @@ from routers.survey_public import router as survey_public_router
 from routers.survey_questions import router as survey_questions_router
 from routers.survey_sections import router as survey_sections_router
 from routers.surveys import router as surveys_router
+from routers.survey_responses import router as survey_responses_router
 from routers.users import router as users_router
 
 api_router = APIRouter()
@@ -28,5 +29,10 @@ api_router.include_router(
     survey_sections_router,
     prefix="/surveys/{survey_id}/sections",
     tags=["survey-sections"],
+)
+api_router.include_router(
+    survey_responses_router,
+    prefix="/surveys/{survey_id}/responses",
+    tags=["survey-responses"],
 )
 api_router.include_router(survey_public_router, prefix="/survey", tags=["survey-public"])

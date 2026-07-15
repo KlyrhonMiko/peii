@@ -20,6 +20,7 @@ class SurveyQuestionCreate(SurveyQuestionBaseSchema):
                 "options": None,
                 "section_id": "018f4a1a-7b3b-7d0e-913a-c5f1c5c1c5c2",
                 "performed_by": "018f4a1a-7b3b-7d0e-913a-c5f1c5c1c5c2",
+                "is_required": True,
             }
         }
     )
@@ -29,6 +30,7 @@ class SurveyQuestionCreate(SurveyQuestionBaseSchema):
     options: list[str] | None = None
     config: dict | None = None
     section_id: UUID | None = None
+    is_required: bool = True
     performed_by: UUID | None = None
 
 
@@ -40,6 +42,7 @@ class SurveyQuestionUpdate(SurveyQuestionBaseSchema):
                 "question_type": "scale",
                 "options": None,
                 "performed_by": "018f4a1a-7b3b-7d0e-913a-c5f1c5c1c5c2",
+                "is_required": True,
             }
         }
     )
@@ -48,6 +51,7 @@ class SurveyQuestionUpdate(SurveyQuestionBaseSchema):
     question_type: QuestionType | None = None
     options: list[str] | None = None
     config: dict | None = None
+    is_required: bool | None = None
     performed_by: UUID | None = None
 
 
@@ -62,6 +66,7 @@ class SurveyQuestionRead(SurveyQuestionBaseSchema):
                 "question_type": "scale",
                 "options": None,
                 "order_index": 0,
+                "is_required": True,
             }
         },
     )
@@ -73,6 +78,7 @@ class SurveyQuestionRead(SurveyQuestionBaseSchema):
     options: list[str] | None = None
     config: dict | None = None
     order_index: int
+    is_required: bool
     is_deleted: bool
     performed_by: UUID | None = None
 
