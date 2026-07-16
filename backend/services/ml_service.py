@@ -1,7 +1,7 @@
 import logging
+import re
 
 import langdetect
-import re
 from fastapi import HTTPException
 from transformers import pipeline
 
@@ -23,7 +23,7 @@ def get_pipelines():
     if tl_pipeline is None:
         logger.info(f"Loading Tagalog model {TL_MODEL_ID}. This may take a moment...")
         try:
-            tl_pipeline = pipeline("sentiment-analysis", model=TL_MODEL_ID, tokenizer=TL_MODEL_ID)
+            tl_pipeline = pipeline("text-classification", model=TL_MODEL_ID, tokenizer=TL_MODEL_ID)
         except Exception as e:
             logger.error(f"Failed to load Tagalog model {TL_MODEL_ID}: {e}")
             raise RuntimeError(f"Failed to load Tagalog ML model: {e}")
@@ -31,7 +31,7 @@ def get_pipelines():
     if en_pipeline is None:
         logger.info(f"Loading English model {EN_MODEL_ID}. This may take a moment...")
         try:
-            en_pipeline = pipeline("sentiment-analysis", model=EN_MODEL_ID, tokenizer=EN_MODEL_ID)
+            en_pipeline = pipeline("text-classification", model=EN_MODEL_ID, tokenizer=EN_MODEL_ID)
         except Exception as e:
             logger.error(f"Failed to load English model {EN_MODEL_ID}: {e}")
             raise RuntimeError(f"Failed to load English ML model: {e}")
@@ -44,7 +44,9 @@ def get_models() -> list[dict]:
             "id": TL_MODEL_ID,
             "name": "Tagalog Sentiment Analyzer (RoBERTa)",
             "type": "sentiment-analysis",
-            "description": "Fine-tuned RoBERTa model for sentiment analysis on Tagalog and Taglish text."
+            "description": (
+                "Fine-tuned RoBERTa model for sentiment analysis on Tagalog and Taglish text."
+            )
         },
         {
             "id": EN_MODEL_ID,

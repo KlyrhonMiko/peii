@@ -7,9 +7,17 @@ class SentimentRequest(BaseModel):
 
 
 class SentimentResponse(BaseModel):
-    label: str = Field(..., description="The predicted sentiment label (e.g. POSITIVE, NEGATIVE, NEUTRAL)")
+    label: str = Field(
+        ...,
+        description="The predicted sentiment label (e.g. POSITIVE, NEGATIVE, NEUTRAL)"
+    )
     score: float = Field(..., description="The confidence score of the prediction (0 to 1)")
-    sentiment_score: float = Field(..., description="A signed score from -1.0 to 1.0 representing negative to positive sentiment")
+    sentiment_score: float = Field(
+        ...,
+        description=(
+            "A signed score from -1.0 to 1.0 representing negative to positive sentiment"
+        )
+    )
     model: str = Field(..., description="The name of the model used to analyze the sentiment")
 
 

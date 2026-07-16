@@ -1,4 +1,4 @@
-from typing import Annotated
+from typing import Annotated, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends
@@ -15,7 +15,7 @@ def get_survey_response_list_query_params(
     limit: int = 50,
     offset: int = 0,
     sort_by: str = "created_at",
-    sort_order: str = "desc",
+    sort_order: Literal["asc", "desc"] = "desc",
 ) -> SurveyResponseListQueryParams:
     return SurveyResponseListQueryParams(
         limit=limit,

@@ -62,7 +62,8 @@ uuid6==2025.0.1
 uvicorn==0.41.0
 websockets==15.0.1
 structlog==25.1.0
-langdetect==0.41.0
+langdetect==1.0.9
+greenlet
 
 transformers
 torch
