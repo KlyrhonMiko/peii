@@ -19,3 +19,4 @@ class SurveyQuestion(BaseModel, table=True):
     options: str | None = Field(default=None, max_length=2000)
     config: str | None = Field(default=None, max_length=2000)
     order_index: int = Field(default=0, nullable=False, index=True)
+    is_required: bool = Field(default=True, nullable=False)

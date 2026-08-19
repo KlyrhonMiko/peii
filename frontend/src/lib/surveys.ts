@@ -10,6 +10,14 @@ export interface Distribution {
   createdAt: string
 }
 
+export interface SurveyResponse {
+  id: string
+  surveyId: string
+  alumniToken: string
+  answers: Record<string, any>
+  createdAt: string
+}
+
 export interface Survey {
   id: string
   surveyId: string
@@ -30,6 +38,7 @@ export interface SurveyQuestion {
   options?: string[] | null
   sectionId?: string
   config?: Record<string, unknown> | null
+  isRequired?: boolean
 }
 
 export interface SurveySection {
@@ -78,6 +87,7 @@ export interface ApiQuestion {
   options: string[] | null
   config: Record<string, unknown> | null
   order_index: number
+  is_required: boolean
   is_deleted: boolean
   performed_by: string | null
 }
@@ -87,6 +97,14 @@ export interface ApiDistribution {
   survey_id: string
   token: string
   is_active: boolean
+  created_at: string
+}
+
+export interface ApiSurveyResponse {
+  id: string
+  survey_id: string
+  alumni_token: string
+  answers: Record<string, any>
   created_at: string
 }
 
@@ -133,6 +151,7 @@ function mapQuestion(api: ApiQuestion): SurveyQuestion {
     type: api.question_type,
     ...(api.options ? { options: api.options } : {}),
     ...(api.config ? { config: api.config } : {}),
+    isRequired: api.is_required,
   }
 }
 
@@ -142,6 +161,16 @@ function mapDistribution(api: ApiDistribution): Distribution {
     surveyId: api.survey_id,
     token: api.token,
     isActive: api.is_active,
+    createdAt: api.created_at,
+  }
+}
+
+function mapResponse(api: ApiSurveyResponse): SurveyResponse {
+  return {
+    id: api.id,
+    surveyId: api.survey_id,
+    alumniToken: api.alumni_token,
+    answers: api.answers,
     createdAt: api.created_at,
   }
 }
@@ -248,6 +277,7 @@ export async function createQuestion(
     options?: string[] | null
     config?: Record<string, unknown> | null
     section_id?: string | null
+    is_required?: boolean
   },
 ): Promise<SurveyQuestion> {
   const res = await api.post<ApiQuestion>(`/surveys/${surveyUuid}/questions/`, {
@@ -265,6 +295,7 @@ export async function updateQuestion(
     question_type: string
     options: string[] | null
     config: Record<string, unknown> | null
+    is_required: boolean
   }>,
 ): Promise<SurveyQuestion> {
   const res = await api.patch<ApiQuestion>(
@@ -310,6 +341,16 @@ export async function revokeDistribution(
     `/surveys/${surveyUuid}/distributions/${distributionId}`,
     { performed_by: null },
   )
+}
+
+export async function fetchResponses(
+  surveyUuid: string,
+): Promise<{ responses: SurveyResponse[]; pagination: ApiPagination }> {
+  const res = await api.get<ApiSurveyResponse[]>(`/surveys/${surveyUuid}/responses/`)
+  return {
+    responses: (res.data ?? []).map(mapResponse),
+    pagination: res.meta?.pagination as ApiPagination,
+  }
 }
 
 export async function reorderQuestions(

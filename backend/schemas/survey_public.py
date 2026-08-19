@@ -15,6 +15,7 @@ class PublicSurveyQuestion(BaseModel):
     options: list[str] | None = None
     config: dict | None = None
     order_index: int
+    is_required: bool
 
     @field_validator("options", mode="before")
     @classmethod
@@ -62,6 +63,7 @@ class PublicSurvey(BaseModel):
                         "question_type": "single_choice",
                         "options": ["Employed Full-Time", "Employed Part-Time"],
                         "order_index": 0,
+                        "is_required": False,
                     }
                 ],
                 "sections": [],

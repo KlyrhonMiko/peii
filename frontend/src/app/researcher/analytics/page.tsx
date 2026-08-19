@@ -1,7 +1,8 @@
 "use client"
 
 import { useState } from "react"
-import { ClientFeatureImportanceChart } from "@/components/ClientFeatureImportanceChart"
+import { ClientPEIIDimensionsChart } from "@/components/ClientPEIIDimensionsChart"
+import { ClientSentimentDivergenceChart } from "@/components/ClientSentimentDivergenceChart"
 import { DashboardFilters } from "@/components/DashboardFilters"
 import { Target, AlertTriangle, Activity, CheckCircle } from "lucide-react"
 
@@ -37,16 +38,16 @@ const analyticsMetrics = [
 ]
 
 export default function AnalyticsPage() {
-  const [filters, setFilters] = useState({ department: "All Departments", batch: "All Batches" })
+  const [, setFilters] = useState({ department: "All Departments", batch: "All Batches" })
 
   return (
     <div className="space-y-12 animate-in fade-in duration-500 max-w-6xl mx-auto pb-12">
       {/* Page Header */}
       <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-6 pb-6 border-b border-slate-200">
         <div className="space-y-2">
-          <h2 className="text-3xl font-bold tracking-tight text-slate-900">Analytics</h2>
+          <h2 className="text-3xl font-bold tracking-tight text-slate-900">Statistical Analytics</h2>
           <p className="text-base text-slate-500 max-w-xl">
-            Deep dive into institutional factors and their impact on alumni success.
+            Deep dive into institutional factors and the mathematical models driving the Pasig Education Impact Index.
           </p>
         </div>
         <DashboardFilters onFilterChange={setFilters} />
@@ -73,9 +74,15 @@ export default function AnalyticsPage() {
         ))}
       </div>
 
-      {/* Chart Section */}
-      <div className="mt-8">
-        <ClientFeatureImportanceChart />
+      {/* Charts Grid */}
+      <div className="grid gap-6 lg:grid-cols-2 mt-8">
+        <div className="rounded-xl border border-slate-200/80 bg-white shadow-sm shadow-slate-100/50 overflow-hidden">
+          <ClientPEIIDimensionsChart />
+        </div>
+
+        <div className="rounded-xl border border-slate-200/80 bg-white shadow-sm shadow-slate-100/50 overflow-hidden">
+          <ClientSentimentDivergenceChart />
+        </div>
       </div>
     </div>
   )

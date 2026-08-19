@@ -7,10 +7,10 @@ import { TrendingUp, Users, Briefcase, Sparkles, ArrowUpRight } from "lucide-rea
 
 const baseStats = [
   {
-    label: "Average PEII Score",
+    label: "Post-Graduation PEII Score",
     baseValue: 0.82,
-    change: "+0.04",
-    changeLabel: "from last year",
+    change: "+0.11",
+    changeLabel: "vs Pre-Grad Baseline",
     icon: TrendingUp,
     color: "text-indigo-600",
     trend: "text-emerald-600",
@@ -25,22 +25,24 @@ const baseStats = [
     trend: "text-emerald-600",
   },
   {
-    label: "Employment Rate",
-    baseValue: 91,
+    label: "Transformative Gain",
+    baseValue: 0.11,
     change: null,
-    changeLabel: "Within 6 months",
-    icon: Briefcase,
-    color: "text-amber-600",
-    isPercent: true,
-  },
-  {
-    label: "Highest Impact Tier",
-    baseValue: 1,
-    change: null,
-    changeLabel: "Highly Transformative",
+    changeLabel: "Avg gap between Pre & Post scores",
     icon: Sparkles,
     color: "text-purple-600",
-    isTier: true,
+    trend: "text-emerald-600",
+    isFloat: true,
+  },
+  {
+    label: "Sentiment Divergence",
+    baseValue: 8.5,
+    change: "-1.2%",
+    changeLabel: "vs previous cohort",
+    icon: Briefcase,
+    color: "text-amber-600",
+    trend: "text-emerald-600",
+    isPercent: true,
   },
 ]
 
@@ -54,17 +56,18 @@ export default function DashboardPage() {
 
     return baseStats.map(stat => {
       let value: string | number = stat.baseValue
-      if (typeof value === 'number' && !stat.isTier && !stat.isPercent) {
+      if (typeof value === 'number' && !stat.isPercent && !stat.isFloat) {
         value = Math.floor(value * multiplier)
-        if (stat.label === "Average PEII Score") {
-           value = (0.7 + (multiplier * 0.15)).toFixed(2)
+        if (stat.label === "Post-Graduation PEII Score") {
+           // Score should stay between 0.6 and 0.95
+           value = (0.7 + (multiplier * 0.12)).toFixed(2)
         } else {
            value = value.toLocaleString()
         }
       } else if (stat.isPercent) {
-         value = `${Math.min(99, Math.floor(stat.baseValue - (1 - multiplier) * 10))}%`
-      } else if (stat.isTier) {
-         value = `Tier ${stat.baseValue}`
+         value = `${(stat.baseValue * multiplier).toFixed(1)}%`
+      } else if (stat.isFloat) {
+         value = `+${(stat.baseValue * multiplier).toFixed(2)}`
       }
 
       return {
@@ -113,8 +116,6 @@ export default function DashboardPage() {
           </div>
         ))}
       </div>
-
-
 
       {/* Chart Section */}
       <div className="mt-8">

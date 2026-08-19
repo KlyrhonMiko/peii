@@ -10,6 +10,7 @@ interface PublicQuestion {
   options: string[] | null
   config: Record<string, unknown> | null
   order_index: number
+  is_required: boolean
 }
 
 interface PublicSection {

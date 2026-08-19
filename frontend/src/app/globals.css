@@ -140,6 +140,17 @@
     -moz-osx-font-smoothing: grayscale;
   }
 
+  button,
+  [role="button"] {
+    cursor: pointer;
+  }
+
+  button:disabled,
+  [role="button"]:disabled,
+  [aria-disabled="true"] {
+    cursor: default;
+  }
+
   /* ── Modern Scrollbar ─────────────────────────────────────────────── */
 
   /* Firefox / standards track */

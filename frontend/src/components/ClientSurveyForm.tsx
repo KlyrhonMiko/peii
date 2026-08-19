@@ -4,6 +4,14 @@ import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import { SurveySelect } from "@/components/SurveySelect"
 import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog"
+import {
   ClipboardList,
   Star,
   ArrowUpDown,
@@ -20,6 +28,7 @@ import {
   ShieldCheck,
   Loader2,
   CheckCircle,
+  AlertCircle,
 } from "lucide-react"
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api/v1"
@@ -31,6 +40,7 @@ interface PublicQuestion {
   options: string[] | null
   config: Record<string, unknown> | null
   order_index: number
+  is_required: boolean
 }
 
 interface PublicSection {
@@ -86,6 +96,8 @@ export function ClientSurveyForm({
 }: ClientSurveyFormProps) {
   const [sectionIdx, setSectionIdx] = useState(0)
   const [answers, setAnswers] = useState<Answers>({})
+  const [errors, setErrors] = useState<Record<string, string>>({})
+  const [validationAlertOpen, setValidationAlertOpen] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [submitted, setSubmitted] = useState(false)
 
@@ -116,7 +128,27 @@ export function ClientSurveyForm({
   const isFirst = sectionIdx === 0
   const isLast = sectionIdx === sections.length - 1
 
+  const validateSection = () => {
+    let isValid = true
+    const newErrors: Record<string, string> = {}
+    for (const q of section.questions) {
+      if (q.is_required) {
+        const val = answers[q.id]
+        if (val === undefined || val === null || val === "" || (Array.isArray(val) && val.length === 0)) {
+          newErrors[q.id] = "This question is required"
+          isValid = false
+        }
+      }
+    }
+    setErrors(newErrors)
+    return isValid
+  }
+
   const goNext = () => {
+    if (!validateSection()) {
+      setValidationAlertOpen(true)
+      return
+    }
     if (!isLast) setSectionIdx((p) => p + 1)
   }
   const goPrev = () => {
@@ -125,14 +157,29 @@ export function ClientSurveyForm({
 
   const setAnswer = (qId: string, value: string | string[] | number) => {
     setAnswers((prev) => ({ ...prev, [qId]: value }))
+    if (errors[qId]) {
+      setErrors((prev) => {
+        const next = { ...prev }
+        delete next[qId]
+        return next
+      })
+    }
   }
 
   const toggleMultiple = (qId: string, opt: string) => {
     const current = (answers[qId] as string[] | undefined) ?? []
-    const next = current.includes(opt)
+    const nextList = current.includes(opt)
       ? current.filter((v) => v !== opt)
       : [...current, opt]
-    setAnswer(qId, next)
+    setAnswer(qId, nextList)
+  }
+
+  const onSubmitClick = () => {
+    if (!validateSection()) {
+      setValidationAlertOpen(true)
+      return
+    }
+    handleSubmit()
   }
 
   const handleSubmit = async () => {
@@ -217,7 +264,9 @@ export function ClientSurveyForm({
           {section.questions.map((q, _) => (
             <div
               key={q.id}
-              className="rounded-xl bg-white px-7 py-5 shadow-sm ring-1 ring-black/[0.04]"
+              className={`rounded-xl bg-white px-7 py-5 shadow-sm ring-1 transition-all ${
+                errors[q.id] ? "ring-red-400 bg-red-50/10" : "ring-black/[0.04]"
+              }`}
             >
               <div className="mb-1 flex items-center gap-2">
                 {(() => {
@@ -230,7 +279,13 @@ export function ClientSurveyForm({
               </div>
               <p className="mb-4 text-sm font-medium text-slate-800">
                 {q.question_text}
+                {q.is_required && <span className="text-red-500 ml-1">*</span>}
               </p>
+              {errors[q.id] && (
+                <p className="mb-4 text-[13px] font-semibold text-red-600 bg-red-50 px-3 py-2 rounded-lg border border-red-100">
+                  {errors[q.id]}
+                </p>
+              )}
 
               {q.question_type === "single_choice" && (
                 <SurveySelect
@@ -547,7 +602,7 @@ export function ClientSurveyForm({
               </Button>
             ) : (
               <Button
-                onClick={handleSubmit}
+                onClick={onSubmitClick}
                 disabled={submitting}
                 className="h-10 gap-2 rounded-lg bg-emerald-600 px-6 text-sm font-medium text-white shadow-sm transition-all hover:bg-emerald-700 hover:shadow-md"
               >
@@ -574,6 +629,25 @@ export function ClientSurveyForm({
           </p>
         </footer>
       </div>
+
+      <Dialog open={validationAlertOpen} onOpenChange={setValidationAlertOpen}>
+        <DialogContent className="sm:max-w-[400px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-rose-600">
+              <AlertCircle className="size-5" />
+              Missing Information
+            </DialogTitle>
+            <DialogDescription className="pt-2 text-[14.5px] leading-relaxed text-slate-600">
+              Please complete all required questions before proceeding to the next section. Missing fields have been highlighted in red.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="mt-2">
+            <Button onClick={() => setValidationAlertOpen(false)} className="bg-indigo-600 hover:bg-indigo-700 text-white border-0 shadow-sm">
+              Got it
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
