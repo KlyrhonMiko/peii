@@ -36,14 +36,14 @@ export function AppSidebar() {
           <SidebarMenuButton
             render={<a href={item.url} />}
             className={`
-              flex items-center gap-2.5 px-2.5 py-[7px] rounded-lg transition-all duration-150 text-[13px] font-medium
+              group flex items-center gap-3 px-3 py-2 rounded-lg transition-all duration-200 text-[13px] font-medium
               ${isActive
-                ? "bg-indigo-50 text-indigo-700"
-                : "text-slate-500 hover:text-slate-700 hover:bg-slate-50"
+                ? "bg-white text-slate-900 shadow-sm ring-1 ring-slate-200/50"
+                : "text-slate-500 hover:text-slate-900 hover:bg-slate-100/50"
               }
             `}
           >
-            <item.icon className={`w-[16px] h-[16px] shrink-0 ${isActive ? "text-indigo-600" : "text-slate-400"}`} />
+            <item.icon className={`w-[16px] h-[16px] shrink-0 transition-colors ${isActive ? "text-slate-900" : "text-slate-400 group-hover:text-slate-600"}`} />
             <span>{item.title}</span>
           </SidebarMenuButton>
         </SidebarMenuItem>
@@ -51,11 +51,11 @@ export function AppSidebar() {
     })
 
   return (
-    <Sidebar className="border-r border-slate-200/70 bg-white">
+    <Sidebar className="border-r border-slate-200/60 bg-[#fafafa]">
       {/* Branding */}
-      <SidebarHeader className="px-4 h-[52px] flex flex-row items-center gap-2.5 border-b border-slate-100 bg-white">
-        <div className="w-7 h-7 bg-gradient-to-br from-indigo-600 to-blue-600 rounded-lg flex items-center justify-center shadow-sm">
-          <FlaskConical className="w-[14px] h-[14px] text-white" />
+      <SidebarHeader className="px-5 h-[60px] flex flex-row items-center gap-3 border-b border-slate-200/60 bg-[#fafafa]">
+        <div className="w-8 h-8 bg-slate-900 rounded-lg flex items-center justify-center shadow-sm ring-1 ring-slate-950/10">
+          <FlaskConical className="w-[16px] h-[16px] text-white" />
         </div>
         <div className="flex flex-col">
           <span className="text-[14px] font-semibold text-slate-900 leading-none tracking-tight">PEII</span>
@@ -63,7 +63,7 @@ export function AppSidebar() {
         </div>
       </SidebarHeader>
 
-      <SidebarContent className="bg-white px-3 pt-4">
+      <SidebarContent className="bg-[#fafafa] px-3 pt-6">
         <SidebarGroup>
           <SidebarGroupLabel className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1 px-2.5">
             Research
@@ -87,16 +87,16 @@ export function AppSidebar() {
         </SidebarGroup>
       </SidebarContent>
 
-      <SidebarFooter className="px-3 py-3 border-t border-slate-100 bg-white">
-        <div className="flex items-center gap-2.5 px-2.5 py-2 rounded-lg hover:bg-slate-50 transition-colors cursor-pointer group">
-          <div className="w-7 h-7 rounded-md bg-slate-800 flex items-center justify-center text-white text-[10px] font-bold shrink-0">
+      <SidebarFooter className="px-4 py-4 border-t border-slate-200/60 bg-[#fafafa]">
+        <div className="flex items-center gap-3 px-3 py-2 -mx-3 rounded-xl hover:bg-slate-200/40 transition-colors cursor-pointer group">
+          <div className="w-8 h-8 rounded-md bg-white flex items-center justify-center text-slate-700 text-[11px] font-bold shrink-0 ring-1 ring-slate-200 shadow-sm">
             RC
           </div>
           <div className="flex-1 min-w-0">
-            <div className="text-[12px] font-semibold text-slate-700 truncate leading-none">Researcher</div>
-            <div className="text-[10px] text-slate-400 truncate leading-none mt-[3px]">researcher@peii.gov.ph</div>
+            <div className="text-[13px] font-semibold text-slate-900 truncate leading-none">Researcher</div>
+            <div className="text-[11px] text-slate-500 truncate leading-none mt-1">researcher@peii.gov.ph</div>
           </div>
-          <LogOut className="w-3.5 h-3.5 text-slate-400 opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
+          <LogOut className="w-[15px] h-[15px] text-slate-400 opacity-0 group-hover:opacity-100 transition-opacity shrink-0 group-hover:text-slate-600" />
         </div>
       </SidebarFooter>
     </Sidebar>
