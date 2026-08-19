@@ -8,11 +8,9 @@ function formatTooltipValue(value: TooltipValue) {
   if (typeof value === "number") {
     return value.toFixed(2)
   }
-
   if (Array.isArray(value)) {
     return value.join(", ")
   }
-
   return value ?? ""
 }
 
@@ -25,13 +23,14 @@ const data = [
   { factor: "Alumni Network", score: 0.35, tier: 4 },
 ]
 
+// Professional monochromatic palette (Slate)
 const getTierColor = (tier: number) => {
   switch (tier) {
-    case 1: return "#10b981"
-    case 2: return "#3b82f6"
-    case 3: return "#f59e0b"
-    case 4: return "#ef4444"
-    default: return "#9ca3af"
+    case 1: return "#0f172a" // Slate 900
+    case 2: return "#334155" // Slate 700
+    case 3: return "#64748b" // Slate 500
+    case 4: return "#94a3b8" // Slate 400
+    default: return "#cbd5e1" // Slate 300
   }
 }
 
@@ -44,65 +43,82 @@ const tierLabels: Record<number, string> = {
 
 export function FeatureImportanceChart() {
   return (
-    <div>
-      <div className="px-5 py-4 border-b border-slate-100">
-        <h3 className="text-[14px] font-semibold text-slate-900">Institutional Feature Importance</h3>
-        <p className="text-[12px] text-slate-400 mt-0.5">Factors driving alumni success and PEII scores</p>
+    <div className="flex flex-col h-full max-w-5xl">
+      <div className="py-2 pb-8">
+        <h3 className="text-[15px] font-semibold text-slate-900 tracking-tight">Institutional Feature Importance</h3>
+        <p className="text-[13px] text-slate-500 mt-1">Factors driving alumni success and PEII scores</p>
       </div>
-      <div className="px-4 py-4">
+      <div className="flex-1 flex flex-col">
         {/* Tier Legend */}
-        <div className="flex items-center gap-4 mb-4 px-1">
+        <div className="flex flex-wrap items-center gap-6 mb-10 pl-2">
           {Object.entries(tierLabels).map(([tier, label]) => (
-            <div key={tier} className="flex items-center gap-1.5">
-              <div className="w-2.5 h-2.5 rounded-sm" style={{ backgroundColor: getTierColor(Number(tier)) }} />
-              <span className="text-[11px] text-slate-500 font-medium">{label}</span>
+            <div key={tier} className="flex items-center gap-2.5">
+              <div 
+                className="w-2 h-2 rounded-full" 
+                style={{ backgroundColor: getTierColor(Number(tier)) }} 
+              />
+              <span className="text-[12px] font-medium text-slate-500">{label}</span>
             </div>
           ))}
         </div>
-        <div className="h-[360px] min-h-[360px] w-full min-w-0">
+        <div className="h-[380px] w-full min-w-0">
           <ResponsiveContainer width="100%" height="100%" minWidth={0}>
             <BarChart
               data={data}
               layout="vertical"
-              margin={{ top: 4, right: 24, left: 8, bottom: 4 }}
+              margin={{ top: 0, right: 32, left: 0, bottom: 0 }}
+              barSize={12}
             >
-              <CartesianGrid strokeDasharray="3 3" horizontal={false} vertical={true} stroke="#f1f5f9" />
+              <CartesianGrid strokeDasharray="3 3" horizontal={false} vertical={true} stroke="#f8fafc" />
               <XAxis
                 type="number"
                 domain={[0, 1]}
                 tickFormatter={(v) => v.toFixed(1)}
-                fontSize={11}
-                fontWeight={500}
+                fontSize={12}
+                fontWeight={400}
                 stroke="#94a3b8"
                 tickLine={false}
                 axisLine={false}
+                tickMargin={16}
                 fontFamily="inherit"
               />
               <YAxis
                 dataKey="factor"
                 type="category"
-                width={140}
-                tick={{ fontSize: 12, fontWeight: 500, fill: "#475569" }}
+                width={180}
+                tick={{ fontSize: 13, fontWeight: 400, fill: "#475569" }}
                 tickLine={false}
                 axisLine={false}
+                tickMargin={24}
                 fontFamily="inherit"
               />
               <Tooltip
+                cursor={{ fill: 'transparent' }}
                 contentStyle={{
                   backgroundColor: '#ffffff',
                   borderRadius: '8px',
                   border: '1px solid #e2e8f0',
-                  boxShadow: '0 4px 12px rgb(0 0 0 / 0.08)',
+                  boxShadow: '0 4px 12px rgb(0 0 0 / 0.04)',
                   fontFamily: 'inherit',
                   fontSize: '12px',
-                  padding: '8px 12px',
+                  padding: '10px 14px',
                 }}
-                labelStyle={{ fontWeight: 600, color: '#1e293b', fontSize: '12px', marginBottom: '2px' }}
+                labelStyle={{ fontWeight: 600, color: '#0f172a', fontSize: '13px', marginBottom: '6px' }}
+                itemStyle={{ color: '#475569', fontSize: '12px', fontWeight: 500 }}
                 formatter={(value: TooltipValue) => [formatTooltipValue(value), "Score"]}
               />
-              <Bar dataKey="score" radius={[0, 4, 4, 0]} barSize={28}>
+              <Bar 
+                dataKey="score" 
+                radius={[8, 8, 8, 8]} 
+                background={{ fill: '#f1f5f9', radius: 8 }}
+                animationDuration={1000}
+              >
                 {data.map((entry, index) => (
-                  <Cell key={`cell-${index}`} fill={getTierColor(entry.tier)} />
+                  <Cell 
+                    key={`cell-${index}`} 
+                    fill={getTierColor(entry.tier)}
+                    className="transition-all duration-300 hover:opacity-80 cursor-pointer"
+                  />
                 ))}
               </Bar>
             </BarChart>
