@@ -10,7 +10,7 @@ export default function ResearcherLayout({
   return (
     <SidebarProvider>
       <AppSidebar />
-      <main className="flex-1 overflow-auto bg-[#f7f8fb] min-h-screen flex flex-col">
+      <main className="flex-1 overflow-auto bg-[#fafafa] min-h-screen flex flex-col">
         <NavBar
           breadcrumbs={[
             { label: "Researcher" },
@@ -20,7 +20,7 @@ export default function ResearcherLayout({
         />
 
         {/* Page Content */}
-        <div className="flex-1 p-5 lg:p-6 max-w-[1360px] w-full mx-auto">
+        <div className="flex-1 p-5 lg:p-8 max-w-[1440px] w-full mx-auto">
           {children}
         </div>
       </main>

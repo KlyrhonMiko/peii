@@ -12,9 +12,8 @@ const baseStats = [
     change: "+0.04",
     changeLabel: "from last year",
     icon: TrendingUp,
-    iconBg: "bg-emerald-50",
-    iconColor: "text-emerald-600",
-    changeColor: "text-emerald-600",
+    color: "text-indigo-600",
+    trend: "text-emerald-600",
   },
   {
     label: "Total Alumni Tracked",
@@ -22,19 +21,16 @@ const baseStats = [
     change: "+1,200",
     changeLabel: "this cohort",
     icon: Users,
-    iconBg: "bg-blue-50",
-    iconColor: "text-blue-600",
-    changeColor: "text-blue-600",
+    color: "text-blue-600",
+    trend: "text-emerald-600",
   },
   {
     label: "Employment Rate",
     baseValue: 91,
     change: null,
-    changeLabel: "Within 6 months of graduation",
+    changeLabel: "Within 6 months",
     icon: Briefcase,
-    iconBg: "bg-violet-50",
-    iconColor: "text-violet-600",
-    changeColor: "text-slate-500",
+    color: "text-amber-600",
     isPercent: true,
   },
   {
@@ -43,11 +39,7 @@ const baseStats = [
     change: null,
     changeLabel: "Highly Transformative",
     icon: Sparkles,
-    iconBg: "bg-amber-50",
-    iconColor: "text-amber-600",
-    changeColor: "text-emerald-600",
-    valueColor: "text-emerald-600",
-    badge: true,
+    color: "text-purple-600",
     isTier: true,
   },
 ]
@@ -55,18 +47,16 @@ const baseStats = [
 export default function DashboardPage() {
   const [filters, setFilters] = useState({ department: "All Departments", batch: "All Batches" })
 
-  // Calculate dynamic mock stats based on filters
   const stats = useMemo(() => {
     let multiplier = 1
-    if (filters.department !== "All Departments") multiplier *= 0.8 // slightly lower/different numbers for specific dept
-    if (filters.batch !== "All Batches") multiplier *= 0.2 // much smaller numbers for a specific batch
+    if (filters.department !== "All Departments") multiplier *= 0.8
+    if (filters.batch !== "All Batches") multiplier *= 0.2
 
     return baseStats.map(stat => {
       let value: string | number = stat.baseValue
       if (typeof value === 'number' && !stat.isTier && !stat.isPercent) {
         value = Math.floor(value * multiplier)
         if (stat.label === "Average PEII Score") {
-           // Score should stay between 0.6 and 0.95
            value = (0.7 + (multiplier * 0.15)).toFixed(2)
         } else {
            value = value.toLocaleString()
@@ -85,63 +75,54 @@ export default function DashboardPage() {
   }, [filters])
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-12 animate-in fade-in duration-500 max-w-6xl mx-auto pb-12">
       {/* Page Header */}
-      <div className="flex items-start justify-between">
-        <div>
-          <h2 className="text-[20px] font-semibold text-slate-900 tracking-tight">Dashboard Overview</h2>
-          <p className="text-[13px] text-slate-500 mt-0.5">
-            High-level overview of the Pasig Education Impact Index (PEII) analytics and cohort tracking.
+      <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-6 pb-6 border-b border-slate-200">
+        <div className="space-y-2">
+          <h2 className="text-3xl font-bold tracking-tight text-slate-900">Dashboard Overview</h2>
+          <p className="text-base text-slate-500 max-w-xl">
+            Real-time analytics and cohort tracking for the Pasig Education Impact Index.
           </p>
         </div>
         <DashboardFilters onFilterChange={setFilters} />
       </div>
 
-      {/* Stats Grid */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+      {/* Stats Section - Editorial Ledger */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 divide-y md:divide-y-0 md:divide-x divide-slate-200 border-y border-slate-200">
         {stats.map((stat) => (
-          <div
-            key={stat.label}
-            className="rounded-xl border border-slate-200/80 bg-white p-4 hover:border-slate-300/80 transition-colors"
-          >
-            <div className="flex items-center justify-between">
-              <span className="text-[12px] font-medium text-slate-500">{stat.label}</span>
-              <div className={`w-7 h-7 rounded-lg ${stat.iconBg} flex items-center justify-center`}>
-                <stat.icon className={`w-[14px] h-[14px] ${stat.iconColor}`} />
+          <div key={stat.label} className="flex flex-col p-6 lg:p-8 hover:bg-slate-50/50 transition-colors">
+            <div className="flex items-center gap-2 mb-6">
+              <stat.icon className="w-[15px] h-[15px] text-slate-400" />
+              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">{stat.label}</span>
+            </div>
+            
+            <div className="mt-auto">
+              <div className="text-4xl font-semibold tracking-tight text-slate-900 mb-3">
+                {stat.value}
               </div>
-            </div>
-            <div className={`text-[28px] font-semibold mt-2 leading-none tracking-tight ${stat.valueColor || "text-slate-900"}`}>
-              {stat.value}
-            </div>
-            <div className="flex items-center mt-2 gap-1.5">
-              {stat.change && (
-                <span className={`text-[12px] font-medium ${stat.changeColor} flex items-center gap-0.5`}>
-                  <ArrowUpRight className="w-3 h-3" />
-                  {stat.change}
-                </span>
-              )}
-              {stat.badge ? (
-                <span className="text-[11px] font-medium text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full">
-                  {stat.changeLabel}
-                </span>
-              ) : (
-                <span className="text-[12px] text-slate-400">{stat.changeLabel}</span>
-              )}
+              <div className="flex items-center gap-1.5">
+                {stat.change ? (
+                  <span className={`text-[13px] font-semibold flex items-center ${stat.trend}`}>
+                    <ArrowUpRight className="w-3.5 h-3.5 mr-0.5" />
+                    {stat.change}
+                  </span>
+                ) : null}
+                <span className="text-[13px] font-medium text-slate-400">{stat.changeLabel}</span>
+              </div>
             </div>
           </div>
         ))}
       </div>
 
-      {/* Chart */}
-      <div className="rounded-xl border border-slate-200/80 bg-white">
-        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
-          <div>
-            <h3 className="text-[14px] font-semibold text-slate-900">Cohort Trend Analysis</h3>
-            <p className="text-[12px] text-slate-400 mt-0.5">Historical PEII scores across recent graduating years</p>
-          </div>
-          {/* Filters are now at the top, but we could put them here too. */}
+
+
+      {/* Chart Section */}
+      <div className="mt-8">
+        <div className="mb-6 px-2">
+          <h3 className="text-lg font-semibold text-slate-900 tracking-tight">Cohort Trend Analysis</h3>
+          <p className="text-[13px] font-medium text-slate-500 mt-0.5">Historical PEII scores across recent graduating years</p>
         </div>
-        <div className="h-[320px] w-full px-4 py-4">
+        <div className="h-[460px] w-full">
           <ClientCohortTrendChart filters={filters} />
         </div>
       </div>

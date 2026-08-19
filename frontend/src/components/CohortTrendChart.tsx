@@ -1,7 +1,7 @@
 "use client"
 
 import { useMemo } from "react"
-import { Line, LineChart, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts"
+import { Bar, BarChart, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts"
 
 type TooltipValue = number | string | readonly (number | string)[] | undefined
 
@@ -37,7 +37,7 @@ export function CohortTrendChart({ filters }: CohortTrendChartProps) {
     
     let chartData = baseData.map(d => {
       const yearVal = parseInt(d.year) || 0
-      const offset = ((yearVal % 5) / 5) * 0.04 - 0.02 // Deterministic offset
+      const offset = ((yearVal % 5) / 5) * 0.04 - 0.02
       return {
         ...d,
         score: Number(Math.min(1.0, Math.max(0, d.score * multiplier + offset)).toFixed(2))
@@ -45,11 +45,8 @@ export function CohortTrendChart({ filters }: CohortTrendChartProps) {
     })
 
     if (filters?.batch && filters.batch !== "All Batches") {
-      // If a specific batch is selected, only show data around that batch or just that batch point
-      // To keep it looking like a trend, we'll just show data up to that batch year if it exists
       chartData = chartData.filter(d => d.year <= filters.batch)
       if (chartData.length === 0) {
-        // Fallback if batch is not in our data
         chartData = [{ year: filters.batch, score: 0.75 }]
       }
     }
@@ -60,54 +57,55 @@ export function CohortTrendChart({ filters }: CohortTrendChartProps) {
   return (
     <div className="h-full w-full min-w-0 relative">
       <ResponsiveContainer width="100%" height="100%" minWidth={0}>
-        <LineChart
+        <BarChart
           data={data}
-          margin={{ top: 8, right: 16, left: -10, bottom: 20 }}
+          margin={{ top: 20, right: 20, left: -20, bottom: 25 }}
+          barSize={40}
         >
-          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+          <CartesianGrid strokeDasharray="4 4" vertical={false} stroke="#e2e8f0" />
           <XAxis
             dataKey="year"
             stroke="#94a3b8"
-            fontSize={11}
+            fontSize={12}
             fontWeight={500}
             tickLine={false}
             axisLine={false}
-            dy={8}
+            dy={10}
             fontFamily="inherit"
           />
           <YAxis
             domain={[0, 1]}
             tickFormatter={(value) => value.toFixed(1)}
             stroke="#94a3b8"
-            fontSize={11}
+            fontSize={12}
             fontWeight={500}
             tickLine={false}
             axisLine={false}
-            dx={-4}
+            dx={-12}
             fontFamily="inherit"
           />
           <Tooltip
+            cursor={{ fill: '#f1f5f9', opacity: 0.5 }}
             contentStyle={{
               backgroundColor: '#ffffff',
-              borderRadius: '8px',
+              borderRadius: '4px',
               border: '1px solid #e2e8f0',
-              boxShadow: '0 4px 12px rgb(0 0 0 / 0.08)',
+              boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.05)',
               fontFamily: 'inherit',
-              fontSize: '12px',
               padding: '8px 12px',
             }}
-            labelStyle={{ fontWeight: 600, color: '#1e293b', fontSize: '12px', marginBottom: '2px' }}
-            formatter={(value: TooltipValue) => [formatTooltipValue(value), "PEII Score"]}
+            labelStyle={{ fontWeight: 600, color: '#475569', fontSize: '12px', marginBottom: '4px' }}
+            formatter={(value: TooltipValue) => [
+              <span key="val" className="font-semibold text-slate-900 text-sm">{formatTooltipValue(value)}</span>, 
+              <span key="lbl" className="text-slate-500 font-medium ml-1 text-xs">PEII Score</span>
+            ]}
           />
-          <Line
-            type="monotone"
+          <Bar
             dataKey="score"
-            stroke="#10b981"
-            strokeWidth={2.5}
-            dot={{ r: 3.5, strokeWidth: 2, stroke: "#10b981", fill: "#ffffff" }}
-            activeDot={{ r: 5, stroke: "#10b981", fill: "#10b981" }}
+            fill="#0f172a"
+            radius={[4, 4, 0, 0]}
           />
-        </LineChart>
+        </BarChart>
       </ResponsiveContainer>
     </div>
   )
