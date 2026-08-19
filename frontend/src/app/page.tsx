@@ -11,134 +11,73 @@ import {
   Zap,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { useEffect, useState } from "react";
-
-function AnimatedCounter({
-  end,
-  suffix = "",
-  duration = 2000,
-}: {
-  end: number;
-  suffix?: string;
-  duration?: number;
-}) {
-  const [count, setCount] = useState(0);
-  const [hasStarted, setHasStarted] = useState(false);
-
-  useEffect(() => {
-    const timer = setTimeout(() => setHasStarted(true), 400);
-    return () => clearTimeout(timer);
-  }, []);
-
-  useEffect(() => {
-    if (!hasStarted) return;
-    let start = 0;
-    const increment = end / (duration / 16);
-    const counter = setInterval(() => {
-      start += increment;
-      if (start >= end) {
-        setCount(end);
-        clearInterval(counter);
-      } else {
-        setCount(Math.floor(start));
-      }
-    }, 16);
-    return () => clearInterval(counter);
-  }, [hasStarted, end, duration]);
-
-  return (
-    <span>
-      {count.toLocaleString()}
-      {suffix}
-    </span>
-  );
-}
+import { motion, useReducedMotion } from "motion/react";
 
 export default function Home() {
-  return (
-    <div className="relative min-h-screen bg-white text-slate-900 font-sans selection:bg-indigo-600 selection:text-white overflow-hidden">
-      {/* Subtle background texture */}
-      <div className="absolute inset-0 pointer-events-none">
-        <div className="absolute top-0 right-0 w-[800px] h-[800px] bg-gradient-to-bl from-indigo-50/80 via-blue-50/40 to-transparent rounded-full translate-x-1/3 -translate-y-1/3" />
-        <div className="absolute bottom-0 left-0 w-[600px] h-[600px] bg-gradient-to-tr from-slate-100/60 via-indigo-50/30 to-transparent rounded-full -translate-x-1/4 translate-y-1/4" />
-        {/* Grid pattern overlay */}
-        <div
-          className="absolute inset-0 opacity-[0.025]"
-          style={{
-            backgroundImage: `linear-gradient(rgba(0,0,0,0.1) 1px, transparent 1px), linear-gradient(90deg, rgba(0,0,0,0.1) 1px, transparent 1px)`,
-            backgroundSize: "60px 60px",
-          }}
-        />
-      </div>
+  const reduce = useReducedMotion();
 
+  return (
+    <div className="relative min-h-screen bg-slate-50 text-slate-900 font-sans selection:bg-indigo-600 selection:text-white overflow-hidden">
       {/* Navigation */}
-      <nav className="relative z-20 flex items-center justify-between px-6 lg:px-16 h-[72px]">
-        <div className="flex items-center gap-2.5">
-          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-600 to-blue-600 shadow-lg shadow-indigo-600/15">
+      <nav className="relative z-20 flex items-center justify-between px-6 lg:px-12 h-[72px] max-w-[1400px] mx-auto w-full">
+        <div className="flex items-center gap-3">
+          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-slate-900 shadow-sm">
             <GraduationCap className="h-[18px] w-[18px] text-white" />
           </div>
-          <span className="text-[16px] font-bold tracking-tight text-slate-900">
+          <span className="text-[17px] font-bold tracking-tight text-slate-900">
             PEII
           </span>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-3">
           <Button
             variant="ghost"
-            className="text-[13px] text-slate-500 hover:text-slate-800 hover:bg-slate-50 hidden sm:flex font-medium h-9 px-4 rounded-lg"
+            className="text-[14px] text-slate-600 hover:text-slate-900 hidden sm:flex font-medium h-9 px-4 rounded-lg"
           >
             Documentation
           </Button>
           <Link href="/researcher/dashboard">
-            <Button className="h-9 px-5 text-[13px] font-semibold bg-slate-900 text-white hover:bg-slate-800 rounded-lg shadow-sm transition-all">
+            <Button className="h-9 px-5 text-[14px] font-semibold bg-slate-900 text-white hover:bg-slate-800 rounded-lg shadow-sm transition-all">
               Login
             </Button>
           </Link>
         </div>
       </nav>
 
-      {/* Hero Section */}
       <main className="relative z-10 w-full">
-        <section className="relative flex flex-col justify-between min-h-[calc(100vh-72px)] px-6 lg:px-16 py-6 md:py-10 max-w-6xl mx-auto w-full">
-          {/* Spacer to push content down or help vertical centering */}
-          <div className="hidden md:block flex-1" />
-
-          <div className="flex flex-col items-center w-full text-center my-auto">
-            {/* Oversized Headline */}
-            <h1
-              className="text-center leading-[0.95] tracking-[-0.04em] font-extrabold opacity-100 translate-y-0 transition-all duration-700 delay-100"
+        {/* Typography Hero Section */}
+        <section className="relative px-6 lg:px-12 pt-24 md:pt-36 pb-24 md:pb-40 max-w-[1400px] mx-auto w-full flex flex-col items-center text-center">
+          <div className="flex flex-col items-center max-w-4xl">
+            <motion.h1 
+              initial={reduce ? false : { opacity: 0, y: 16 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.5, ease: "easeOut" }}
+              className="text-[clamp(3rem,8vw,5.5rem)] leading-[1.05] tracking-tight font-extrabold text-slate-900"
             >
-              <span className="block text-[clamp(2.5rem,7vw,4.8rem)] text-slate-900">
-                Measure
-              </span>
-              <span className="block text-[clamp(2.5rem,7vw,4.8rem)] text-slate-900">
-                Educational
-              </span>
-              <span className="block text-[clamp(2.5rem,7vw,4.8rem)] text-transparent bg-clip-text bg-gradient-to-r from-indigo-600 via-blue-600 to-indigo-500">
-                Impact.
-              </span>
-            </h1>
-
-            {/* Subtitle */}
-            <p
-              className="max-w-md mt-5 text-[13px] sm:text-[14px] text-slate-400 text-center leading-relaxed font-normal opacity-100 translate-y-0 transition-all duration-700 delay-200"
+              Measure Educational Impact with Clarity.
+            </motion.h1>
+            
+            <motion.p 
+              initial={reduce ? false : { opacity: 0, y: 16 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.5, delay: 0.1, ease: "easeOut" }}
+              className="mt-8 text-[18px] sm:text-[20px] text-slate-600 leading-relaxed font-normal max-w-2xl"
             >
-              The unified platform for tracking alumni outcomes, analyzing
-              institutional effectiveness, and driving data-informed
-              educational policy.
-            </p>
-
-            {/* CTA Buttons */}
-            <div
-              className="flex flex-col sm:flex-row gap-3 mt-8 w-full sm:w-auto opacity-100 translate-y-0 transition-all duration-700 delay-300"
+              The unified platform for tracking alumni outcomes, analyzing institutional effectiveness, and driving data-informed educational policy.
+            </motion.p>
+            
+            <motion.div 
+              initial={reduce ? false : { opacity: 0, y: 16 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.5, delay: 0.2, ease: "easeOut" }}
+              className="flex flex-col sm:flex-row gap-4 mt-12 w-full sm:w-auto"
             >
               <Link href="/researcher/dashboard" className="w-full sm:w-auto">
                 <Button
                   size="lg"
-                  className="w-full sm:w-auto h-11 px-6 text-[13px] bg-indigo-600 hover:bg-indigo-700 text-white shadow-lg shadow-indigo-600/20 transition-all hover:shadow-indigo-600/30 rounded-xl font-semibold group"
+                  className="w-full sm:w-auto h-14 px-8 text-[15px] bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm transition-all rounded-xl font-semibold group"
                 >
-                  <BarChart3 className="mr-2 h-4 w-4" />
                   Researcher Portal
-                  <ArrowRight className="ml-2 h-4 w-4 transition-transform group-hover:translate-x-0.5" />
+                  <ArrowRight className="ml-2 h-5 w-5 transition-transform group-hover:translate-x-1" />
                 </Button>
               </Link>
 
@@ -146,138 +85,147 @@ export default function Home() {
                 <Button
                   size="lg"
                   variant="outline"
-                  className="w-full sm:w-auto h-11 px-6 text-[13px] border-slate-200 bg-white hover:bg-slate-50 text-slate-600 hover:text-slate-800 rounded-xl font-semibold transition-all"
+                  className="w-full sm:w-auto h-14 px-8 text-[15px] border-slate-200 bg-white hover:bg-slate-50 text-slate-700 hover:text-slate-900 rounded-xl font-semibold transition-all"
                 >
-                  <ClipboardCheck className="mr-2 h-4 w-4" />
+                  <ClipboardCheck className="mr-2 h-5 w-5" />
                   Take Alumni Survey
                 </Button>
               </Link>
-            </div>
+            </motion.div>
           </div>
+        </section>
 
-          <div className="flex-1 hidden md:block" />
+        {/* Bento Features Section */}
+        <section className="w-full bg-slate-50/50 border-t border-slate-200">
+          <div className="max-w-[1400px] mx-auto px-6 lg:px-12 py-24 lg:py-32">
+            
+            <div className="max-w-3xl mb-20 flex flex-col items-start">
+              <h2 className="text-[clamp(2.5rem,4vw,3.5rem)] font-extrabold tracking-tighter text-slate-900 leading-[1.05]">
+                Actionable intelligence for educational policy.
+              </h2>
+              <p className="text-[18px] sm:text-[20px] text-slate-600 mt-6 leading-relaxed font-medium max-w-2xl">
+                Purpose-built tools to measure, track, and improve outcomes across the entire alumni lifecycle. Stop guessing and start knowing.
+              </p>
+            </div>
 
-          {/* Stats Row (pinned to bottom of viewport) */}
-          <div
-            className="flex flex-wrap items-center justify-center gap-6 sm:gap-12 mt-8 md:mt-0 pt-4 border-t border-slate-100/50 opacity-100 translate-y-0 transition-all duration-700 delay-[400ms]"
-          >
-            <div className="text-center">
-              <div className="text-[26px] sm:text-[30px] font-bold tracking-tight text-slate-900 leading-none">
-                <AnimatedCounter end={12450} suffix="+" />
-              </div>
-              <div className="text-[10px] font-medium text-slate-400 mt-1 uppercase tracking-wider">
-                Alumni Tracked
-              </div>
-            </div>
-            <div className="w-px h-8 bg-slate-200 hidden sm:block" />
-            <div className="text-center">
-              <div className="text-[26px] sm:text-[30px] font-bold tracking-tight text-slate-900 leading-none">
-                <AnimatedCounter end={91} suffix="%" />
-              </div>
-              <div className="text-[10px] font-medium text-slate-400 mt-1 uppercase tracking-wider">
-                Employment Rate
-              </div>
-            </div>
-            <div className="w-px h-8 bg-slate-200 hidden sm:block" />
-            <div className="text-center">
-              <div className="text-[26px] sm:text-[30px] font-bold tracking-tight text-slate-900 leading-none">
-                <AnimatedCounter end={45} suffix="" />
-              </div>
-              <div className="text-[10px] font-medium text-slate-400 mt-1 uppercase tracking-wider">
-                Institutions
-              </div>
+            {/* Gapless Bento Grid */}
+            <div className="grid grid-cols-1 md:grid-cols-12 gap-[1px] bg-slate-200 border border-slate-200 rounded-[2rem] overflow-hidden shadow-sm">
+              
+              {/* Analytics - Large Cell */}
+              <motion.div 
+                initial={reduce ? false : { opacity: 0, y: 16 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                viewport={{ once: true, amount: 0.1 }}
+                transition={{ duration: 0.7, ease: "easeOut" }}
+                className="md:col-span-8 bg-white p-8 lg:p-14 relative group flex flex-col justify-between overflow-hidden min-h-[400px]"
+              >
+                <div className="relative z-10 max-w-lg mb-24 lg:mb-32">
+                  <div className="w-14 h-14 rounded-2xl bg-slate-900 flex items-center justify-center mb-8 shadow-md">
+                    <BarChart3 className="h-7 w-7 text-white" />
+                  </div>
+                  <h3 className="text-[28px] lg:text-[36px] font-extrabold text-slate-900 mb-4 tracking-tight leading-tight">
+                    Comprehensive Analytics
+                  </h3>
+                  <p className="text-[16px] lg:text-[18px] text-slate-500 leading-relaxed font-medium">
+                    Deep dive into the factors driving alumni success with comprehensive dashboards and real-time visualization of cohort trajectories.
+                  </p>
+                </div>
+                
+                {/* Abstract UI element */}
+                <div className="absolute right-0 bottom-0 w-[85%] sm:w-2/3 h-[55%] bg-slate-50 rounded-tl-3xl border-t border-l border-slate-200 transform translate-x-12 translate-y-12 group-hover:translate-x-6 group-hover:translate-y-6 transition-transform duration-700 ease-out flex items-start p-6 sm:p-8 shadow-2xl">
+                   <div className="w-full flex items-end gap-2 sm:gap-4 h-full pb-2">
+                      {[40, 70, 45, 90, 60, 85].map((h, i) => (
+                        <div key={i} className="w-full bg-slate-200 rounded-t-md relative overflow-hidden" style={{ height: `${h}%` }}>
+                          <div 
+                            className="absolute bottom-0 w-full bg-slate-800 rounded-t-md transition-all duration-700 ease-out group-hover:bg-indigo-600" 
+                            style={{ height: `${(i % 3 + 1) * 20 + 20}%` }}
+                          />
+                        </div>
+                      ))}
+                   </div>
+                </div>
+              </motion.div>
+
+              {/* Cohort Tracking - Tall Cell */}
+              <motion.div 
+                initial={reduce ? false : { opacity: 0, y: 16 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                viewport={{ once: true, amount: 0.1 }}
+                transition={{ duration: 0.7, delay: 0.1, ease: "easeOut" }}
+                className="md:col-span-4 bg-indigo-600 p-8 lg:p-14 relative group flex flex-col justify-between overflow-hidden min-h-[400px]"
+              >
+                <div className="relative z-10">
+                  <div className="w-14 h-14 rounded-2xl bg-white/10 flex items-center justify-center mb-8 backdrop-blur-md border border-white/20">
+                    <TrendingUp className="h-7 w-7 text-white" />
+                  </div>
+                  <h3 className="text-[28px] lg:text-[32px] font-extrabold text-white mb-4 tracking-tight leading-tight">
+                    Cohort Tracking
+                  </h3>
+                  <p className="text-[16px] lg:text-[18px] text-indigo-100/90 leading-relaxed font-medium">
+                    Monitor multi-year trends and accurately assess educational impact with rigorous longitudinal analysis.
+                  </p>
+                </div>
+
+                {/* Abstract decorative element */}
+                <div className="mt-16 w-full h-40 relative transform group-hover:scale-105 transition-transform duration-700 ease-out origin-bottom">
+                   <div className="absolute inset-0 bg-gradient-to-t from-indigo-600 to-transparent z-10" />
+                   <svg className="w-full h-full text-indigo-400/50" viewBox="0 0 100 40" preserveAspectRatio="none">
+                     <path d="M0,40 L0,20 Q10,10 20,20 T40,15 T60,25 T80,10 T100,20 L100,40 Z" fill="currentColor" />
+                   </svg>
+                </div>
+              </motion.div>
+
+              {/* Surveys - Wide Cell */}
+              <motion.div 
+                initial={reduce ? false : { opacity: 0, y: 16 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                viewport={{ once: true, amount: 0.1 }}
+                transition={{ duration: 0.7, delay: 0.2, ease: "easeOut" }}
+                className="md:col-span-5 bg-white p-8 lg:p-14 relative group flex flex-col justify-between overflow-hidden min-h-[350px]"
+              >
+                <div className="relative z-10">
+                  <div className="w-14 h-14 rounded-2xl bg-slate-50 border border-slate-200 flex items-center justify-center mb-8 group-hover:-translate-y-1 transition-transform duration-500 shadow-sm">
+                    <ClipboardCheck className="h-7 w-7 text-slate-900" />
+                  </div>
+                  <h3 className="text-[28px] lg:text-[32px] font-extrabold text-slate-900 mb-4 tracking-tight leading-tight">
+                    Seamless Surveys
+                  </h3>
+                  <p className="text-[16px] lg:text-[18px] text-slate-500 leading-relaxed font-medium">
+                    Mobile-first, high-conversion interfaces designed for gathering essential alumni data efficiently and securely.
+                  </p>
+                </div>
+              </motion.div>
+              
+              {/* Privacy - Wide Cell */}
+              <motion.div 
+                initial={reduce ? false : { opacity: 0, y: 16 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                viewport={{ once: true, amount: 0.1 }}
+                transition={{ duration: 0.7, delay: 0.3, ease: "easeOut" }}
+                className="md:col-span-7 bg-slate-900 p-8 lg:p-14 relative group flex flex-col justify-between overflow-hidden min-h-[350px]"
+              >
+                <div className="relative z-10 max-w-md">
+                  <div className="w-14 h-14 rounded-2xl bg-white/5 flex items-center justify-center mb-8 backdrop-blur-md border border-white/10 group-hover:rotate-[15deg] transition-transform duration-500">
+                    <Shield className="h-7 w-7 text-white" />
+                  </div>
+                  <h3 className="text-[28px] lg:text-[32px] font-extrabold text-white mb-4 tracking-tight leading-tight">
+                    Data Privacy Compliant
+                  </h3>
+                  <p className="text-[16px] lg:text-[18px] text-slate-400 leading-relaxed font-medium">
+                    Endorsed by DepEd Pasig. Built from the ground up to handle sensitive educational and employment records securely.
+                  </p>
+                </div>
+
+                {/* Abstract Shield */}
+                <div className="absolute right-0 bottom-0 opacity-[0.03] group-hover:opacity-[0.06] transition-opacity duration-700 transform translate-x-8 translate-y-8">
+                   <Shield className="w-72 h-72 text-white" />
+                </div>
+              </motion.div>
+
             </div>
           </div>
         </section>
 
-        {/* Divider */}
-        <div className="w-full max-w-6xl mx-auto px-6 lg:px-16">
-          <div className="h-px bg-gradient-to-r from-transparent via-slate-200 to-transparent" />
-        </div>
-
-
-        {/* Features Section */}
-        <div className="w-full max-w-6xl mx-auto py-20 lg:py-28">
-          <div
-            className="text-center mb-14 opacity-100 translate-y-0 transition-all duration-700 delay-500"
-          >
-            <h2 className="text-[28px] sm:text-[32px] font-bold tracking-tight text-slate-900">
-              Built for Evidence-Based Education
-            </h2>
-            <p className="text-[15px] text-slate-400 mt-3 max-w-lg mx-auto leading-relaxed">
-              Purpose-built tools to measure, track, and improve educational
-              outcomes across the entire alumni lifecycle.
-            </p>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-            {[
-              {
-                icon: BarChart3,
-                title: "Actionable Analytics",
-                description:
-                  "Deep dive into the factors driving alumni success with comprehensive dashboards and real-time data visualization.",
-                iconBg: "bg-blue-50",
-                iconColor: "text-blue-600",
-              },
-              {
-                icon: TrendingUp,
-                title: "Cohort Tracking",
-                description:
-                  "Monitor multi-year trends and accurately assess educational impact with longitudinal cohort analysis.",
-                iconBg: "bg-indigo-50",
-                iconColor: "text-indigo-600",
-              },
-              {
-                icon: Zap,
-                title: "Seamless Surveys",
-                description:
-                  "Mobile-first, high-conversion survey interfaces designed for gathering essential alumni data efficiently.",
-                iconBg: "bg-violet-50",
-                iconColor: "text-violet-600",
-              },
-            ].map((feature) => (
-              <div
-                key={feature.title}
-                className="group relative p-7 rounded-2xl border border-slate-200/80 bg-white hover:border-slate-300/80 transition-all duration-300 hover:shadow-lg hover:shadow-slate-200/50"
-              >
-                <div
-                  className={`w-11 h-11 rounded-xl ${feature.iconBg} flex items-center justify-center mb-5 group-hover:scale-110 transition-transform duration-300`}
-                >
-                  <feature.icon
-                    className={`h-5 w-5 ${feature.iconColor}`}
-                  />
-                </div>
-                <h3 className="text-[16px] font-bold text-slate-900 mb-2">
-                  {feature.title}
-                </h3>
-                <p className="text-[14px] text-slate-400 leading-relaxed">
-                  {feature.description}
-                </p>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Trust Bar */}
-        <div className="w-full max-w-6xl mx-auto pb-16">
-          <div className="flex items-center justify-center gap-6 text-[12px] font-medium text-slate-400">
-            <div className="flex items-center gap-1.5">
-              <Shield className="w-3.5 h-3.5" />
-              <span>Data Privacy Compliant</span>
-            </div>
-            <div className="w-1 h-1 rounded-full bg-slate-300" />
-            <div className="flex items-center gap-1.5">
-              <GraduationCap className="w-3.5 h-3.5" />
-              <span>Endorsed by DepEd Pasig</span>
-            </div>
-            <div className="w-1 h-1 rounded-full bg-slate-300 hidden sm:block" />
-            <div className="hidden sm:flex items-center gap-1.5">
-              <Zap className="w-3.5 h-3.5" />
-              <span>Real-time Processing</span>
-            </div>
-          </div>
-        </div>
       </main>
     </div>
   );
