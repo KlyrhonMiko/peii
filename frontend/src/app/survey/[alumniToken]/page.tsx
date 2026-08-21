@@ -71,6 +71,7 @@ export default async function SurveyPage({
 
   return (
     <ClientSurveyForm
+      key={alumniToken}
       title={survey.title}
       description={survey.description}
       sections={survey.sections}

@@ -4,11 +4,30 @@ from fastapi import APIRouter, Request, status
 
 from core.deps import AsyncDBSession
 from core.responses import success_response
+from models.survey_distribution import SurveyDistribution
 from schemas.common import APIResponse
-from schemas.survey_distribution import SurveyDistributionRead
+from schemas.survey_distribution import SurveyDistributionCreate, SurveyDistributionRead
 from services import distribution_service
 
 router = APIRouter()
+
+
+def _distribution_read(
+    distribution: SurveyDistribution, survey_status: str
+) -> SurveyDistributionRead:
+    lifecycle_status = distribution_service.get_distribution_status(distribution, survey_status)
+    return SurveyDistributionRead(
+        id=distribution.id,
+        survey_id=distribution.survey_id,
+        version_id=distribution.version_id,
+        token=distribution.token,
+        status=lifecycle_status,
+        is_active=lifecycle_status == "active",
+        is_legacy=distribution.expires_at is None,
+        expires_at=distribution.expires_at,
+        revoked_at=distribution.revoked_at,
+        created_at=distribution.created_at,
+    )
 
 
 @router.post(
@@ -20,15 +39,16 @@ router = APIRouter()
 )
 async def create_distribution(
     survey_id: UUID,
+    payload: SurveyDistributionCreate,
     session: AsyncDBSession,
     request: Request,
 ) -> APIResponse[SurveyDistributionRead]:
     ip_address = request.client.host if request.client else None
     distribution = await distribution_service.create_distribution(
-        session, survey_id, ip_address=ip_address
+        session, survey_id, payload, ip_address=ip_address
     )
     return success_response(
-        SurveyDistributionRead.model_validate(distribution),
+        _distribution_read(distribution, "Active"),
         message="Distribution created.",
     )
 
@@ -43,9 +63,9 @@ async def list_distributions(
     survey_id: UUID,
     session: AsyncDBSession,
 ) -> APIResponse[list[SurveyDistributionRead]]:
-    distributions = await distribution_service.list_distributions(session, survey_id)
+    distributions, survey_status = await distribution_service.list_distributions(session, survey_id)
     return success_response(
-        [SurveyDistributionRead.model_validate(d) for d in distributions],
+        [_distribution_read(d, survey_status) for d in distributions],
     )
 
 
@@ -62,10 +82,38 @@ async def revoke_distribution(
     request: Request,
 ) -> APIResponse[SurveyDistributionRead]:
     ip_address = request.client.host if request.client else None
-    distribution = await distribution_service.revoke_distribution(
+    distribution, survey_status = await distribution_service.revoke_distribution(
         session, survey_id, distribution_id, ip_address=ip_address
     )
     return success_response(
-        SurveyDistributionRead.model_validate(distribution),
+        _distribution_read(distribution, survey_status),
         message="Distribution revoked.",
+    )
+
+
+@router.post(
+    "/{distribution_id}/rotate",
+    response_model=APIResponse[SurveyDistributionRead],
+    status_code=status.HTTP_201_CREATED,
+    summary="Rotate Distribution",
+    description="Revoke a distribution token and create a replacement token.",
+)
+async def rotate_distribution(
+    survey_id: UUID,
+    distribution_id: UUID,
+    payload: SurveyDistributionCreate,
+    session: AsyncDBSession,
+    request: Request,
+) -> APIResponse[SurveyDistributionRead]:
+    ip_address = request.client.host if request.client else None
+    distribution, survey_status = await distribution_service.rotate_distribution(
+        session,
+        survey_id,
+        distribution_id,
+        payload,
+        ip_address=ip_address,
+    )
+    return success_response(
+        _distribution_read(distribution, survey_status),
+        message="Distribution rotated.",
     )

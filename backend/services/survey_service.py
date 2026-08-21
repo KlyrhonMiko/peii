@@ -1,4 +1,5 @@
 import json
+from uuid import UUID
 
 from fastapi import status
 from sqlalchemy import func, or_
@@ -16,8 +17,9 @@ from schemas.survey import (
     SurveyRestore,
     SurveyUpdate,
 )
-from services.audit_service import record_audit
+from services.audit_service import AuditEvent, commit_with_audit
 from services.base_service import apply_updates, utc_now
+from services.survey_version_service import create_initial_version, get_version_for_read
 from utils.identifiers import generate_business_id
 from utils.sorting import stable_order_by
 
@@ -85,17 +87,40 @@ async def get_survey(
     return survey
 
 
+async def get_survey_by_uuid(session: AsyncSession, survey_id: UUID) -> Survey:
+    result = await session.exec(
+        select(Survey).where(
+            col(Survey.id) == survey_id,
+            col(Survey.is_deleted).is_(False),
+        )
+    )
+    survey = result.first()
+    if not survey:
+        raise AppError("Survey not found.", status_code=status.HTTP_404_NOT_FOUND)
+    return survey
+
+
 async def get_survey_with_questions(
     session: AsyncSession, survey_id: str
 ) -> tuple[Survey, list[SurveyQuestion]]:
     survey = await get_survey(session, survey_id)
+    version = await get_version_for_read(session, survey.id)
     questions_result = await session.exec(
         select(SurveyQuestion)
+        .join(SurveySection, col(SurveySection.id) == SurveyQuestion.section_id)
         .where(
             col(SurveyQuestion.survey_id) == survey.id,
+            col(SurveyQuestion.version_id) == version.id,
+            col(SurveySection.version_id) == version.id,
+            col(SurveySection.is_deleted).is_(False),
             col(SurveyQuestion.is_deleted).is_(False),
         )
-        .order_by(col(SurveyQuestion.order_index))
+        .order_by(
+            col(SurveySection.order_index),
+            col(SurveySection.id),
+            col(SurveyQuestion.order_index),
+            col(SurveyQuestion.id),
+        )
     )
     questions = list(questions_result.all())
     return survey, questions
@@ -105,14 +130,16 @@ async def get_survey_with_sections(
     session: AsyncSession, survey_id: str
 ) -> tuple[Survey, list[tuple[SurveySection, list[SurveyQuestion]]]]:
     survey = await get_survey(session, survey_id)
+    version = await get_version_for_read(session, survey.id)
 
     sections_result = await session.exec(
         select(SurveySection)
         .where(
             col(SurveySection.survey_id) == survey.id,
+            col(SurveySection.version_id) == version.id,
             col(SurveySection.is_deleted).is_(False),
         )
-        .order_by(col(SurveySection.order_index))
+        .order_by(col(SurveySection.order_index), col(SurveySection.id))
     )
     sections = list(sections_result.all())
 
@@ -122,9 +149,11 @@ async def get_survey_with_sections(
             select(SurveyQuestion)
             .where(
                 col(SurveyQuestion.section_id) == section.id,
+                col(SurveyQuestion.survey_id) == survey.id,
+                col(SurveyQuestion.version_id) == version.id,
                 col(SurveyQuestion.is_deleted).is_(False),
             )
-            .order_by(col(SurveyQuestion.order_index))
+            .order_by(col(SurveyQuestion.order_index), col(SurveyQuestion.id))
         )
         questions = list(questions_result.all())
         sections_with_questions.append((section, questions))
@@ -139,17 +168,22 @@ async def create_survey(
     survey_data["survey_id"] = generate_business_id("SURV")
     survey = Survey.model_validate(survey_data)
     survey.performed_by = payload.performed_by
+    _version, version_audit = await create_initial_version(session, survey)
     session.add(survey)
-    await session.commit()
-    await session.refresh(survey)
-    await record_audit(
+    await commit_with_audit(
         session,
-        action="create",
-        resource_type="survey",
-        resource_id=survey.survey_id,
-        performed_by=survey.performed_by,
-        ip_address=ip_address,
+        [
+            AuditEvent(
+                action="create",
+                resource_type="survey",
+                resource_id=survey.survey_id,
+                performed_by=survey.performed_by,
+                ip_address=ip_address,
+            ),
+            version_audit,
+        ],
     )
+    await session.refresh(survey)
     return survey
 
 
@@ -168,21 +202,24 @@ async def update_survey(
             continue
         old_val = getattr(survey, key)
         if old_val != val:
-            changes[key] = val
+            changes[key] = {"before": old_val, "after": val}
 
     apply_updates(survey, updates)
     session.add(survey)
-    await session.commit()
-    await session.refresh(survey)
-    await record_audit(
+    await commit_with_audit(
         session,
-        action="update",
-        resource_type="survey",
-        resource_id=survey.survey_id,
-        performed_by=payload.performed_by,
-        changes=changes if changes else None,
-        ip_address=ip_address,
+        [
+            AuditEvent(
+                action="update",
+                resource_type="survey",
+                resource_id=survey.survey_id,
+                performed_by=payload.performed_by,
+                changes=changes if changes else None,
+                ip_address=ip_address,
+            )
+        ],
     )
+    await session.refresh(survey)
     return survey
 
 
@@ -198,16 +235,19 @@ async def soft_delete_survey(
     survey.performed_by = payload.performed_by
     survey.updated_at = utc_now()
     session.add(survey)
-    await session.commit()
-    await session.refresh(survey)
-    await record_audit(
+    await commit_with_audit(
         session,
-        action="delete",
-        resource_type="survey",
-        resource_id=survey.survey_id,
-        performed_by=payload.performed_by,
-        ip_address=ip_address,
+        [
+            AuditEvent(
+                action="delete",
+                resource_type="survey",
+                resource_id=survey.survey_id,
+                performed_by=payload.performed_by,
+                ip_address=ip_address,
+            )
+        ],
     )
+    await session.refresh(survey)
     return survey
 
 
@@ -226,16 +266,19 @@ async def restore_survey(
     survey.performed_by = payload.performed_by
     survey.updated_at = utc_now()
     session.add(survey)
-    await session.commit()
-    await session.refresh(survey)
-    await record_audit(
+    await commit_with_audit(
         session,
-        action="restore",
-        resource_type="survey",
-        resource_id=survey.survey_id,
-        performed_by=payload.performed_by,
-        ip_address=ip_address,
+        [
+            AuditEvent(
+                action="restore",
+                resource_type="survey",
+                resource_id=survey.survey_id,
+                performed_by=payload.performed_by,
+                ip_address=ip_address,
+            )
+        ],
     )
+    await session.refresh(survey)
     return survey
 
 

@@ -9,7 +9,6 @@ import {
   Tooltip,
   ResponsiveContainer,
   Legend,
-  Cell
 } from "recharts"
 
 type TooltipValue = number | string | readonly (number | string)[] | undefined
@@ -83,7 +82,7 @@ export function SentimentDivergenceChart() {
               }}
               itemStyle={{ fontWeight: 500, fontSize: '13px', paddingTop: '4px' }}
               labelStyle={{ fontWeight: 700, color: '#0f172a', fontSize: '12px', marginBottom: '8px' }}
-              formatter={(value: TooltipValue, name: any) => [
+              formatter={(value: TooltipValue, name: string | number | undefined) => [
                 formatTooltipValue(value), 
                 name === "agreement" ? "Alignment" : "Divergence Flagged"
               ]}

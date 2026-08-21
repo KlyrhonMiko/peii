@@ -1,4 +1,6 @@
-from fastapi import APIRouter, Request, status
+from uuid import UUID
+
+from fastapi import APIRouter, Header, Request, Response, status
 from sqlmodel import col, select
 
 from core.deps import AsyncDBSession
@@ -42,9 +44,10 @@ async def get_public_survey(
         select(SurveySection)
         .where(
             col(SurveySection.survey_id) == distribution.survey_id,
+            col(SurveySection.version_id) == distribution.version_id,
             col(SurveySection.is_deleted).is_(False),
         )
-        .order_by(col(SurveySection.order_index))
+        .order_by(col(SurveySection.order_index), col(SurveySection.id))
     )
     sections = list(sections_result.all())
 
@@ -55,9 +58,11 @@ async def get_public_survey(
             select(SurveyQuestion)
             .where(
                 col(SurveyQuestion.section_id) == section.id,
+                col(SurveyQuestion.survey_id) == distribution.survey_id,
+                col(SurveyQuestion.version_id) == distribution.version_id,
                 col(SurveyQuestion.is_deleted).is_(False),
             )
-            .order_by(col(SurveyQuestion.order_index))
+            .order_by(col(SurveyQuestion.order_index), col(SurveyQuestion.id))
         )
         section_questions = list(questions_result.all())
 
@@ -106,11 +111,33 @@ async def submit_response(
     payload: SurveyResponseSubmit,
     session: AsyncDBSession,
     request: Request,
+    http_response: Response,
+    idempotency_header: str | None = Header(default=None, alias="Idempotency-Key"),
 ) -> APIResponse[SurveyResponseRead]:
     ip_address = request.client.host if request.client else None
-    response = await response_service.submit_response(
-        session, token, payload.answers, ip_address=ip_address
+    idempotency_key = None
+    if idempotency_header is None:
+        raise AppError(
+            "Idempotency-Key is required for response submissions.",
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+    try:
+        idempotency_key = UUID(idempotency_header)
+    except ValueError as exc:
+        raise AppError(
+            "Idempotency-Key must be a valid UUID.",
+            status_code=status.HTTP_400_BAD_REQUEST,
+        ) from exc
+
+    response, replayed = await response_service.submit_response(
+        session,
+        token,
+        payload.answers,
+        idempotency_key=idempotency_key,
+        ip_address=ip_address,
     )
+    if replayed:
+        http_response.status_code = status.HTTP_200_OK
     return success_response(
         SurveyResponseRead.model_validate(response),
         message="Response submitted.",

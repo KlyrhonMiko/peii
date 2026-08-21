@@ -1,3 +1,7 @@
+from dataclasses import dataclass
+from datetime import date, datetime
+from enum import Enum
+from typing import Any
 from uuid import UUID
 
 from sqlalchemy import func
@@ -13,47 +17,67 @@ from utils.sorting import stable_order_by
 logger = get_logger(__name__)
 
 
-async def record_audit(
-    session: AsyncSession,
-    *,
-    action: str,
-    resource_type: str,
-    resource_id: str,
-    performed_by: UUID | None = None,
-    changes: dict | None = None,
-    ip_address: str | None = None,
-) -> AuditLog | None:
-    """Records an audit log entry in the database.
+@dataclass(frozen=True)
+class AuditEvent:
+    """One audit event to persist with its associated domain mutation."""
 
-    Catches database errors to prevent business transaction rollback, while logging failures.
-    """
-    request_id = request_id_ctx.get()
+    action: str
+    resource_type: str
+    resource_id: str
+    performed_by: UUID | None = None
+    changes: dict[str, Any] | None = None
+    ip_address: str | None = None
 
-    audit = AuditLog(
-        action=action,
-        resource_type=resource_type,
-        resource_id=resource_id,
-        performed_by=performed_by,
-        request_id=request_id,
-        changes=changes,
-        ip_address=ip_address,
+
+def _json_safe(value: Any) -> Any:
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    if isinstance(value, (UUID, datetime, date)):
+        return str(value)
+    if isinstance(value, Enum):
+        return _json_safe(value.value)
+    if isinstance(value, dict):
+        return {str(key): _json_safe(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple, set)):
+        return [_json_safe(item) for item in value]
+    return str(value)
+
+
+def _audit_log_from_event(event: AuditEvent) -> AuditLog:
+    return AuditLog(
+        action=event.action,
+        resource_type=event.resource_type,
+        resource_id=event.resource_id,
+        performed_by=event.performed_by,
+        request_id=request_id_ctx.get(),
+        changes=_json_safe(event.changes) if event.changes is not None else None,
+        ip_address=event.ip_address,
     )
 
+
+async def commit_with_audit(
+    session: AsyncSession,
+    events: list[AuditEvent],
+) -> None:
+    """Commit domain changes and their audit events as one fail-closed transaction."""
+    if not events:
+        raise ValueError("At least one audit event is required for a mutation.")
+
     try:
-        session.add(audit)
+        audits = [_audit_log_from_event(event) for event in events]
+        session.add_all(audits)
         await session.commit()
-        await session.refresh(audit)
-        return audit
     except Exception as exc:
+        await session.rollback()
         logger.error(
-            "Failed to record audit log",
-            error=str(exc),
-            action=action,
-            resource_type=resource_type,
-            resource_id=resource_id,
+            "Audited transaction failed",
+            error_type=type(exc).__name__,
+            actions=[event.action for event in events],
+            resource_types=[event.resource_type for event in events],
+            resource_ids=[event.resource_id for event in events],
+            request_id=request_id_ctx.get(),
         )
-        # Avoid raising errors to keep primary transaction stable
-        return None
+        raise
 
 
 def _apply_audit_list_filters(statement, params: AuditLogListQueryParams):

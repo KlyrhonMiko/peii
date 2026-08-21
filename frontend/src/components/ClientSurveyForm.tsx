@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useRef, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { SurveySelect } from "@/components/SurveySelect"
 import {
@@ -84,7 +84,8 @@ const TYPE_LABEL: Record<string, string> = {
   boolean: "Yes/No",
 }
 
-type Answers = Record<string, string | string[] | number>
+type AnswerValue = string | string[] | number | boolean | Record<string, string>
+type Answers = Record<string, AnswerValue>
 
 
 
@@ -100,6 +101,8 @@ export function ClientSurveyForm({
   const [validationAlertOpen, setValidationAlertOpen] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [submitted, setSubmitted] = useState(false)
+  const [submitError, setSubmitError] = useState<string | null>(null)
+  const idempotencyKey = useRef<string | null>(null)
 
   const section = sections[sectionIdx]
   if (submitted) {
@@ -134,7 +137,20 @@ export function ClientSurveyForm({
     for (const q of section.questions) {
       if (q.is_required) {
         const val = answers[q.id]
-        if (val === undefined || val === null || val === "" || (Array.isArray(val) && val.length === 0)) {
+        const isEmptyObject =
+          typeof val === "object" &&
+          val !== null &&
+          !Array.isArray(val) &&
+          Object.keys(val).length === 0
+        const rankingHasDefault = q.question_type === "ranking" && (q.options?.length ?? 0) > 0
+        if (
+          !rankingHasDefault &&
+          (val === undefined ||
+            val === null ||
+            val === "" ||
+            (Array.isArray(val) && val.length === 0) ||
+            isEmptyObject)
+        ) {
           newErrors[q.id] = "This question is required"
           isValid = false
         }
@@ -155,7 +171,7 @@ export function ClientSurveyForm({
     if (!isFirst) setSectionIdx((p) => p - 1)
   }
 
-  const setAnswer = (qId: string, value: string | string[] | number) => {
+  const setAnswer = (qId: string, value: AnswerValue) => {
     setAnswers((prev) => ({ ...prev, [qId]: value }))
     if (errors[qId]) {
       setErrors((prev) => {
@@ -179,22 +195,44 @@ export function ClientSurveyForm({
       setValidationAlertOpen(true)
       return
     }
-    handleSubmit()
+    void handleSubmit()
   }
 
   const handleSubmit = async () => {
     if (submitting) return
     setSubmitting(true)
+    setSubmitError(null)
     try {
+      const submittedAnswers: Answers = { ...answers }
+      for (const currentSection of sections) {
+        for (const question of currentSection.questions) {
+          if (
+            !(question.id in submittedAnswers) &&
+            question.question_type === "ranking" &&
+            question.options
+          ) {
+            submittedAnswers[question.id] = question.options
+          }
+        }
+      }
+      idempotencyKey.current ??= crypto.randomUUID()
       const res = await fetch(`${API_BASE}/survey/${token}/respond`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ answers }),
+        headers: {
+          "Content-Type": "application/json",
+          "Idempotency-Key": idempotencyKey.current,
+        },
+        body: JSON.stringify({ answers: submittedAnswers }),
       })
-      if (!res.ok) throw new Error("Submit failed")
+      if (!res.ok) {
+        if (res.status < 500) idempotencyKey.current = null
+        const body = (await res.json()) as { message?: string }
+        setSubmitError(body.message ?? "We could not submit your response.")
+        return
+      }
       setSubmitted(true)
     } catch {
-      /* silently fail */
+      setSubmitError("We could not submit your response. Please try again.")
     } finally {
       setSubmitting(false)
     }
@@ -480,8 +518,8 @@ export function ClientSurveyForm({
                       </thead>
                       <tbody>
                         {rows.map((row, rowIdx) => {
-                          const rowKey = `matrix-${q.id}-row-${rowIdx}`
-                          const currentVal = answers[rowKey] as string | undefined
+                          const matrixAnswers = (answers[q.id] as Record<string, string> | undefined) ?? {}
+                          const currentVal = matrixAnswers[row]
                           return (
                             <tr
                               key={rowIdx}
@@ -495,10 +533,10 @@ export function ClientSurveyForm({
                                     <label className="inline-flex cursor-pointer p-2 items-center justify-center rounded-full hover:bg-indigo-50/50 transition-colors">
                                       <input
                                         type="radio"
-                                        name={rowKey}
+                                         name={`matrix-${q.id}-row-${rowIdx}`}
                                         value={col}
                                         checked={isSelected}
-                                        onChange={() => setAnswer(rowKey, col)}
+                                         onChange={() => setAnswer(q.id, { ...matrixAnswers, [row]: col })}
                                         className="sr-only"
                                       />
                                       <div className={`flex size-4.5 items-center justify-center rounded-full border-2 transition-all ${
@@ -543,7 +581,7 @@ export function ClientSurveyForm({
               {q.question_type === "boolean" && (
                 <div className="flex gap-4">
                   {["Yes", "No"].map((opt) => {
-                    const val = opt.toLowerCase()
+                    const val = opt === "Yes"
                     const isSelected = answers[q.id] === val
                     return (
                       <label
@@ -555,7 +593,7 @@ export function ClientSurveyForm({
                         <input
                           type="radio"
                           name={`boolean-${q.id}`}
-                          value={val}
+                          value={String(val)}
                           checked={isSelected}
                           onChange={() => setAnswer(q.id, val)}
                           className="sr-only"
@@ -574,6 +612,13 @@ export function ClientSurveyForm({
             </div>
           ))}
         </div>
+
+        {submitError && (
+          <div className="mt-5 flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2.5 text-sm text-red-700" role="alert">
+            <AlertCircle className="mt-0.5 size-4 shrink-0" />
+            <span>{submitError}</span>
+          </div>
+        )}
 
         {/* Navigation */}
         <div className="mt-6 flex items-center justify-between">

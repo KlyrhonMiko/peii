@@ -71,6 +71,7 @@ async def reorder_questions(
         session,
         survey_id,
         payload.question_ids,
+        section_id=payload.section_id,
         ip_address=ip_address,
     )
     return success_response(

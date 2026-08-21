@@ -6,7 +6,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from core.exceptions import AppError
 from models.user import User
 from schemas.user import UserCreate, UserDelete, UserListQueryParams, UserRestore, UserUpdate
-from services.audit_service import record_audit
+from services.audit_service import AuditEvent, commit_with_audit
 from services.base_service import apply_updates, utc_now
 from utils.identifiers import generate_business_id
 from utils.security import hash_password
@@ -134,17 +134,20 @@ async def batch_create_users(
         session.add(user)
         users.append(user)
 
-    await session.commit()
+    events = []
+    for user in users:
+        events.append(
+            AuditEvent(
+                action="create",
+                resource_type="user",
+                resource_id=user.user_id,
+                performed_by=user.performed_by,
+                ip_address=ip_address,
+            )
+        )
+    await commit_with_audit(session, events)
     for user in users:
         await session.refresh(user)
-        await record_audit(
-            session,
-            action="create",
-            resource_type="user",
-            resource_id=user.user_id,
-            performed_by=user.performed_by,
-            ip_address=ip_address,
-        )
     return users
 
 
@@ -168,16 +171,19 @@ async def create_user(
     user_data["user_id"] = generate_business_id("USER")
     user = User.model_validate(user_data)
     session.add(user)
-    await session.commit()
-    await session.refresh(user)
-    await record_audit(
+    await commit_with_audit(
         session,
-        action="create",
-        resource_type="user",
-        resource_id=user.user_id,
-        performed_by=user.performed_by,
-        ip_address=ip_address,
+        [
+            AuditEvent(
+                action="create",
+                resource_type="user",
+                resource_id=user.user_id,
+                performed_by=user.performed_by,
+                ip_address=ip_address,
+            )
+        ],
     )
+    await session.refresh(user)
     return user
 
 
@@ -190,11 +196,14 @@ async def update_user(
     # Compute changes for auditing
     changes = {}
     for key, val in updates.items():
-        if key in ("password", "performed_by"):
+        if key == "password":
+            changes[key] = {"before": "[REDACTED]", "after": "[REDACTED]"}
+            continue
+        if key == "performed_by":
             continue
         old_val = getattr(user, key)
         if old_val != val:
-            changes[key] = val
+            changes[key] = {"before": old_val, "after": val}
 
     if "email" in updates and updates["email"] != user.email:
         existing_user_result = await session.exec(
@@ -217,17 +226,20 @@ async def update_user(
 
     apply_updates(user, updates)
     session.add(user)
-    await session.commit()
-    await session.refresh(user)
-    await record_audit(
+    await commit_with_audit(
         session,
-        action="update",
-        resource_type="user",
-        resource_id=user.user_id,
-        performed_by=payload.performed_by,
-        changes=changes if changes else None,
-        ip_address=ip_address,
+        [
+            AuditEvent(
+                action="update",
+                resource_type="user",
+                resource_id=user.user_id,
+                performed_by=payload.performed_by,
+                changes=changes if changes else None,
+                ip_address=ip_address,
+            )
+        ],
     )
+    await session.refresh(user)
     return user
 
 
@@ -240,16 +252,19 @@ async def soft_delete_user(
     user.performed_by = payload.performed_by
     user.updated_at = utc_now()
     session.add(user)
-    await session.commit()
-    await session.refresh(user)
-    await record_audit(
+    await commit_with_audit(
         session,
-        action="delete",
-        resource_type="user",
-        resource_id=user.user_id,
-        performed_by=payload.performed_by,
-        ip_address=ip_address,
+        [
+            AuditEvent(
+                action="delete",
+                resource_type="user",
+                resource_id=user.user_id,
+                performed_by=payload.performed_by,
+                ip_address=ip_address,
+            )
+        ],
     )
+    await session.refresh(user)
     return user
 
 
@@ -265,16 +280,17 @@ async def restore_user(
     user.performed_by = payload.performed_by
     user.updated_at = utc_now()
     session.add(user)
-    await session.commit()
-    await session.refresh(user)
-    await record_audit(
+    await commit_with_audit(
         session,
-        action="restore",
-        resource_type="user",
-        resource_id=user.user_id,
-        performed_by=payload.performed_by,
-        ip_address=ip_address,
+        [
+            AuditEvent(
+                action="restore",
+                resource_type="user",
+                resource_id=user.user_id,
+                performed_by=payload.performed_by,
+                ip_address=ip_address,
+            )
+        ],
     )
+    await session.refresh(user)
     return user
-
-

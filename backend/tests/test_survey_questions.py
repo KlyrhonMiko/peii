@@ -57,6 +57,25 @@ async def test_create_multiple_choice_question(client):
     assert data["options"] == ["Full-Time", "Part-Time", "Unemployed"]
 
 
+async def test_question_definition_rejects_invalid_options(client):
+    survey_uuid, section_id = await _create_survey(client, "Invalid Question Survey")
+
+    missing_options = await client.post(f"/api/v1/surveys/{survey_uuid}/questions/", json={
+        "question_text": "Missing options",
+        "question_type": "multiple_choice",
+        "section_id": section_id,
+    })
+    duplicate_options = await client.post(f"/api/v1/surveys/{survey_uuid}/questions/", json={
+        "question_text": "Duplicate options",
+        "question_type": "single_choice",
+        "options": ["A", "A"],
+        "section_id": section_id,
+    })
+
+    assert missing_options.status_code == 422
+    assert duplicate_options.status_code == 422
+
+
 async def test_update_question(client):
     survey_uuid, section_id = await _create_survey(client, "Update Survey")
     q_resp = await client.post(f"/api/v1/surveys/{survey_uuid}/questions/", json={

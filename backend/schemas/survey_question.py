@@ -29,7 +29,7 @@ class SurveyQuestionCreate(SurveyQuestionBaseSchema):
     question_type: QuestionType
     options: list[str] | None = None
     config: dict | None = None
-    section_id: UUID | None = None
+    section_id: UUID
     is_required: bool = True
     performed_by: UUID | None = None
 
@@ -51,6 +51,7 @@ class SurveyQuestionUpdate(SurveyQuestionBaseSchema):
     question_type: QuestionType | None = None
     options: list[str] | None = None
     config: dict | None = None
+    section_id: UUID | None = None
     is_required: bool | None = None
     performed_by: UUID | None = None
 
@@ -73,6 +74,7 @@ class SurveyQuestionRead(SurveyQuestionBaseSchema):
 
     id: UUID
     survey_id: UUID
+    section_id: UUID
     question_text: str
     question_type: QuestionType
     options: list[str] | None = None
@@ -116,6 +118,14 @@ class SurveyQuestionReorder(BaseModel):
     )
 
     question_ids: list[UUID]
+    section_id: UUID | None = None
+
+    @field_validator("question_ids")
+    @classmethod
+    def require_unique_ids(cls, value: list[UUID]) -> list[UUID]:
+        if len(value) != len(set(value)):
+            raise ValueError("question_ids must not contain duplicates.")
+        return value
 
 
 class SurveyQuestionListQueryParams(ListQueryParams):

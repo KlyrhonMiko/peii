@@ -4,6 +4,7 @@ from models.survey_distribution import SurveyDistribution
 from models.survey_question import SurveyQuestion
 from models.survey_response import SurveyResponse
 from models.survey_section import SurveySection
+from models.survey_version import SurveyVersion
 from models.user import User
 
 __all__ = [
@@ -14,4 +15,5 @@ __all__ = [
     "SurveyDistribution",
     "SurveyResponse",
     "SurveySection",
+    "SurveyVersion",
 ]

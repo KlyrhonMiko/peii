@@ -4,14 +4,6 @@ import { useState, useEffect, useMemo } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-  SheetDescription,
-  SheetFooter,
-} from "@/components/ui/sheet"
-import {
   Popover,
   PopoverContent,
   PopoverTrigger,
@@ -52,7 +44,6 @@ import {
   Copy,
   Link,
   CheckCircle2,
-  Ban,
 } from "lucide-react"
 import { cn, formatDate } from "@/lib/utils"
 import {
@@ -62,16 +53,11 @@ import {
   updateSurvey,
   deleteSurvey,
   createSection,
-  updateSection as updateSectionApi,
-  deleteSection,
-  reorderSections,
   createQuestion,
-  updateQuestion as updateQuestionApi,
-  deleteQuestion,
-  reorderQuestions,
+  ensureSurveyDraft,
+  replaceSurveyStructure,
   createDistribution,
   fetchDistributions,
-  revokeDistribution,
   fetchResponses,
 } from "@/lib/surveys"
 import type { Survey, SurveyQuestion, SurveySection, Distribution, SurveyResponse } from "@/lib/surveys"
@@ -290,6 +276,7 @@ export default function SurveyPage() {
   const [surveys, setSurveys] = useState<Survey[]>([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
   const [generating, setGenerating] = useState(false)
   const [modalState, setModalState] = useState<ModalState>(null)
   const [viewTab, setViewTab] = useState<"questions" | "responses">("questions")
@@ -310,13 +297,11 @@ export default function SurveyPage() {
   const [distributions, setDistributions] = useState<Distribution[]>([])
   const [distLoading, setDistLoading] = useState(false)
   const [surveyResponses, setSurveyResponses] = useState<SurveyResponse[]>([])
-  const [responsesLoading, setResponsesLoading] = useState(false)
   
   const { counts: responseCounts, texts: responseTexts } = useMemo(
     () => aggregateResponses(surveyResponses),
     [surveyResponses]
   )
-  const [distCreating, setDistCreating] = useState(false)
   const [copiedToken, setCopiedToken] = useState<string | null>(null)
 
   useEffect(() => {
@@ -371,7 +356,6 @@ export default function SurveyPage() {
   const handleOpenView = async (id: string) => {
     const survey = surveys.find((s) => s.id === id)
     if (!survey) return
-    setResponsesLoading(true)
     try {
       const full = await fetchSurvey(survey.surveyId)
       setSurveys((prev) => prev.map((s) => (s.id === id ? { ...s, ...full } : s)))
@@ -387,7 +371,7 @@ export default function SurveyPage() {
     } catch {
       // silently fail
     } finally {
-      setResponsesLoading(false)
+      // The view modal remains usable while response details are loading.
     }
   }
 
@@ -395,7 +379,9 @@ export default function SurveyPage() {
     const survey = surveys.find((s) => s.id === id)
     if (!survey) return
     try {
+      await ensureSurveyDraft(survey.id)
       const full = await fetchSurvey(survey.surveyId)
+      setSurveys((prev) => prev.map((item) => (item.id === full.id ? full : item)))
       setSurveyTitle(full.title)
       setSurveyDescription(full.description ?? "")
       setTargetCohort(full.targetCohort ?? "Class of 2024")
@@ -452,6 +438,7 @@ export default function SurveyPage() {
   const handleSaveSurvey = async () => {
     if (!surveyTitle.trim() || saving) return
     setSaving(true)
+    setSaveError(null)
     try {
       if (modalState?.type === "create") {
         const created = await createSurvey({
@@ -460,25 +447,24 @@ export default function SurveyPage() {
           target_cohort: targetCohort,
           status: surveyStatus,
         })
-        const sectionIdMap: Record<string, string> = {}
-        for (const sec of sections) {
-          const createdSec = await createSection(created.id, {
-            title: sec.title || "Untitled Section",
-            description: sec.description || null,
-          })
-          sectionIdMap[sec.id] = createdSec.id
-          for (const q of sec.questions) {
-            await createQuestion(created.id, {
-              question_text: q.text,
-              question_type: q.type,
-              options: q.options ?? null,
-              config: q.config ?? null,
-              is_required: q.isRequired ?? true,
-              section_id: createdSec.id,
-            })
-          }
-        }
-        const full = await fetchSurvey(created.surveyId)
+        const full = await replaceSurveyStructure(created.id, {
+          expected_revision: 0,
+          sections: sections.map((section) => ({
+            client_id: section.id,
+            id: section.id,
+            title: section.title || "Untitled Section",
+            description: section.description || null,
+            questions: section.questions.map((question) => ({
+              client_id: question.id,
+              id: question.id,
+              question_text: question.text,
+              question_type: question.type,
+              options: question.options ?? null,
+              config: question.config ?? null,
+              is_required: question.isRequired ?? true,
+            })),
+          })),
+        })
         setSurveys((prev) => [full, ...prev])
       } else if (modalState?.type === "edit") {
         const target = surveys.find((s) => s.id === modalState.id)
@@ -490,99 +476,37 @@ export default function SurveyPage() {
           target_cohort: targetCohort,
           status: surveyStatus,
         })
-
-        // -- Sections diff --
-        const origSectionIds = new Set(originalSections.map((s) => s.id))
-        const currentSectionIds = new Set(sections.map((s) => s.id))
-
-        for (const orig of originalSections) {
-          if (!currentSectionIds.has(orig.id)) {
-            await deleteSection(target.id, orig.id)
-          }
-        }
-
-        const sectionIdMap: Record<string, string> = {}
-        for (const sec of sections) {
-          let backendSecId: string
-          if (origSectionIds.has(sec.id)) {
-            const orig = originalSections.find((s) => s.id === sec.id)!
-            if (orig.title !== sec.title || orig.description !== sec.description) {
-              await updateSectionApi(target.id, sec.id, {
-                title: sec.title || "Untitled Section",
-                description: sec.description || null,
-              })
-            }
-            backendSecId = sec.id
-          } else {
-            const created = await createSection(target.id, {
-              title: sec.title || "Untitled Section",
-              description: sec.description || null,
-            })
-            backendSecId = created.id
-            sectionIdMap[sec.id] = created.id
-          }
-
-          // -- Questions within section --
-          const origQuestions = origSectionIds.has(sec.id)
-            ? originalSections.find((s) => s.id === sec.id)?.questions ?? []
-            : []
-          const origQIds = new Set(origQuestions.map((q) => q.id))
-          const currentQIds = new Set(sec.questions.map((q) => q.id))
-
-          for (const origQ of origQuestions) {
-            if (!currentQIds.has(origQ.id)) {
-              await deleteQuestion(target.id, origQ.id)
-            }
-          }
-
-          for (const q of sec.questions) {
-            if (origQIds.has(q.id)) {
-              const origQ = origQuestions.find((o) => o.id === q.id)!
-              if (
-                origQ.text !== q.text ||
-                origQ.type !== q.type ||
-                origQ.isRequired !== q.isRequired ||
-                JSON.stringify(origQ.options) !== JSON.stringify(q.options) ||
-                JSON.stringify(origQ.config) !== JSON.stringify(q.config)
-              ) {
-                await updateQuestionApi(target.id, q.id, {
-                  question_text: q.text,
-                  question_type: q.type,
-                  options: q.options ?? null,
-                  config: q.config ?? null,
-                  is_required: q.isRequired ?? true,
-                })
-              }
-            } else {
-              await createQuestion(target.id, {
-                question_text: q.text,
-                question_type: q.type,
-                options: q.options ?? null,
-                config: q.config ?? null,
-                is_required: q.isRequired ?? true,
-                section_id: backendSecId,
-              })
-            }
-          }
-        }
-
-        // Reorder sections
-        const sectionOrder = sections.map((s) => sectionIdMap[s.id] ?? s.id)
-        await reorderSections(target.id, sectionOrder)
-
-        // Reorder questions per section (flat reorder across all sections)
-        const allQuestionIds = sections.flatMap((sec) =>
-          sec.questions.map((q) => q.id)
-        )
-        if (allQuestionIds.length > 0) {
-          const resolvedIds = allQuestionIds.map((id) => sectionIdMap[id] ?? id)
-          await reorderQuestions(target.id, resolvedIds)
-        }
-
-        const full = await fetchSurvey(target.surveyId)
+        const removedSectionIds = originalSections
+          .filter((original) => !sections.some((section) => section.id === original.id))
+          .map((section) => section.id)
+        const full = await replaceSurveyStructure(target.id, {
+          expected_revision: target.structureRevision ?? 0,
+          sections: sections.map((section) => ({
+            client_id: section.id,
+            id: section.id,
+            title: section.title || "Untitled Section",
+            description: section.description || null,
+            questions: section.questions.map((question) => ({
+              client_id: question.id,
+              id: question.id,
+              question_text: question.text,
+              question_type: question.type,
+              options: question.options ?? null,
+              config: question.config ?? null,
+              is_required: question.isRequired ?? true,
+            })),
+          })),
+          cascade_section_ids: removedSectionIds,
+        })
         setSurveys((prev) => prev.map((s) => (s.id === full.id ? full : s)))
       }
       handleCloseModal()
+    } catch (error) {
+      setSaveError(
+        error instanceof Error
+          ? error.message
+          : "We could not save the survey. Please try again.",
+      )
     } finally {
       setSaving(false)
     }
@@ -625,33 +549,6 @@ export default function SurveyPage() {
     }
   }
 
-  const handleCreateDistribution = async () => {
-    if (!distributeSurveyId || distCreating) return
-    setDistCreating(true)
-    try {
-      const created = await createDistribution(distributeSurveyId)
-      setDistributions((prev) => [created, ...prev])
-    } catch {
-      /* silently fail */
-    } finally {
-      setDistCreating(false)
-    }
-  }
-
-  const handleRevokeDistribution = async (distributionId: string) => {
-    if (!distributeSurveyId) return
-    try {
-      await revokeDistribution(distributeSurveyId, distributionId)
-      setDistributions((prev) =>
-        prev.map((d) =>
-          d.id === distributionId ? { ...d, isActive: false } : d,
-        ),
-      )
-    } catch {
-      /* silently fail */
-    }
-  }
-
   const handleCopyLink = async (token: string) => {
     const url = `${window.location.origin}/survey/${token}`
     try {
@@ -685,6 +582,13 @@ export default function SurveyPage() {
   }
 
   const removeSection = (id: string) => {
+    const section = sections.find((item) => item.id === id)
+    if (section && section.questions.length > 0) {
+      const confirmed = window.confirm(
+        `Delete this section and its ${section.questions.length} question${section.questions.length === 1 ? "" : "s"}?`,
+      )
+      if (!confirmed) return
+    }
     setSections((prev) => prev.filter((s) => s.id !== id))
   }
 
@@ -985,6 +889,12 @@ export default function SurveyPage() {
               </Button>
             </div>
           </div>
+
+          {saveError && (
+            <div className="mx-6 mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700" role="alert">
+              {saveError}
+            </div>
+          )}
 
           <div className="flex flex-1 overflow-hidden">
             {/* Left Sidebar: Details */}
@@ -1861,7 +1771,7 @@ export default function SurveyPage() {
                                 <Users className="size-8 text-slate-400" />
                               </div>
                               <p className="text-base font-medium text-slate-700">Waiting for responses</p>
-                              <p className="text-[13px] text-slate-500 mt-1 max-w-sm text-center">Once users start submitting their feedback, you'll see charts and detailed response breakdowns here.</p>
+                              <p className="text-[13px] text-slate-500 mt-1 max-w-sm text-center">Once users start submitting their feedback, you&apos;ll see charts and detailed response breakdowns here.</p>
                             </div>
                           ) : (
                             <div className="space-y-8">
@@ -1881,7 +1791,7 @@ export default function SurveyPage() {
                                           <div className="space-y-3">
                                             {qTexts.length > 0 ? (
                                               qTexts.map((txt, tIdx) => (
-                                                <div key={tIdx} className="bg-slate-50 border border-slate-100 p-4 rounded-xl text-[14px] text-slate-700 italic shadow-sm">"{txt}"</div>
+                                                <div key={tIdx} className="bg-slate-50 border border-slate-100 p-4 rounded-xl text-[14px] text-slate-700 italic shadow-sm">&quot;{txt}&quot;</div>
                                               ))
                                             ) : (
                                               <div className="text-[14px] text-slate-400 italic py-2">No text responses yet.</div>

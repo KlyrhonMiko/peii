@@ -8,7 +8,6 @@ import {
   ClipboardCheck,
   TrendingUp,
   Shield,
-  Zap,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { motion, useReducedMotion } from "motion/react";

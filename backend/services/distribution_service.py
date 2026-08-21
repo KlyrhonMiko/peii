@@ -1,4 +1,5 @@
 import secrets
+from datetime import UTC, datetime
 from uuid import UUID
 
 from fastapi import status
@@ -6,18 +7,72 @@ from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from core.exceptions import AppError
+from models.base_model import utc_now
 from models.survey import Survey
 from models.survey_distribution import SurveyDistribution
-from services.audit_service import record_audit
+from models.survey_version import SurveyVersion
+from schemas.survey import SurveyStatus
+from schemas.survey_distribution import DistributionStatus, SurveyDistributionCreate
+from services.audit_service import AuditEvent, commit_with_audit
+
+
+def _public_token_error() -> AppError:
+    return AppError(
+        "Survey not found or no longer active.",
+        status_code=status.HTTP_404_NOT_FOUND,
+    )
+
+
+def _normalize_expiry(expires_at: datetime) -> datetime:
+    normalized = expires_at.astimezone(UTC).replace(tzinfo=None)
+    if normalized <= utc_now():
+        raise AppError(
+            "Distribution expiry must be in the future.",
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+    return normalized
+
+
+def get_distribution_status(
+    distribution: SurveyDistribution,
+    survey_status: SurveyStatus | str,
+    now: datetime | None = None,
+) -> DistributionStatus:
+    current_time = now or utc_now()
+    if distribution.is_deleted or distribution.revoked_at is not None:
+        return "revoked"
+    if distribution.expires_at is not None and distribution.expires_at <= current_time:
+        return "expired"
+    if survey_status != "Active":
+        return "suspended"
+    return "active"
+
+
+def _is_active(distribution: SurveyDistribution, survey_status: SurveyStatus | str) -> bool:
+    return get_distribution_status(distribution, survey_status) == "active"
+
+
+async def _get_survey(
+    session: AsyncSession,
+    survey_id: UUID,
+    *,
+    include_deleted: bool = False,
+    for_update: bool = False,
+    shared_lock: bool = False,
+) -> Survey | None:
+    statement = select(Survey).where(col(Survey.id) == survey_id)
+    if not include_deleted:
+        statement = statement.where(col(Survey.is_deleted).is_(False))
+    if for_update:
+        statement = statement.with_for_update(read=shared_lock)
+    result = await session.exec(statement)
+    return result.first()
 
 
 async def _validate_survey_for_distribution(
-    session: AsyncSession, survey_id: UUID,
+    session: AsyncSession, survey_id: UUID
 ) -> Survey:
-    result = await session.exec(
-        select(Survey).where(col(Survey.id) == survey_id, col(Survey.is_deleted).is_(False))
-    )
-    survey = result.first()
+    survey = await _get_survey(session, survey_id)
     if not survey:
         raise AppError("Survey not found.", status_code=status.HTTP_404_NOT_FOUND)
     if survey.status != "Active":
@@ -28,43 +83,102 @@ async def _validate_survey_for_distribution(
     return survey
 
 
+async def _generate_token(session: AsyncSession) -> str:
+    for _ in range(3):
+        token = secrets.token_urlsafe(32)
+        result = await session.exec(
+            select(SurveyDistribution.id).where(col(SurveyDistribution.token) == token)
+        )
+        if result.first() is None:
+            return token
+    raise AppError(
+        "Unable to generate a unique distribution token.",
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+    )
+
+
+async def _ensure_published_version(
+    session: AsyncSession,
+    survey: Survey,
+) -> tuple[SurveyVersion, list[AuditEvent]]:
+    published_result = await session.exec(
+        select(SurveyVersion)
+        .where(
+            col(SurveyVersion.survey_id) == survey.id,
+            col(SurveyVersion.status) == "published",
+            col(SurveyVersion.is_deleted).is_(False),
+        )
+        .order_by(col(SurveyVersion.version_number).desc())
+    )
+    published = published_result.first()
+    draft_result = await session.exec(
+        select(SurveyVersion).where(
+            col(SurveyVersion.survey_id) == survey.id,
+            col(SurveyVersion.status) == "draft",
+            col(SurveyVersion.is_deleted).is_(False),
+        )
+    )
+    draft = draft_result.first()
+    if published and draft is None:
+        return published, []
+
+    raise AppError(
+        "Publish the survey draft before creating a distribution.",
+        status_code=status.HTTP_409_CONFLICT,
+    )
+
+
 async def create_distribution(
     session: AsyncSession,
     survey_id: UUID,
+    payload: SurveyDistributionCreate,
     performed_by: UUID | None = None,
     ip_address: str | None = None,
 ) -> SurveyDistribution:
-    await _validate_survey_for_distribution(session, survey_id)
-
-    token = secrets.token_urlsafe(32)
+    survey = await _validate_survey_for_distribution(session, survey_id)
+    version, version_events = await _ensure_published_version(session, survey)
+    token = await _generate_token(session)
     distribution = SurveyDistribution(
         survey_id=survey_id,
+        version_id=version.id,
         token=token,
+        expires_at=_normalize_expiry(payload.expires_at),
         performed_by=performed_by,
     )
     session.add(distribution)
-    await session.commit()
-    await session.refresh(distribution)
-    await record_audit(
+    await commit_with_audit(
         session,
-        action="create",
-        resource_type="survey_distribution",
-        resource_id=str(distribution.id),
-        performed_by=performed_by,
-        ip_address=ip_address,
+        [
+            *version_events,
+            AuditEvent(
+                action="create",
+                resource_type="survey_distribution",
+                resource_id=str(distribution.id),
+                performed_by=performed_by,
+                ip_address=ip_address,
+            )
+        ],
     )
+    await session.refresh(distribution)
     return distribution
 
 
 async def list_distributions(
     session: AsyncSession, survey_id: UUID
-) -> list[SurveyDistribution]:
+) -> tuple[list[SurveyDistribution], SurveyStatus | str]:
+    survey = await _get_survey(session, survey_id)
+    if not survey:
+        raise AppError("Survey not found.", status_code=status.HTTP_404_NOT_FOUND)
+
     result = await session.exec(
         select(SurveyDistribution)
-        .where(col(SurveyDistribution.survey_id) == survey_id)
+        .where(
+            col(SurveyDistribution.survey_id) == survey_id,
+            col(SurveyDistribution.is_deleted).is_(False),
+        )
         .order_by(col(SurveyDistribution.created_at).desc())
     )
-    return list(result.all())
+    return list(result.all()), survey.status
 
 
 async def revoke_distribution(
@@ -73,43 +187,145 @@ async def revoke_distribution(
     distribution_id: UUID,
     performed_by: UUID | None = None,
     ip_address: str | None = None,
-) -> SurveyDistribution:
+) -> tuple[SurveyDistribution, SurveyStatus | str]:
     result = await session.exec(
-        select(SurveyDistribution).where(
+        select(SurveyDistribution)
+        .where(
             col(SurveyDistribution.id) == distribution_id,
             col(SurveyDistribution.survey_id) == survey_id,
+            col(SurveyDistribution.is_deleted).is_(False),
         )
+        .with_for_update()
     )
     distribution = result.first()
     if not distribution:
         raise AppError("Distribution not found.", status_code=status.HTTP_404_NOT_FOUND)
 
-    distribution.is_active = False
-    distribution.performed_by = performed_by
-    session.add(distribution)
-    await session.commit()
-    await session.refresh(distribution)
-    await record_audit(
-        session,
-        action="delete",
-        resource_type="survey_distribution",
-        resource_id=str(distribution.id),
-        performed_by=performed_by,
-        ip_address=ip_address,
+    survey = await _get_survey(session, survey_id, include_deleted=True)
+    survey_status: SurveyStatus | str = survey.status if survey else "Closed"
+    if distribution.revoked_at is None:
+        before_status = get_distribution_status(distribution, survey_status)
+        distribution.revoked_at = utc_now()
+        distribution.performed_by = performed_by
+        distribution.updated_at = utc_now()
+        session.add(distribution)
+        await commit_with_audit(
+            session,
+            [
+                AuditEvent(
+                    action="revoke",
+                    resource_type="survey_distribution",
+                    resource_id=str(distribution.id),
+                    performed_by=performed_by,
+                    changes={
+                        "status": {"before": before_status, "after": "revoked"},
+                        "revoked_at": {"before": None, "after": distribution.revoked_at},
+                    },
+                    ip_address=ip_address,
+                )
+            ],
+        )
+        await session.refresh(distribution)
+    return distribution, survey_status
+
+
+async def rotate_distribution(
+    session: AsyncSession,
+    survey_id: UUID,
+    distribution_id: UUID,
+    payload: SurveyDistributionCreate,
+    performed_by: UUID | None = None,
+    ip_address: str | None = None,
+) -> tuple[SurveyDistribution, SurveyStatus | str]:
+    survey = await _validate_survey_for_distribution(session, survey_id)
+    version, version_events = await _ensure_published_version(session, survey)
+    result = await session.exec(
+        select(SurveyDistribution)
+        .where(
+            col(SurveyDistribution.id) == distribution_id,
+            col(SurveyDistribution.survey_id) == survey_id,
+            col(SurveyDistribution.is_deleted).is_(False),
+        )
+        .with_for_update()
     )
-    return distribution
+    previous = result.first()
+    if not previous:
+        raise AppError("Distribution not found.", status_code=status.HTTP_404_NOT_FOUND)
+
+    replacement = SurveyDistribution(
+        survey_id=survey_id,
+        version_id=version.id,
+        token=await _generate_token(session),
+        expires_at=_normalize_expiry(payload.expires_at),
+        performed_by=performed_by,
+    )
+    previous_status = get_distribution_status(previous, survey.status)
+    previous.revoked_at = utc_now()
+    previous.performed_by = performed_by
+    previous.updated_at = utc_now()
+    session.add_all([previous, replacement])
+    await commit_with_audit(
+        session,
+        [
+            *version_events,
+            AuditEvent(
+                action="create",
+                resource_type="survey_distribution",
+                resource_id=str(replacement.id),
+                performed_by=performed_by,
+                ip_address=ip_address,
+            ),
+            AuditEvent(
+                action="revoke",
+                resource_type="survey_distribution",
+                resource_id=str(previous.id),
+                performed_by=performed_by,
+                changes={
+                    "status": {"before": previous_status, "after": "revoked"},
+                    "reason": "rotation",
+                },
+                ip_address=ip_address,
+            ),
+        ],
+    )
+    await session.refresh(replacement)
+    return replacement, survey.status
 
 
 async def get_distribution_by_token(
-    session: AsyncSession, token: str
+    session: AsyncSession,
+    token: str,
+    *,
+    for_update: bool = False,
+    shared_lock: bool = False,
 ) -> SurveyDistribution:
-    result = await session.exec(
-        select(SurveyDistribution).where(col(SurveyDistribution.token) == token)
+    statement = select(SurveyDistribution).where(
+        col(SurveyDistribution.token) == token,
+        col(SurveyDistribution.is_deleted).is_(False),
     )
+    if for_update:
+        statement = statement.with_for_update(read=shared_lock)
+    result = await session.exec(statement)
     distribution = result.first()
-    if not distribution or not distribution.is_active:
-        raise AppError(
-            "Survey not found or no longer active.",
-            status_code=status.HTTP_404_NOT_FOUND,
+    if not distribution:
+        raise _public_token_error()
+
+    survey = await _get_survey(
+        session,
+        distribution.survey_id,
+        for_update=for_update,
+        shared_lock=shared_lock,
+    )
+    if not survey or not _is_active(distribution, survey.status):
+        raise _public_token_error()
+    version_result = await session.exec(
+        select(SurveyVersion).where(
+            col(SurveyVersion.id) == distribution.version_id,
+            col(SurveyVersion.survey_id) == distribution.survey_id,
+            col(SurveyVersion.is_deleted).is_(False),
+            col(SurveyVersion.status).in_(["published", "superseded"]),
         )
+    )
+    if version_result.first() is None:
+        raise _public_token_error()
     return distribution

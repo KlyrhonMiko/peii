@@ -27,6 +27,16 @@ class SurveyResponseSubmit(BaseModel):
 
     answers: dict[str, Any]
 
+    @field_validator("answers")
+    @classmethod
+    def require_uuid_question_ids(cls, value: dict[str, Any]) -> dict[str, Any]:
+        for question_id in value:
+            try:
+                UUID(question_id)
+            except ValueError as exc:
+                raise ValueError("answer keys must be question UUIDs") from exc
+        return value
+
 
 class SurveyResponseRead(SurveyResponseBaseSchema):
     model_config = ConfigDict(
@@ -35,7 +45,8 @@ class SurveyResponseRead(SurveyResponseBaseSchema):
             "example": {
                 "id": "018f4a1a-7b3b-7d0e-913a-c5f1c5c1c5c2",
                 "survey_id": "018f4a1a-7b3b-7d0e-913a-c5f1c5c1c5c3",
-                "alumni_token": "abc123def456ghi789jkl012mno345pqr",
+                "version_id": "018f4a1a-7b3b-7d0e-913a-c5f1c5c1c5c5",
+                "distribution_id": "018f4a1a-7b3b-7d0e-913a-c5f1c5c1c5c4",
                 "answers": {"q1": "Employed Full-Time"},
                 "created_at": "2026-06-21T12:00:00Z",
             }
@@ -44,7 +55,8 @@ class SurveyResponseRead(SurveyResponseBaseSchema):
 
     id: UUID
     survey_id: UUID
-    alumni_token: str
+    version_id: UUID
+    distribution_id: UUID | None
     answers: dict[str, Any]
     created_at: datetime
 

@@ -59,9 +59,10 @@ checks, persistence transforms, transaction boundaries, and domain errors.
 
 ## Async & Auditing Rules
 - All service operations must be asynchronous (`async def`) and accept `sqlmodel.ext.asyncio.session.AsyncSession` instead of a sync session.
-- Every mutating operation (create, update, soft-delete, restore) must record an audit entry using `record_audit` from `services.audit_service`.
+- Every mutating operation (create, update, soft-delete, restore, reorder, revoke, or compound write) must commit through `commit_with_audit` from `services.audit_service`.
+- Do not call `session.commit()` directly from resource services. Domain rows and audit rows must be committed in the same transaction; audit failures must roll back the mutation.
 - Service operations that mutate data must accept an optional `ip_address: str | None = None` parameter and pass it to the audit logger.
-- On updates, calculate the diff (excluding sensitive passwords and system metadata) and supply it as a `changes` dictionary to `record_audit`.
+- On updates, calculate a before/after diff (excluding sensitive values and system metadata) and supply it as a `changes` dictionary to `AuditEvent`.
 
 ## Soft Delete
 - Treat soft delete as state mutation on the row: `is_deleted`, `deleted_at`,
