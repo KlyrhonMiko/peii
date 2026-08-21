@@ -12,5 +12,4 @@ class SurveyResponse(BaseModel, table=True):
     distribution_id: UUID | None = Field(
         foreign_key="survey_distributions.id", default=None, nullable=True
     )
-    alumni_token: str = Field(max_length=64, index=True)
     answers: str = Field(max_length=10000)

@@ -175,7 +175,10 @@ async def test_all_mutation_families_create_audits(client):
     )
     assert len(await _audits_for(client, "survey_question", first_question_id, "delete")) == 1
 
-    distribution = await client.post(f"/api/v1/surveys/{survey_uuid}/distributions/")
+    distribution = await client.post(
+        f"/api/v1/surveys/{survey_uuid}/distributions/",
+        json={"expires_at": "2099-01-01T00:00:00+00:00"},
+    )
     distribution_data = distribution.json()["data"]
     distribution_id = distribution_data["id"]
     assert len(await _audits_for(client, "survey_distribution", distribution_id, "create")) == 1
@@ -189,6 +192,9 @@ async def test_all_mutation_families_create_audits(client):
     assert len(response_audits) == 1
     assert response_audits[0]["changes"] is None
 
+    await client.request(
+        "DELETE", f"/api/v1/surveys/{survey_uuid}/distributions/{distribution_id}"
+    )
     await client.request(
         "DELETE", f"/api/v1/surveys/{survey_uuid}/distributions/{distribution_id}"
     )

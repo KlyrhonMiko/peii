@@ -1,3 +1,4 @@
+from sqlalchemy import CheckConstraint
 from sqlmodel import Field
 
 from models.base_model import BaseModel
@@ -5,6 +6,12 @@ from models.base_model import BaseModel
 
 class Survey(BaseModel, table=True):
     __tablename__ = "surveys"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('Draft', 'Active', 'Closed')",
+            name="ck_surveys_status",
+        ),
+    )
 
     survey_id: str = Field(unique=True, index=True, max_length=20)
     title: str = Field(max_length=255)

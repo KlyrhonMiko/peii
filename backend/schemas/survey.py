@@ -11,10 +11,13 @@ class SurveyBaseSchema(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+SurveyStatus = Literal["Draft", "Active", "Closed"]
+
+
 class SurveyBase(SurveyBaseSchema):
     title: str
     description: str | None = None
-    status: str = "Draft"
+    status: SurveyStatus = "Draft"
     target_cohort: str | None = None
 
 
@@ -46,7 +49,7 @@ class SurveyUpdate(SurveyBaseSchema):
 
     title: str | None = None
     description: str | None = None
-    status: str | None = None
+    status: SurveyStatus | None = None
     target_cohort: str | None = None
     performed_by: UUID | None = None
 
@@ -90,7 +93,7 @@ class SurveyRestore(SurveyBaseSchema):
 
 
 class SurveyListQueryParams(ListQueryParams):
-    status: str | None = None
+    status: SurveyStatus | None = None
     target_cohort: str | None = None
     search: str | None = None
     sort_by: Literal[

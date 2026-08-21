@@ -1,7 +1,27 @@
 from datetime import datetime
+from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, field_validator
+
+DistributionStatus = Literal["active", "suspended", "expired", "revoked"]
+
+
+class SurveyDistributionCreate(BaseModel):
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {"expires_at": "2027-01-01T00:00:00+00:00"}
+        }
+    )
+
+    expires_at: datetime
+
+    @field_validator("expires_at")
+    @classmethod
+    def require_timezone(cls, value: datetime) -> datetime:
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise ValueError("expires_at must include a timezone.")
+        return value
 
 
 class SurveyDistributionBaseSchema(BaseModel):
@@ -16,7 +36,11 @@ class SurveyDistributionRead(SurveyDistributionBaseSchema):
                 "id": "018f4a1a-7b3b-7d0e-913a-c5f1c5c1c5c2",
                 "survey_id": "018f4a1a-7b3b-7d0e-913a-c5f1c5c1c5c3",
                 "token": "abc123def456ghi789jkl012mno345pqr",
+                "status": "active",
                 "is_active": True,
+                "is_legacy": False,
+                "expires_at": "2027-01-01T00:00:00Z",
+                "revoked_at": None,
                 "created_at": "2026-06-21T12:00:00Z",
             }
         },
@@ -25,5 +49,9 @@ class SurveyDistributionRead(SurveyDistributionBaseSchema):
     id: UUID
     survey_id: UUID
     token: str
+    status: DistributionStatus
     is_active: bool
+    is_legacy: bool
+    expires_at: datetime | None
+    revoked_at: datetime | None
     created_at: datetime

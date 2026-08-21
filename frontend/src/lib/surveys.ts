@@ -6,15 +6,19 @@ export interface Distribution {
   id: string
   surveyId: string
   token: string
+  status: "active" | "suspended" | "expired" | "revoked"
   isActive: boolean
+  isLegacy: boolean
+  expiresAt: string | null
+  revokedAt: string | null
   createdAt: string
 }
 
 export interface SurveyResponse {
   id: string
   surveyId: string
-  alumniToken: string
-  answers: Record<string, any>
+  distributionId: string | null
+  answers: Record<string, unknown>
   createdAt: string
 }
 
@@ -96,15 +100,19 @@ export interface ApiDistribution {
   id: string
   survey_id: string
   token: string
+  status: "active" | "suspended" | "expired" | "revoked"
   is_active: boolean
+  is_legacy: boolean
+  expires_at: string | null
+  revoked_at: string | null
   created_at: string
 }
 
 export interface ApiSurveyResponse {
   id: string
   survey_id: string
-  alumni_token: string
-  answers: Record<string, any>
+  distribution_id: string | null
+  answers: Record<string, unknown>
   created_at: string
 }
 
@@ -160,7 +168,11 @@ function mapDistribution(api: ApiDistribution): Distribution {
     id: api.id,
     surveyId: api.survey_id,
     token: api.token,
+    status: api.status,
     isActive: api.is_active,
+    isLegacy: api.is_legacy,
+    expiresAt: api.expires_at,
+    revokedAt: api.revoked_at,
     createdAt: api.created_at,
   }
 }
@@ -169,7 +181,7 @@ function mapResponse(api: ApiSurveyResponse): SurveyResponse {
   return {
     id: api.id,
     surveyId: api.survey_id,
-    alumniToken: api.alumni_token,
+    distributionId: api.distribution_id,
     answers: api.answers,
     createdAt: api.created_at,
   }
@@ -316,10 +328,11 @@ export async function deleteQuestion(
 
 export async function createDistribution(
   surveyUuid: string,
+  expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
 ): Promise<Distribution> {
   const res = await api.post<ApiDistribution>(
     `/surveys/${surveyUuid}/distributions/`,
-    { performed_by: null },
+    { expires_at: expiresAt },
   )
   return mapDistribution(res.data!)
 }

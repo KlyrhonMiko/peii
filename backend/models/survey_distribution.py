@@ -1,3 +1,4 @@
+from datetime import datetime
 from uuid import UUID
 
 from sqlmodel import Field
@@ -10,4 +11,5 @@ class SurveyDistribution(BaseModel, table=True):
 
     survey_id: UUID = Field(foreign_key="surveys.id", index=True, nullable=False)
     token: str = Field(unique=True, index=True, max_length=64)
-    is_active: bool = Field(default=True, nullable=False)
+    expires_at: datetime | None = Field(default=None, index=True, nullable=True)
+    revoked_at: datetime | None = Field(default=None, nullable=True)

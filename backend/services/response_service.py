@@ -2,7 +2,7 @@ import json
 from uuid import UUID
 
 from fastapi import status
-from sqlalchemy import func
+from sqlalchemy import func, update
 from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -21,27 +21,35 @@ async def submit_response(
     answers: dict,
     ip_address: str | None = None,
 ) -> SurveyResponse:
-    distribution = await get_distribution_by_token(session, token)
+    distribution = await get_distribution_by_token(session, token, for_update=True)
 
     answers_json = json.dumps(answers)
-    response = SurveyResponse(
-        survey_id=distribution.survey_id,
-        distribution_id=distribution.id,
-        alumni_token=token,
-        answers=answers_json,
-    )
-    session.add(response)
+    if len(answers_json) > 10000:
+        raise AppError(
+            "Answers payload exceeds the maximum allowed size.",
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        )
 
     survey_result = await session.exec(
-        select(Survey).where(col(Survey.id) == distribution.survey_id)
+        select(Survey).where(col(Survey.id) == distribution.survey_id).with_for_update()
     )
     survey = survey_result.first()
-    if not survey or survey.is_deleted:
+    if not survey or survey.is_deleted or survey.status != "Active":
         raise AppError(
             "Survey not found or no longer active.", status_code=status.HTTP_404_NOT_FOUND
         )
-    survey.responses_count = (survey.responses_count or 0) + 1
-    session.add(survey)
+
+    response = SurveyResponse(
+        survey_id=distribution.survey_id,
+        distribution_id=distribution.id,
+        answers=answers_json,
+    )
+    session.add(response)
+    await session.exec(
+        update(Survey)
+        .where(col(Survey.id) == survey.id)
+        .values(responses_count=col(Survey.responses_count) + 1)
+    )
 
     await commit_with_audit(
         session,

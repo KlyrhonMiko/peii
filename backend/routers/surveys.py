@@ -11,6 +11,7 @@ from schemas.survey import (
     SurveyListQueryParams,
     SurveyRead,
     SurveyRestore,
+    SurveyStatus,
     SurveyUpdate,
 )
 from schemas.survey_question import SurveyQuestionRead
@@ -28,7 +29,7 @@ def get_survey_list_query_params(
     sort_by: Literal[
         "created_at", "survey_id", "title", "status", "responses_count"
     ] = Query(default="created_at"),
-    status_filter: str | None = Query(default=None, alias="status"),
+    status_filter: SurveyStatus | None = Query(default=None, alias="status"),
     target_cohort: str | None = Query(default=None),
     search: str | None = Query(default=None, min_length=1),
 ) -> SurveyListQueryParams:
