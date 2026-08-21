@@ -16,6 +16,7 @@ from schemas.survey_question import (
 )
 from services.audit_service import AuditEvent, commit_with_audit
 from services.base_service import apply_updates, utc_now
+from services.question_validation import validate_question_definition
 from services.survey_version_service import ensure_draft_version, get_version_for_read
 
 
@@ -91,6 +92,13 @@ async def create_question(
     ip_address: str | None = None,
 ) -> SurveyQuestion:
     survey = await _validate_survey_exists(session, survey_id)
+    try:
+        validate_question_definition(payload.question_type, payload.options, payload.config)
+    except ValueError as exc:
+        raise AppError(
+            f"Question definition is invalid: {exc}",
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+        ) from exc
     draft, version_events = await ensure_draft_version(session, survey)
 
     section_result = await session.exec(
@@ -216,6 +224,28 @@ async def update_question(
         normalized_updates["options"] = _serialize_options(normalized_updates["options"])
     if "config" in normalized_updates:
         normalized_updates["config"] = _serialize_config(normalized_updates["config"])
+
+    candidate_options = normalized_updates.get("options", question.options)
+    candidate_config = normalized_updates.get("config", question.config)
+    try:
+        validate_question_definition(
+            normalized_updates.get("question_type", question.question_type),
+            (
+                _deserialize_options(candidate_options)
+                if isinstance(candidate_options, str)
+                else candidate_options
+            ),
+            (
+                _deserialize_config(candidate_config)
+                if isinstance(candidate_config, str)
+                else candidate_config
+            ),
+        )
+    except ValueError as exc:
+        raise AppError(
+            f"Question definition is invalid: {exc}",
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+        ) from exc
 
     for key, val in normalized_updates.items():
         if key == "performed_by":

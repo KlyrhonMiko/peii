@@ -166,6 +166,7 @@ async def test_distribution_keeps_published_structure_after_new_draft(client):
         json={"question_text": "Published", "question_type": "text", "section_id": section_id},
     )
     question_id = question.json()["data"]["id"]
+    assert (await client.post(f"/api/v1/surveys/{survey_uuid}/publish")).status_code == 200
     distribution = await client.post(
         f"/api/v1/surveys/{survey_uuid}/distributions/",
         json={"expires_at": "2099-01-01T00:00:00+00:00"},
@@ -196,6 +197,7 @@ async def test_response_rejects_unknown_and_missing_required_questions(client):
         },
     )
     question_id = question.json()["data"]["id"]
+    assert (await client.post(f"/api/v1/surveys/{survey_uuid}/publish")).status_code == 200
     distribution = await client.post(
         f"/api/v1/surveys/{survey_uuid}/distributions/",
         json={"expires_at": "2099-01-01T00:00:00+00:00"},
@@ -205,17 +207,22 @@ async def test_response_rejects_unknown_and_missing_required_questions(client):
     unknown = await client.post(
         f"/api/v1/survey/{token}/respond",
         json={"answers": {"00000000-0000-0000-0000-000000000000": "Yes"}},
+        headers={"Idempotency-Key": "018f4a1a-7b3b-7d0e-913a-c5f1c5c1c5c2"},
     )
     assert unknown.status_code == 422
+    assert unknown.json()["errors"][0]["code"] == "unknown_question"
 
     missing = await client.post(
         f"/api/v1/survey/{token}/respond",
         json={"answers": {}},
+        headers={"Idempotency-Key": "018f4a1a-7b3b-7d0e-913a-c5f1c5c1c5c2"},
     )
     assert missing.status_code == 422
+    assert missing.json()["errors"][0]["code"] == "required"
 
     valid = await client.post(
         f"/api/v1/survey/{token}/respond",
         json={"answers": {question_id: "Yes"}},
+        headers={"Idempotency-Key": "018f4a1a-7b3b-7d0e-913a-c5f1c5c1c5c3"},
     )
     assert valid.status_code == 201

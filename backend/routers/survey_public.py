@@ -1,4 +1,6 @@
-from fastapi import APIRouter, Request, status
+from uuid import UUID
+
+from fastapi import APIRouter, Header, Request, Response, status
 from sqlmodel import col, select
 
 from core.deps import AsyncDBSession
@@ -109,11 +111,33 @@ async def submit_response(
     payload: SurveyResponseSubmit,
     session: AsyncDBSession,
     request: Request,
+    http_response: Response,
+    idempotency_header: str | None = Header(default=None, alias="Idempotency-Key"),
 ) -> APIResponse[SurveyResponseRead]:
     ip_address = request.client.host if request.client else None
-    response = await response_service.submit_response(
-        session, token, payload.answers, ip_address=ip_address
+    idempotency_key = None
+    if idempotency_header is None:
+        raise AppError(
+            "Idempotency-Key is required for response submissions.",
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+    try:
+        idempotency_key = UUID(idempotency_header)
+    except ValueError as exc:
+        raise AppError(
+            "Idempotency-Key must be a valid UUID.",
+            status_code=status.HTTP_400_BAD_REQUEST,
+        ) from exc
+
+    response, replayed = await response_service.submit_response(
+        session,
+        token,
+        payload.answers,
+        idempotency_key=idempotency_key,
+        ip_address=ip_address,
     )
+    if replayed:
+        http_response.status_code = status.HTTP_200_OK
     return success_response(
         SurveyResponseRead.model_validate(response),
         message="Response submitted.",

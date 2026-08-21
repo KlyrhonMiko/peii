@@ -10,6 +10,28 @@ async def _create_active_survey(client):
         "status": "Active",
         "performed_by": None,
     })
+    survey_uuid = resp.json()["data"]["id"]
+    section = await client.post(
+        f"/api/v1/surveys/{survey_uuid}/sections/", json={"title": "Main"}
+    )
+    await client.post(
+        f"/api/v1/surveys/{survey_uuid}/questions/",
+        json={
+            "question_text": "Status",
+            "question_type": "text",
+            "section_id": section.json()["data"]["id"],
+        },
+    )
+    published = await client.post(f"/api/v1/surveys/{survey_uuid}/publish")
+    assert published.status_code == 200
+    return survey_uuid
+
+
+async def _create_active_survey_without_publishing(client):
+    resp = await client.post(
+        "/api/v1/surveys/",
+        json={"title": "Unpublished Survey", "status": "Active"},
+    )
     return resp.json()["data"]["id"]
 
 
@@ -69,6 +91,17 @@ async def test_cannot_distribute_draft_survey(client):
     assert "active" in dist_resp.json()["message"].lower()
 
 
+async def test_cannot_distribute_unpublished_draft(client):
+    survey_uuid = await _create_active_survey_without_publishing(client)
+
+    dist_resp = await client.post(
+        f"/api/v1/surveys/{survey_uuid}/distributions/",
+        json={"expires_at": EXPIRY},
+    )
+    assert dist_resp.status_code == 409
+    assert "publish" in dist_resp.json()["message"].lower()
+
+
 async def test_distribution_requires_timezone_aware_future_expiry(client):
     survey_uuid = await _create_active_survey(client)
 
@@ -93,6 +126,18 @@ async def test_distribution_suspends_and_reactivates_with_survey_status(client):
     survey_data = survey_response.json()["data"]
     survey_uuid = survey_data["id"]
     survey_business_id = survey_data["survey_id"]
+    section = await client.post(
+        f"/api/v1/surveys/{survey_uuid}/sections/", json={"title": "Main"}
+    )
+    await client.post(
+        f"/api/v1/surveys/{survey_uuid}/questions/",
+        json={
+            "question_text": "Status",
+            "question_type": "text",
+            "section_id": section.json()["data"]["id"],
+        },
+    )
+    assert (await client.post(f"/api/v1/surveys/{survey_uuid}/publish")).status_code == 200
     create_resp = await client.post(
         f"/api/v1/surveys/{survey_uuid}/distributions/",
         json={"expires_at": EXPIRY},

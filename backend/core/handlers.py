@@ -30,7 +30,7 @@ def register_exception_handlers(app: FastAPI) -> None:
         )
         return JSONResponse(
             status_code=exc.status_code,
-            content=error_response(exc.message),
+            content=error_response(exc.message, errors=exc.errors),
         )
 
     @app.exception_handler(RequestValidationError)

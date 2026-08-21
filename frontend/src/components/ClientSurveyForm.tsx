@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useRef, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { SurveySelect } from "@/components/SurveySelect"
 import {
@@ -102,6 +102,7 @@ export function ClientSurveyForm({
   const [submitting, setSubmitting] = useState(false)
   const [submitted, setSubmitted] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
+  const idempotencyKey = useRef<string | null>(null)
 
   const section = sections[sectionIdx]
   if (submitted) {
@@ -214,12 +215,17 @@ export function ClientSurveyForm({
           }
         }
       }
+      idempotencyKey.current ??= crypto.randomUUID()
       const res = await fetch(`${API_BASE}/survey/${token}/respond`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "Idempotency-Key": idempotencyKey.current,
+        },
         body: JSON.stringify({ answers: submittedAnswers }),
       })
       if (!res.ok) {
+        if (res.status < 500) idempotencyKey.current = null
         const body = (await res.json()) as { message?: string }
         setSubmitError(body.message ?? "We could not submit your response.")
         return
@@ -575,7 +581,7 @@ export function ClientSurveyForm({
               {q.question_type === "boolean" && (
                 <div className="flex gap-4">
                   {["Yes", "No"].map((opt) => {
-                    const val = opt.toLowerCase()
+                    const val = opt === "Yes"
                     const isSelected = answers[q.id] === val
                     return (
                       <label
@@ -587,7 +593,7 @@ export function ClientSurveyForm({
                         <input
                           type="radio"
                           name={`boolean-${q.id}`}
-                          value={val}
+                          value={String(val)}
                           checked={isSelected}
                           onChange={() => setAnswer(q.id, val)}
                           className="sr-only"

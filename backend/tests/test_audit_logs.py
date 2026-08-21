@@ -182,6 +182,7 @@ async def test_all_mutation_families_create_audits(client):
         "DELETE", f"/api/v1/surveys/{survey_uuid}/questions/{first_question_id}"
     )
     assert len(await _audits_for(client, "survey_question", first_question_id, "delete")) == 1
+    assert (await client.post(f"/api/v1/surveys/{survey_uuid}/publish")).status_code == 200
 
     distribution = await client.post(
         f"/api/v1/surveys/{survey_uuid}/distributions/",
@@ -199,6 +200,7 @@ async def test_all_mutation_families_create_audits(client):
                 third_question.json()["data"]["id"]: "answer",
             }
         },
+        headers={"Idempotency-Key": "018f4a1a-7b3b-7d0e-913a-c5f1c5c1c5c2"},
     )
     response_id = response.json()["data"]["id"]
     response_audits = await _audits_for(client, "survey_response", response_id, "create")

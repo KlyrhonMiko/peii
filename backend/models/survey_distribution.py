@@ -1,7 +1,7 @@
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import ForeignKeyConstraint
+from sqlalchemy import ForeignKeyConstraint, UniqueConstraint
 from sqlmodel import Field
 
 from models.base_model import BaseModel
@@ -14,6 +14,12 @@ class SurveyDistribution(BaseModel, table=True):
             ["version_id", "survey_id"],
             ["survey_versions.id", "survey_versions.survey_id"],
             name="fk_survey_distributions_version_owner",
+        ),
+        UniqueConstraint(
+            "id",
+            "survey_id",
+            "version_id",
+            name="uq_survey_distributions_owner_reference",
         ),
     )
 

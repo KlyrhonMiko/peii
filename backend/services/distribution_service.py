@@ -14,7 +14,6 @@ from models.survey_version import SurveyVersion
 from schemas.survey import SurveyStatus
 from schemas.survey_distribution import DistributionStatus, SurveyDistributionCreate
 from services.audit_service import AuditEvent, commit_with_audit
-from services.survey_version_service import ensure_draft_version, publish_draft
 
 
 def _public_token_error() -> AppError:
@@ -59,12 +58,13 @@ async def _get_survey(
     *,
     include_deleted: bool = False,
     for_update: bool = False,
+    shared_lock: bool = False,
 ) -> Survey | None:
     statement = select(Survey).where(col(Survey.id) == survey_id)
     if not include_deleted:
         statement = statement.where(col(Survey.is_deleted).is_(False))
     if for_update:
-        statement = statement.with_for_update()
+        statement = statement.with_for_update(read=shared_lock)
     result = await session.exec(statement)
     return result.first()
 
@@ -122,12 +122,10 @@ async def _ensure_published_version(
     if published and draft is None:
         return published, []
 
-    if draft is None:
-        draft, clone_events = await ensure_draft_version(session, survey)
-    else:
-        clone_events = []
-    publish_events = await publish_draft(session, survey, draft)
-    return draft, [*clone_events, *publish_events]
+    raise AppError(
+        "Publish the survey draft before creating a distribution.",
+        status_code=status.HTTP_409_CONFLICT,
+    )
 
 
 async def create_distribution(
@@ -299,19 +297,35 @@ async def get_distribution_by_token(
     token: str,
     *,
     for_update: bool = False,
+    shared_lock: bool = False,
 ) -> SurveyDistribution:
     statement = select(SurveyDistribution).where(
         col(SurveyDistribution.token) == token,
         col(SurveyDistribution.is_deleted).is_(False),
     )
     if for_update:
-        statement = statement.with_for_update()
+        statement = statement.with_for_update(read=shared_lock)
     result = await session.exec(statement)
     distribution = result.first()
     if not distribution:
         raise _public_token_error()
 
-    survey = await _get_survey(session, distribution.survey_id, for_update=for_update)
+    survey = await _get_survey(
+        session,
+        distribution.survey_id,
+        for_update=for_update,
+        shared_lock=shared_lock,
+    )
     if not survey or not _is_active(distribution, survey.status):
+        raise _public_token_error()
+    version_result = await session.exec(
+        select(SurveyVersion).where(
+            col(SurveyVersion.id) == distribution.version_id,
+            col(SurveyVersion.survey_id) == distribution.survey_id,
+            col(SurveyVersion.is_deleted).is_(False),
+            col(SurveyVersion.status).in_(["published", "superseded"]),
+        )
+    )
+    if version_result.first() is None:
         raise _public_token_error()
     return distribution

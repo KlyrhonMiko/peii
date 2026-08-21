@@ -17,6 +17,7 @@ from schemas.survey_structure import (
 )
 from services.audit_service import AuditEvent, commit_with_audit
 from services.base_service import utc_now
+from services.question_validation import validate_question_definition
 from services.survey_version_service import ensure_draft_version
 
 
@@ -35,6 +36,20 @@ async def replace_draft_structure(
     performed_by: UUID | None = None,
     ip_address: str | None = None,
 ) -> SurveyVersion:
+    for section_input in payload.sections:
+        for question_input in section_input.questions:
+            try:
+                validate_question_definition(
+                    question_input.question_type,
+                    question_input.options,
+                    question_input.config,
+                )
+            except ValueError as exc:
+                raise AppError(
+                    f"Question definition is invalid: {exc}",
+                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                ) from exc
+
     draft, version_events = await ensure_draft_version(session, survey)
     if (
         payload.expected_revision is not None

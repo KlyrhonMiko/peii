@@ -27,6 +27,16 @@ class SurveyResponseSubmit(BaseModel):
 
     answers: dict[str, Any]
 
+    @field_validator("answers")
+    @classmethod
+    def require_uuid_question_ids(cls, value: dict[str, Any]) -> dict[str, Any]:
+        for question_id in value:
+            try:
+                UUID(question_id)
+            except ValueError as exc:
+                raise ValueError("answer keys must be question UUIDs") from exc
+        return value
+
 
 class SurveyResponseRead(SurveyResponseBaseSchema):
     model_config = ConfigDict(

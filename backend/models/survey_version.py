@@ -1,7 +1,7 @@
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import CheckConstraint, UniqueConstraint
+from sqlalchemy import CheckConstraint, Index, UniqueConstraint, text
 from sqlmodel import Field
 
 from models.base_model import BaseModel
@@ -23,6 +23,20 @@ class SurveyVersion(BaseModel, table=True):
         CheckConstraint(
             "structure_revision >= 0",
             name="ck_survey_versions_structure_revision",
+        ),
+        Index(
+            "uq_survey_versions_active_draft",
+            "survey_id",
+            unique=True,
+            postgresql_where=text("status = 'draft' AND is_deleted = false"),
+            sqlite_where=text("status = 'draft' AND is_deleted = 0"),
+        ),
+        Index(
+            "uq_survey_versions_active_published",
+            "survey_id",
+            unique=True,
+            postgresql_where=text("status = 'published' AND is_deleted = false"),
+            sqlite_where=text("status = 'published' AND is_deleted = 0"),
         ),
     )
 

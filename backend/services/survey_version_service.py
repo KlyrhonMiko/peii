@@ -1,3 +1,4 @@
+import json
 from uuid import UUID
 
 from fastapi import status
@@ -11,6 +12,7 @@ from models.survey_section import SurveySection
 from models.survey_version import SurveyVersion
 from services.audit_service import AuditEvent, commit_with_audit  # noqa: F401
 from services.base_service import utc_now
+from services.question_validation import validate_question_definition
 from utils.identifiers import generate_business_id
 
 
@@ -81,6 +83,27 @@ async def ensure_draft_version(
             col(SurveyVersion.is_deleted).is_(False),
         )
         .order_by(col(SurveyVersion.version_number).desc())
+        .with_for_update()
+    )
+    draft = result.first()
+    if draft:
+        return draft, []
+
+    survey_lock_result = await session.exec(
+        select(Survey.id).where(col(Survey.id) == survey.id).with_for_update()
+    )
+    if survey_lock_result.first() is None:
+        raise AppError("Survey not found.", status_code=status.HTTP_404_NOT_FOUND)
+
+    result = await session.exec(
+        select(SurveyVersion)
+        .where(
+            col(SurveyVersion.survey_id) == survey.id,
+            col(SurveyVersion.status) == "draft",
+            col(SurveyVersion.is_deleted).is_(False),
+        )
+        .order_by(col(SurveyVersion.version_number).desc())
+        .with_for_update()
     )
     draft = result.first()
     if draft:
@@ -211,19 +234,37 @@ async def publish_draft(
             col(SurveySection.is_deleted).is_(False),
         )
     )
-    for section in sections_result.all():
+    sections = list(sections_result.all())
+    if not sections:
+        raise AppError(
+            "A survey must contain at least one section before publishing.",
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+        )
+
+    for section in sections:
         questions_result = await session.exec(
-            select(SurveyQuestion.id).where(
+            select(SurveyQuestion).where(
                 col(SurveyQuestion.section_id) == section.id,
                 col(SurveyQuestion.version_id) == draft.id,
                 col(SurveyQuestion.is_deleted).is_(False),
             )
         )
-        if not list(questions_result.all()):
+        questions = list(questions_result.all())
+        if not questions:
             raise AppError(
                 "Every section must contain at least one question before publishing.",
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             )
+        for question in questions:
+            try:
+                options = json.loads(question.options) if question.options else None
+                config = json.loads(question.config) if question.config else None
+                validate_question_definition(question.question_type, options, config)
+            except (TypeError, ValueError, json.JSONDecodeError) as exc:
+                raise AppError(
+                    f"Question {question.id} is not publishable: {exc}",
+                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                ) from exc
 
     previous_result = await session.exec(
         select(SurveyVersion).where(
