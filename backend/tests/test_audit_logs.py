@@ -158,6 +158,14 @@ async def test_all_mutation_families_create_audits(client):
         f"/api/v1/surveys/{survey_uuid}/questions/",
         json={"question_text": "Second?", "question_type": "text", "section_id": first_section_id},
     )
+    third_question = await client.post(
+        f"/api/v1/surveys/{survey_uuid}/questions/",
+        json={
+            "question_text": "Second section?",
+            "question_type": "text",
+            "section_id": second_section_id,
+        },
+    )
     first_question_id = first_question.json()["data"]["id"]
     second_question_id = second_question.json()["data"]["id"]
     await client.patch(
@@ -185,7 +193,12 @@ async def test_all_mutation_families_create_audits(client):
 
     response = await client.post(
         f"/api/v1/survey/{distribution_data['token']}/respond",
-        json={"answers": {"question": "answer"}},
+        json={
+            "answers": {
+                second_question_id: "answer",
+                third_question.json()["data"]["id"]: "answer",
+            }
+        },
     )
     response_id = response.json()["data"]["id"]
     response_audits = await _audits_for(client, "survey_response", response_id, "create")

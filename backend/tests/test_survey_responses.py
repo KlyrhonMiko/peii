@@ -19,7 +19,7 @@ async def _create_active_survey_with_questions(client):
     )
     section_id = sec_resp.json()["data"]["id"]
 
-    await client.post(f"/api/v1/surveys/{survey_uuid}/questions/", json={
+    question_response = await client.post(f"/api/v1/surveys/{survey_uuid}/questions/", json={
         "question_text": "Employment status?",
         "question_type": "single_choice",
         "options": ["Full-Time", "Part-Time"],
@@ -32,11 +32,11 @@ async def _create_active_survey_with_questions(client):
     )
     token = dist_resp.json()["data"]["token"]
 
-    return survey_uuid, token
+    return survey_uuid, token, question_response.json()["data"]["id"]
 
 
 async def test_get_public_survey_by_token(client):
-    _, token = await _create_active_survey_with_questions(client)
+    _, token, _question_id = await _create_active_survey_with_questions(client)
 
     resp = await client.get(f"/api/v1/survey/{token}")
     assert resp.status_code == 200
@@ -47,11 +47,11 @@ async def test_get_public_survey_by_token(client):
 
 
 async def test_submit_response(client):
-    _, token = await _create_active_survey_with_questions(client)
+    _, token, question_id = await _create_active_survey_with_questions(client)
 
     resp = await client.post(
         f"/api/v1/survey/{token}/respond",
-        json={"answers": {"q1": "Full-Time"}},
+        json={"answers": {question_id: "Full-Time"}},
     )
     assert resp.status_code == 201
     assert resp.json()["data"]["distribution_id"] is not None
@@ -59,11 +59,11 @@ async def test_submit_response(client):
 
 
 async def test_submit_response_increments_count(client):
-    _, token = await _create_active_survey_with_questions(client)
+    _, token, question_id = await _create_active_survey_with_questions(client)
 
     resp = await client.post(
         f"/api/v1/survey/{token}/respond",
-        json={"answers": {"q1": "Part-Time"}},
+        json={"answers": {question_id: "Part-Time"}},
     )
     assert resp.status_code == 201
 
@@ -81,7 +81,7 @@ async def test_invalid_token_returns_404(client):
 
 
 async def test_revoked_token_rejects_read_and_submit(client):
-    survey_uuid, token = await _create_active_survey_with_questions(client)
+    survey_uuid, token, question_id = await _create_active_survey_with_questions(client)
     distribution = await client.get(f"/api/v1/surveys/{survey_uuid}/distributions/")
     distribution_id = distribution.json()["data"][0]["id"]
     await client.request(
@@ -90,7 +90,7 @@ async def test_revoked_token_rejects_read_and_submit(client):
 
     get_response = await client.get(f"/api/v1/survey/{token}")
     post_response = await client.post(
-        f"/api/v1/survey/{token}/respond", json={"answers": {"q1": "Full-Time"}}
+        f"/api/v1/survey/{token}/respond", json={"answers": {question_id: "Full-Time"}}
     )
     assert get_response.status_code == 404
     assert post_response.status_code == 404

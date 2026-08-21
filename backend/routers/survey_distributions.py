@@ -19,6 +19,7 @@ def _distribution_read(
     return SurveyDistributionRead(
         id=distribution.id,
         survey_id=distribution.survey_id,
+        version_id=distribution.version_id,
         token=distribution.token,
         status=lifecycle_status,
         is_active=lifecycle_status == "active",

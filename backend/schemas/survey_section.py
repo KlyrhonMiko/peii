@@ -1,6 +1,6 @@
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, field_validator
 
 from schemas.survey_question import SurveyQuestionRead
 
@@ -38,6 +38,11 @@ class SurveySectionUpdate(SurveySectionBaseSchema):
 
     title: str | None = None
     description: str | None = None
+    performed_by: UUID | None = None
+
+
+class SurveySectionDelete(SurveySectionBaseSchema):
+    cascade_questions: bool = False
     performed_by: UUID | None = None
 
 
@@ -79,3 +84,10 @@ class SurveySectionReorder(BaseModel):
     )
 
     section_ids: list[UUID]
+
+    @field_validator("section_ids")
+    @classmethod
+    def require_unique_ids(cls, value: list[UUID]) -> list[UUID]:
+        if len(value) != len(set(value)):
+            raise ValueError("section_ids must not contain duplicates.")
+        return value

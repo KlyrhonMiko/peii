@@ -14,6 +14,7 @@ from models import (  # noqa: F401
     SurveyQuestion,
     SurveyResponse,
     SurveySection,
+    SurveyVersion,
     User,
 )
 
@@ -55,4 +56,3 @@ def get_session() -> Generator[Session]:
 async def get_async_session() -> AsyncGenerator[AsyncSession]:
     async with async_session_factory() as session:
         yield session
-

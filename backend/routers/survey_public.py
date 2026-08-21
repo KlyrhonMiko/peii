@@ -42,9 +42,10 @@ async def get_public_survey(
         select(SurveySection)
         .where(
             col(SurveySection.survey_id) == distribution.survey_id,
+            col(SurveySection.version_id) == distribution.version_id,
             col(SurveySection.is_deleted).is_(False),
         )
-        .order_by(col(SurveySection.order_index))
+        .order_by(col(SurveySection.order_index), col(SurveySection.id))
     )
     sections = list(sections_result.all())
 
@@ -55,9 +56,11 @@ async def get_public_survey(
             select(SurveyQuestion)
             .where(
                 col(SurveyQuestion.section_id) == section.id,
+                col(SurveyQuestion.survey_id) == distribution.survey_id,
+                col(SurveyQuestion.version_id) == distribution.version_id,
                 col(SurveyQuestion.is_deleted).is_(False),
             )
-            .order_by(col(SurveyQuestion.order_index))
+            .order_by(col(SurveyQuestion.order_index), col(SurveyQuestion.id))
         )
         section_questions = list(questions_result.all())
 

@@ -80,7 +80,7 @@ export function PEIIDimensionsChart() {
               }}
               itemStyle={{ fontWeight: 500, fontSize: '13px', paddingTop: '4px' }}
               labelStyle={{ fontWeight: 700, color: '#0f172a', fontSize: '12px', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.05em' }}
-              formatter={(value: TooltipValue, name: any) => [
+              formatter={(value: TooltipValue, name: string | number | undefined) => [
                 formatTooltipValue(value),
                 name === "preGrad" ? "Pre-Grad Baseline" : "Post-Grad Outcome"
               ]}

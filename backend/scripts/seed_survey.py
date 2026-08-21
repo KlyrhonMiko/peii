@@ -28,6 +28,7 @@ from models.question_type import QuestionType
 from models.survey import Survey as SurveyModel
 from models.survey_question import SurveyQuestion as SurveyQuestionModel
 from models.survey_section import SurveySection as SurveySectionModel
+from models.survey_version import SurveyVersion as SurveyVersionModel
 from services.audit_service import AuditEvent, commit_with_audit
 from utils.identifiers import generate_business_id
 
@@ -184,11 +185,19 @@ async def _seed(session: AsyncSession) -> SurveyModel:
         target_cohort="All Alumni",
     )
     session.add(survey)
+    version = SurveyVersionModel(
+        survey_id=survey.id,
+        version_id=generate_business_id("VER"),
+        version_number=1,
+        status="published",
+    )
+    session.add(version)
 
     sections = []
     for sec_idx, sec_spec in enumerate(SAMPLE_SECTIONS):
         section = SurveySectionModel(
             survey_id=survey.id,
+            version_id=version.id,
             title=sec_spec["title"],
             description=sec_spec["description"],
             order_index=sec_idx,
@@ -206,6 +215,7 @@ async def _seed(session: AsyncSession) -> SurveyModel:
             options_str = json.dumps(spec["options"]) if spec["options"] else None
             question = SurveyQuestionModel(
                 survey_id=survey.id,
+                version_id=version.id,
                 section_id=section.id,
                 question_text=spec["text"],
                 question_type=spec["type"],
@@ -217,6 +227,7 @@ async def _seed(session: AsyncSession) -> SurveyModel:
 
     events = [
         AuditEvent(action="create", resource_type="survey", resource_id=survey.survey_id),
+        AuditEvent(action="publish", resource_type="survey_version", resource_id=str(version.id)),
         *[
             AuditEvent(
                 action="create",

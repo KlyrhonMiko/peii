@@ -12,6 +12,7 @@ export interface Distribution {
   expiresAt: string | null
   revokedAt: string | null
   createdAt: string
+  versionId: string
 }
 
 export interface SurveyResponse {
@@ -20,6 +21,7 @@ export interface SurveyResponse {
   distributionId: string | null
   answers: Record<string, unknown>
   createdAt: string
+  versionId: string
 }
 
 export interface Survey {
@@ -31,6 +33,8 @@ export interface Survey {
   dateCreated: string
   targetCohort?: string
   description?: string
+  versionId?: string
+  structureRevision?: number
   questions?: SurveyQuestion[]
   sections?: SurveySection[]
 }
@@ -41,6 +45,7 @@ export interface SurveyQuestion {
   type: string
   options?: string[] | null
   sectionId?: string
+  surveyId?: string
   config?: Record<string, unknown> | null
   isRequired?: boolean
 }
@@ -51,6 +56,7 @@ export interface SurveySection {
   description?: string
   orderIndex: number
   questions: SurveyQuestion[]
+  surveyId?: string
 }
 
 // ── Raw API types (snake_case, matching backend) ─────────────────
@@ -70,6 +76,9 @@ export interface ApiSurvey {
   performed_by: string | null
   questions?: ApiQuestion[]
   sections?: ApiSection[]
+  version_id?: string
+  version_number?: number
+  structure_revision?: number
 }
 
 export interface ApiSection {
@@ -94,6 +103,7 @@ export interface ApiQuestion {
   is_required: boolean
   is_deleted: boolean
   performed_by: string | null
+  section_id: string
 }
 
 export interface ApiDistribution {
@@ -106,6 +116,7 @@ export interface ApiDistribution {
   expires_at: string | null
   revoked_at: string | null
   created_at: string
+  version_id: string
 }
 
 export interface ApiSurveyResponse {
@@ -114,6 +125,7 @@ export interface ApiSurveyResponse {
   distribution_id: string | null
   answers: Record<string, unknown>
   created_at: string
+  version_id: string
 }
 
 export interface ApiPagination {
@@ -130,6 +142,7 @@ export interface ApiPagination {
 function mapSection(api: ApiSection): SurveySection {
   return {
     id: api.id,
+    surveyId: api.survey_id,
     title: api.title,
     ...(api.description ? { description: api.description } : {}),
     orderIndex: api.order_index,
@@ -145,6 +158,10 @@ function mapSurvey(api: ApiSurvey): Survey {
     status: api.status,
     responses: api.responses_count,
     dateCreated: api.created_at,
+    ...(api.version_id ? { versionId: api.version_id } : {}),
+    ...(api.structure_revision !== undefined
+      ? { structureRevision: api.structure_revision }
+      : {}),
     ...(api.target_cohort ? { targetCohort: api.target_cohort } : {}),
     ...(api.description ? { description: api.description } : {}),
     ...(api.questions ? { questions: api.questions.map(mapQuestion) } : {}),
@@ -155,10 +172,12 @@ function mapSurvey(api: ApiSurvey): Survey {
 function mapQuestion(api: ApiQuestion): SurveyQuestion {
   return {
     id: api.id,
+    surveyId: api.survey_id,
     text: api.question_text,
     type: api.question_type,
     ...(api.options ? { options: api.options } : {}),
     ...(api.config ? { config: api.config } : {}),
+    sectionId: api.section_id,
     isRequired: api.is_required,
   }
 }
@@ -174,6 +193,7 @@ function mapDistribution(api: ApiDistribution): Distribution {
     expiresAt: api.expires_at,
     revokedAt: api.revoked_at,
     createdAt: api.created_at,
+    versionId: api.version_id,
   }
 }
 
@@ -184,6 +204,7 @@ function mapResponse(api: ApiSurveyResponse): SurveyResponse {
     distributionId: api.distribution_id,
     answers: api.answers,
     createdAt: api.created_at,
+    versionId: api.version_id,
   }
 }
 
@@ -203,6 +224,10 @@ export async function fetchSurveys(): Promise<{
 export async function fetchSurvey(surveyId: string): Promise<Survey> {
   const res = await api.get<ApiSurvey>(`/surveys/${surveyId}`)
   return mapSurvey(res.data!)
+}
+
+export async function ensureSurveyDraft(surveyUuid: string): Promise<void> {
+  await api.post(`/surveys/${surveyUuid}/draft`)
 }
 
 export async function createSurvey(payload: {
@@ -225,6 +250,59 @@ export async function updateSurvey(
   }>,
 ): Promise<Survey> {
   const res = await api.patch<ApiSurvey>(`/surveys/${surveyId}`, { ...payload, performed_by: null })
+  return mapSurvey(res.data!)
+}
+
+function isUuid(value: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)
+}
+
+export async function replaceSurveyStructure(
+  surveyUuid: string,
+  payload: {
+    expected_revision?: number
+    sections: Array<{
+      client_id: string
+      id?: string
+      title: string
+      description: string | null
+      questions: Array<{
+        client_id: string
+        id?: string
+        question_text: string
+        question_type: string
+        options: string[] | null
+        config: Record<string, unknown> | null
+        is_required: boolean
+      }>
+    }>
+    cascade_section_ids?: string[]
+  },
+): Promise<Survey> {
+  const normalized = {
+    ...(payload.expected_revision !== undefined
+      ? { expected_revision: payload.expected_revision }
+      : {}),
+    sections: payload.sections.map((section) => ({
+      client_id: section.client_id,
+      ...(section.id && isUuid(section.id) ? { id: section.id } : {}),
+      title: section.title,
+      description: section.description,
+      questions: section.questions.map((question) => ({
+        client_id: question.client_id,
+        ...(question.id && isUuid(question.id) ? { id: question.id } : {}),
+        question_text: question.question_text,
+        question_type: question.question_type,
+        options: question.options,
+        config: question.config,
+        is_required: question.is_required,
+      })),
+    })),
+    ...(payload.cascade_section_ids
+      ? { cascade_section_ids: payload.cascade_section_ids }
+      : {}),
+  }
+  const res = await api.put<ApiSurvey>(`/surveys/${surveyUuid}/structure`, normalized)
   return mapSurvey(res.data!)
 }
 
@@ -288,7 +366,7 @@ export async function createQuestion(
     question_type: string
     options?: string[] | null
     config?: Record<string, unknown> | null
-    section_id?: string | null
+    section_id: string
     is_required?: boolean
   },
 ): Promise<SurveyQuestion> {
@@ -307,6 +385,7 @@ export async function updateQuestion(
     question_type: string
     options: string[] | null
     config: Record<string, unknown> | null
+    section_id: string
     is_required: boolean
   }>,
 ): Promise<SurveyQuestion> {

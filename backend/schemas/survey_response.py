@@ -35,6 +35,7 @@ class SurveyResponseRead(SurveyResponseBaseSchema):
             "example": {
                 "id": "018f4a1a-7b3b-7d0e-913a-c5f1c5c1c5c2",
                 "survey_id": "018f4a1a-7b3b-7d0e-913a-c5f1c5c1c5c3",
+                "version_id": "018f4a1a-7b3b-7d0e-913a-c5f1c5c1c5c5",
                 "distribution_id": "018f4a1a-7b3b-7d0e-913a-c5f1c5c1c5c4",
                 "answers": {"q1": "Employed Full-Time"},
                 "created_at": "2026-06-21T12:00:00Z",
@@ -44,6 +45,7 @@ class SurveyResponseRead(SurveyResponseBaseSchema):
 
     id: UUID
     survey_id: UUID
+    version_id: UUID
     distribution_id: UUID | None
     answers: dict[str, Any]
     created_at: datetime

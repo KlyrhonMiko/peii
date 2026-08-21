@@ -8,6 +8,7 @@ from schemas.common import APIResponse
 from schemas.survey_question import SurveyQuestionRead
 from schemas.survey_section import (
     SurveySectionCreate,
+    SurveySectionDelete,
     SurveySectionRead,
     SurveySectionReorder,
     SurveySectionUpdate,
@@ -135,10 +136,16 @@ async def delete_section(
     section_id: UUID,
     session: AsyncDBSession,
     request: Request,
+    payload: SurveySectionDelete | None = None,
 ) -> APIResponse[SurveySectionRead]:
     ip_address = request.client.host if request.client else None
     section = await survey_section_service.delete_section(
-        session, survey_id, section_id, ip_address=ip_address
+        session,
+        survey_id,
+        section_id,
+        performed_by=payload.performed_by if payload else None,
+        cascade_questions=payload.cascade_questions if payload else False,
+        ip_address=ip_address,
     )
     return success_response(
         SurveySectionRead.model_validate(section),

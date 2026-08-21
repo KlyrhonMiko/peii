@@ -12,6 +12,7 @@ from models.survey_section import SurveySection
 from schemas.survey_section import SurveySectionCreate, SurveySectionUpdate
 from services.audit_service import AuditEvent, commit_with_audit
 from services.base_service import apply_updates, utc_now
+from services.survey_version_service import ensure_draft_version, get_version_for_read
 
 
 async def _validate_survey_exists(session: AsyncSession, survey_id: UUID) -> Survey:
@@ -28,13 +29,15 @@ async def list_sections(
     session: AsyncSession, survey_id: UUID
 ) -> list[SurveySection]:
     await _validate_survey_exists(session, survey_id)
+    version = await get_version_for_read(session, survey_id)
     result = await session.exec(
         select(SurveySection)
         .where(
             col(SurveySection.survey_id) == survey_id,
+            col(SurveySection.version_id) == version.id,
             col(SurveySection.is_deleted).is_(False),
         )
-        .order_by(col(SurveySection.order_index))
+        .order_by(col(SurveySection.order_index), col(SurveySection.id))
     )
     return list(result.all())
 
@@ -43,10 +46,12 @@ async def get_section(
     session: AsyncSession, survey_id: UUID, section_id: UUID
 ) -> SurveySection:
     await _validate_survey_exists(session, survey_id)
+    version = await get_version_for_read(session, survey_id)
     result = await session.exec(
         select(SurveySection).where(
             col(SurveySection.id) == section_id,
             col(SurveySection.survey_id) == survey_id,
+            col(SurveySection.version_id) == version.id,
             col(SurveySection.is_deleted).is_(False),
         )
     )
@@ -64,9 +69,11 @@ async def get_section_with_questions(
         select(SurveyQuestion)
         .where(
             col(SurveyQuestion.section_id) == section_id,
+            col(SurveyQuestion.survey_id) == survey_id,
+            col(SurveyQuestion.version_id) == section.version_id,
             col(SurveyQuestion.is_deleted).is_(False),
         )
-        .order_by(col(SurveyQuestion.order_index))
+        .order_by(col(SurveyQuestion.order_index), col(SurveyQuestion.id))
     )
     questions = list(questions_result.all())
     return section, questions
@@ -78,18 +85,22 @@ async def create_section(
     payload: SurveySectionCreate,
     ip_address: str | None = None,
 ) -> SurveySection:
-    await _validate_survey_exists(session, survey_id)
+    survey = await _validate_survey_exists(session, survey_id)
+    draft, version_events = await ensure_draft_version(session, survey)
 
     max_order_result = await session.exec(
-        select(func.count()).select_from(SurveySection).where(
+        select(func.max(SurveySection.order_index)).where(
             col(SurveySection.survey_id) == survey_id,
+            col(SurveySection.version_id) == draft.id,
             col(SurveySection.is_deleted).is_(False),
         )
     )
-    next_order = max_order_result.one()
+    current_max = max_order_result.one()
+    next_order = (current_max if current_max is not None else -1) + 1
 
     section = SurveySection(
         survey_id=survey_id,
+        version_id=draft.id,
         title=payload.title,
         description=payload.description,
         order_index=next_order,
@@ -99,6 +110,7 @@ async def create_section(
     await commit_with_audit(
         session,
         [
+            *version_events,
             AuditEvent(
                 action="create",
                 resource_type="survey_section",
@@ -119,7 +131,19 @@ async def update_section(
     payload: SurveySectionUpdate,
     ip_address: str | None = None,
 ) -> SurveySection:
-    section = await get_section(session, survey_id, section_id)
+    survey = await _validate_survey_exists(session, survey_id)
+    draft, version_events = await ensure_draft_version(session, survey)
+    result = await session.exec(
+        select(SurveySection).where(
+            col(SurveySection.id) == section_id,
+            col(SurveySection.survey_id) == survey_id,
+            col(SurveySection.version_id) == draft.id,
+            col(SurveySection.is_deleted).is_(False),
+        )
+    )
+    section = result.first()
+    if not section:
+        raise AppError("Section not found.", status_code=status.HTTP_404_NOT_FOUND)
 
     updates = payload.model_dump(exclude_unset=True)
 
@@ -136,6 +160,7 @@ async def update_section(
     await commit_with_audit(
         session,
         [
+            *version_events,
             AuditEvent(
                 action="update",
                 resource_type="survey_section",
@@ -155,27 +180,72 @@ async def delete_section(
     survey_id: UUID,
     section_id: UUID,
     performed_by: UUID | None = None,
+    cascade_questions: bool = False,
     ip_address: str | None = None,
 ) -> SurveySection:
-    section = await get_section(session, survey_id, section_id)
+    survey = await _validate_survey_exists(session, survey_id)
+    draft, version_events = await ensure_draft_version(session, survey)
+    result = await session.exec(
+        select(SurveySection).where(
+            col(SurveySection.id) == section_id,
+            col(SurveySection.survey_id) == survey_id,
+            col(SurveySection.version_id) == draft.id,
+            col(SurveySection.is_deleted).is_(False),
+        )
+    )
+    section = result.first()
+    if not section:
+        raise AppError("Section not found.", status_code=status.HTTP_404_NOT_FOUND)
+
+    questions_result = await session.exec(
+        select(SurveyQuestion).where(
+            col(SurveyQuestion.section_id) == section.id,
+            col(SurveyQuestion.survey_id) == survey_id,
+            col(SurveyQuestion.version_id) == draft.id,
+            col(SurveyQuestion.is_deleted).is_(False),
+        )
+    )
+    questions = list(questions_result.all())
+    if questions and not cascade_questions:
+        raise AppError(
+            "Section contains active questions. Confirm cascade_questions to delete it.",
+            status_code=status.HTTP_409_CONFLICT,
+        )
 
     section.is_deleted = True
     section.deleted_at = utc_now()
     section.performed_by = performed_by
     section.updated_at = utc_now()
     session.add(section)
-    await commit_with_audit(
-        session,
-        [
-            AuditEvent(
-                action="delete",
-                resource_type="survey_section",
-                resource_id=str(section.id),
-                performed_by=performed_by,
-                ip_address=ip_address,
+    events = [
+        *version_events,
+        AuditEvent(
+            action="delete",
+            resource_type="survey_section",
+            resource_id=str(section.id),
+            performed_by=performed_by,
+            ip_address=ip_address,
+        )
+    ]
+    if questions:
+        deleted_at = utc_now()
+        for question in questions:
+            question.is_deleted = True
+            question.deleted_at = deleted_at
+            question.performed_by = performed_by
+            question.updated_at = deleted_at
+            session.add(question)
+            events.append(
+                AuditEvent(
+                    action="delete",
+                    resource_type="survey_question",
+                    resource_id=str(question.id),
+                    performed_by=performed_by,
+                    changes={"reason": "section_cascade"},
+                    ip_address=ip_address,
+                )
             )
-        ],
-    )
+    await commit_with_audit(session, events)
     await session.refresh(section)
     return section
 
@@ -187,17 +257,19 @@ async def reorder_sections(
     performed_by: UUID | None = None,
     ip_address: str | None = None,
 ) -> list[SurveySection]:
-    await _validate_survey_exists(session, survey_id)
+    survey = await _validate_survey_exists(session, survey_id)
+    draft, version_events = await ensure_draft_version(session, survey)
 
     existing_result = await session.exec(
         select(SurveySection.id).where(
             col(SurveySection.survey_id) == survey_id,
+            col(SurveySection.version_id) == draft.id,
             col(SurveySection.is_deleted).is_(False),
         )
     )
     existing_ids = set(existing_result.all())
 
-    if set(section_ids) != existing_ids:
+    if len(section_ids) != len(existing_ids) or set(section_ids) != existing_ids:
         raise AppError(
             "Provided section IDs do not match the survey's active sections.",
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -210,13 +282,13 @@ async def reorder_sections(
             select(SurveySection).where(
                 col(SurveySection.id) == sid,
                 col(SurveySection.survey_id) == survey_id,
+                col(SurveySection.version_id) == draft.id,
+                col(SurveySection.is_deleted).is_(False),
             )
         )
         section = result.first()
         if section:
             old_order = section.order_index
-            section.order_index = idx
-            session.add(section)
             sections.append(section)
             if old_order != idx:
                 changes.append(
@@ -231,11 +303,22 @@ async def reorder_sections(
                 )
 
     if not changes:
-        return sorted(sections, key=lambda s: s.order_index)
+        return sorted(sections, key=lambda s: (s.order_index, s.id))
 
-    await commit_with_audit(session, changes)
+    # Move through a temporary range beyond the current maximum so the active-order
+    # unique index cannot reject a valid permutation while rows still have old values.
+    temporary_base = max(section.order_index for section in sections) + len(sections) + 1
+    for idx, section in enumerate(sections):
+        section.order_index = temporary_base + idx
+        session.add(section)
+    await session.flush()
+    for idx, section in enumerate(sections):
+        section.order_index = idx
+        session.add(section)
+
+    await commit_with_audit(session, [*version_events, *changes])
     for s in sections:
         await session.refresh(s)
 
-    sections.sort(key=lambda s: s.order_index)
+    sections.sort(key=lambda s: (s.order_index, s.id))
     return sections

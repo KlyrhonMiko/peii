@@ -9,12 +9,14 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from core.exceptions import AppError
 from models.survey import Survey
 from models.survey_question import SurveyQuestion
+from models.survey_section import SurveySection
 from schemas.survey_question import (
     SurveyQuestionCreate,
     SurveyQuestionUpdate,
 )
 from services.audit_service import AuditEvent, commit_with_audit
 from services.base_service import apply_updates, utc_now
+from services.survey_version_service import ensure_draft_version, get_version_for_read
 
 
 async def _validate_survey_exists(session: AsyncSession, survey_id: UUID) -> Survey:
@@ -61,13 +63,23 @@ async def list_questions(
     session: AsyncSession, survey_id: UUID
 ) -> list[SurveyQuestion]:
     await _validate_survey_exists(session, survey_id)
+    version = await get_version_for_read(session, survey_id)
     result = await session.exec(
         select(SurveyQuestion)
+        .join(SurveySection, col(SurveySection.id) == SurveyQuestion.section_id)
         .where(
             col(SurveyQuestion.survey_id) == survey_id,
+            col(SurveyQuestion.version_id) == version.id,
+            col(SurveySection.version_id) == version.id,
             col(SurveyQuestion.is_deleted).is_(False),
+            col(SurveySection.is_deleted).is_(False),
         )
-        .order_by(col(SurveyQuestion.order_index))
+        .order_by(
+            col(SurveySection.order_index),
+            col(SurveySection.id),
+            col(SurveyQuestion.order_index),
+            col(SurveyQuestion.id),
+        )
     )
     return list(result.all())
 
@@ -78,30 +90,51 @@ async def create_question(
     payload: SurveyQuestionCreate,
     ip_address: str | None = None,
 ) -> SurveyQuestion:
-    await _validate_survey_exists(session, survey_id)
+    survey = await _validate_survey_exists(session, survey_id)
+    draft, version_events = await ensure_draft_version(session, survey)
+
+    section_result = await session.exec(
+        select(SurveySection).where(
+            col(SurveySection.id) == payload.section_id,
+            col(SurveySection.survey_id) == survey_id,
+            col(SurveySection.version_id) == draft.id,
+            col(SurveySection.is_deleted).is_(False),
+        )
+    )
+    if section_result.first() is None:
+        raise AppError(
+            "Section not found in the requested survey.",
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
 
     max_order_result = await session.exec(
-        select(func.count()).select_from(SurveyQuestion).where(
+        select(func.max(SurveyQuestion.order_index)).where(
+            col(SurveyQuestion.section_id) == payload.section_id,
             col(SurveyQuestion.survey_id) == survey_id,
+            col(SurveyQuestion.version_id) == draft.id,
             col(SurveyQuestion.is_deleted).is_(False),
         )
     )
-    next_order = max_order_result.one()
+    current_max = max_order_result.one()
+    next_order = (current_max if current_max is not None else -1) + 1
 
     question = SurveyQuestion(
         survey_id=survey_id,
+        version_id=draft.id,
         section_id=payload.section_id,
         question_text=payload.question_text,
         question_type=payload.question_type,
         options=_serialize_options(payload.options),
         config=_serialize_config(payload.config),
         order_index=next_order,
+        is_required=payload.is_required,
         performed_by=payload.performed_by,
     )
     session.add(question)
     await commit_with_audit(
         session,
         [
+            *version_events,
             AuditEvent(
                 action="create",
                 resource_type="survey_question",
@@ -122,12 +155,14 @@ async def update_question(
     payload: SurveyQuestionUpdate,
     ip_address: str | None = None,
 ) -> SurveyQuestion:
-    await _validate_survey_exists(session, survey_id)
+    survey = await _validate_survey_exists(session, survey_id)
+    draft, version_events = await ensure_draft_version(session, survey)
 
     result = await session.exec(
         select(SurveyQuestion).where(
             col(SurveyQuestion.id) == question_id,
             col(SurveyQuestion.survey_id) == survey_id,
+            col(SurveyQuestion.version_id) == draft.id,
             col(SurveyQuestion.is_deleted).is_(False),
         )
     )
@@ -139,6 +174,44 @@ async def update_question(
 
     changes = {}
     normalized_updates = updates.copy()
+    if "section_id" in normalized_updates:
+        target_section_id = normalized_updates["section_id"]
+        if target_section_id is None:
+            raise AppError(
+                "Questions must belong to an active section.",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+        target_result = await session.exec(
+            select(SurveySection).where(
+                col(SurveySection.id) == target_section_id,
+                col(SurveySection.survey_id) == survey_id,
+                col(SurveySection.version_id) == draft.id,
+                col(SurveySection.is_deleted).is_(False),
+            )
+        )
+        if target_result.first() is None:
+            raise AppError(
+                "Target section not found in the requested survey.",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+        if target_section_id != question.section_id:
+            next_order_result = await session.exec(
+                select(func.max(SurveyQuestion.order_index)).where(
+                    col(SurveyQuestion.section_id) == target_section_id,
+                    col(SurveyQuestion.survey_id) == survey_id,
+                    col(SurveyQuestion.version_id) == draft.id,
+                    col(SurveyQuestion.is_deleted).is_(False),
+                )
+            )
+            current_max = next_order_result.one()
+            normalized_updates["order_index"] = (
+                current_max if current_max is not None else -1
+            ) + 1
+    if "question_type" in normalized_updates and normalized_updates["question_type"] is None:
+        raise AppError(
+            "question_type cannot be null.",
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
     if "options" in normalized_updates:
         normalized_updates["options"] = _serialize_options(normalized_updates["options"])
     if "config" in normalized_updates:
@@ -165,6 +238,7 @@ async def update_question(
     await commit_with_audit(
         session,
         [
+            *version_events,
             AuditEvent(
                 action="update",
                 resource_type="survey_question",
@@ -186,12 +260,14 @@ async def delete_question(
     performed_by: UUID | None = None,
     ip_address: str | None = None,
 ) -> SurveyQuestion:
-    await _validate_survey_exists(session, survey_id)
+    survey = await _validate_survey_exists(session, survey_id)
+    draft, version_events = await ensure_draft_version(session, survey)
 
     result = await session.exec(
         select(SurveyQuestion).where(
             col(SurveyQuestion.id) == question_id,
             col(SurveyQuestion.survey_id) == survey_id,
+            col(SurveyQuestion.version_id) == draft.id,
             col(SurveyQuestion.is_deleted).is_(False),
         )
     )
@@ -207,6 +283,7 @@ async def delete_question(
     await commit_with_audit(
         session,
         [
+            *version_events,
             AuditEvent(
                 action="delete",
                 resource_type="survey_question",
@@ -224,22 +301,59 @@ async def reorder_questions(
     session: AsyncSession,
     survey_id: UUID,
     question_ids: list[UUID],
+    section_id: UUID | None = None,
     performed_by: UUID | None = None,
     ip_address: str | None = None,
 ) -> list[SurveyQuestion]:
-    await _validate_survey_exists(session, survey_id)
+    survey = await _validate_survey_exists(session, survey_id)
+    draft, version_events = await ensure_draft_version(session, survey)
 
-    existing_result = await session.exec(
-        select(SurveyQuestion.id).where(
-            col(SurveyQuestion.survey_id) == survey_id,
-            col(SurveyQuestion.is_deleted).is_(False),
+    if section_id is not None:
+        section_result = await session.exec(
+            select(SurveySection).where(
+                col(SurveySection.id) == section_id,
+                col(SurveySection.survey_id) == survey_id,
+                col(SurveySection.is_deleted).is_(False),
+            )
         )
+        if section_result.first() is None:
+            raise AppError("Section not found.", status_code=status.HTTP_404_NOT_FOUND)
+
+    if section_id is None and question_ids:
+        question_section_result = await session.exec(
+            select(SurveyQuestion.section_id)
+            .where(
+                col(SurveyQuestion.id).in_(question_ids),
+                col(SurveyQuestion.survey_id) == survey_id,
+                col(SurveyQuestion.version_id) == draft.id,
+                col(SurveyQuestion.is_deleted).is_(False),
+            )
+            .distinct()
+        )
+        section_ids: list[UUID] = list(question_section_result.all())
+        if len(section_ids) > 1:
+            raise AppError(
+                "section_id is required when reordering questions from multiple sections.",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+        if section_ids:
+            section_id = section_ids[0]
+
+    existing_statement = select(SurveyQuestion.id).where(
+        col(SurveyQuestion.survey_id) == survey_id,
+        col(SurveyQuestion.version_id) == draft.id,
+        col(SurveyQuestion.is_deleted).is_(False),
     )
+    if section_id is not None:
+        existing_statement = existing_statement.where(
+            col(SurveyQuestion.section_id) == section_id
+        )
+    existing_result = await session.exec(existing_statement)
     existing_ids = set(existing_result.all())
 
-    if set(question_ids) != existing_ids:
+    if len(question_ids) != len(existing_ids) or set(question_ids) != existing_ids:
         raise AppError(
-            "Provided question IDs do not match the survey's active questions.",
+            "Provided question IDs do not match the section's active questions.",
             status_code=status.HTTP_400_BAD_REQUEST,
         )
 
@@ -250,13 +364,14 @@ async def reorder_questions(
             select(SurveyQuestion).where(
                 col(SurveyQuestion.id) == qid,
                 col(SurveyQuestion.survey_id) == survey_id,
+                col(SurveyQuestion.section_id) == section_id,
+                col(SurveyQuestion.version_id) == draft.id,
+                col(SurveyQuestion.is_deleted).is_(False),
             )
         )
         question = result.first()
         if question:
             old_order = question.order_index
-            question.order_index = idx
-            session.add(question)
             questions.append(question)
             if old_order != idx:
                 changes.append(
@@ -271,11 +386,21 @@ async def reorder_questions(
                 )
 
     if not changes:
-        return sorted(questions, key=lambda q: q.order_index)
+        return sorted(questions, key=lambda q: (q.order_index, q.id))
 
-    await commit_with_audit(session, changes)
+    # Avoid transient collisions with the active section-order unique index.
+    temporary_base = max(question.order_index for question in questions) + len(questions) + 1
+    for idx, question in enumerate(questions):
+        question.order_index = temporary_base + idx
+        session.add(question)
+    await session.flush()
+    for idx, question in enumerate(questions):
+        question.order_index = idx
+        session.add(question)
+
+    await commit_with_audit(session, [*version_events, *changes])
     for q in questions:
         await session.refresh(q)
 
-    questions.sort(key=lambda q: q.order_index)
+    questions.sort(key=lambda q: (q.order_index, q.id))
     return questions
