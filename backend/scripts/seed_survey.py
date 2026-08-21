@@ -28,7 +28,7 @@ from models.question_type import QuestionType
 from models.survey import Survey as SurveyModel
 from models.survey_question import SurveyQuestion as SurveyQuestionModel
 from models.survey_section import SurveySection as SurveySectionModel
-from services.audit_service import record_audit
+from services.audit_service import AuditEvent, commit_with_audit
 from utils.identifiers import generate_business_id
 
 SAMPLE_SECTIONS: list[dict] = [
@@ -200,6 +200,7 @@ async def _seed(session: AsyncSession) -> SurveyModel:
     # in the database before inserting the questions that reference them.
     await session.flush()
 
+    questions_to_audit = []
     for section, questions in sections:
         for q_idx, spec in enumerate(questions):
             options_str = json.dumps(spec["options"]) if spec["options"] else None
@@ -212,12 +213,29 @@ async def _seed(session: AsyncSession) -> SurveyModel:
                 order_index=q_idx,
             )
             session.add(question)
+            questions_to_audit.append(question)
 
-    await session.commit()
+    events = [
+        AuditEvent(action="create", resource_type="survey", resource_id=survey.survey_id),
+        *[
+            AuditEvent(
+                action="create",
+                resource_type="survey_section",
+                resource_id=str(section.id),
+            )
+            for section, _ in sections
+        ],
+        *[
+            AuditEvent(
+                action="create",
+                resource_type="survey_question",
+                resource_id=str(question.id),
+            )
+            for question in questions_to_audit
+        ],
+    ]
+    await commit_with_audit(session, events)
     await session.refresh(survey)
-    await record_audit(
-        session, action="create", resource_type="survey", resource_id=str(survey.id)
-    )
     return survey
 
 

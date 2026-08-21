@@ -1,14 +1,16 @@
 import json
 from uuid import UUID
 
+from fastapi import status
 from sqlalchemy import func
 from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from core.exceptions import AppError
 from models.survey import Survey
 from models.survey_response import SurveyResponse
 from schemas.survey_response import SurveyResponseListQueryParams
-from services.audit_service import record_audit
+from services.audit_service import AuditEvent, commit_with_audit
 from services.distribution_service import get_distribution_by_token
 from utils.sorting import stable_order_by
 
@@ -34,19 +36,25 @@ async def submit_response(
         select(Survey).where(col(Survey.id) == distribution.survey_id)
     )
     survey = survey_result.first()
-    if survey:
-        survey.responses_count = (survey.responses_count or 0) + 1
-        session.add(survey)
+    if not survey or survey.is_deleted:
+        raise AppError(
+            "Survey not found or no longer active.", status_code=status.HTTP_404_NOT_FOUND
+        )
+    survey.responses_count = (survey.responses_count or 0) + 1
+    session.add(survey)
 
-    await session.commit()
-    await session.refresh(response)
-    await record_audit(
+    await commit_with_audit(
         session,
-        action="create",
-        resource_type="survey_response",
-        resource_id=str(response.id),
-        ip_address=ip_address,
+        [
+            AuditEvent(
+                action="create",
+                resource_type="survey_response",
+                resource_id=str(response.id),
+                ip_address=ip_address,
+            )
+        ],
     )
+    await session.refresh(response)
     return response
 
 

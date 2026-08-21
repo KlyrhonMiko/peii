@@ -72,7 +72,7 @@ Read this file first, then the guide closest to the files you are changing.
 ## Data And Persistence
 - The shared SQLModel base is `models/base_model.py`. It provides UUIDv7 ids, `created_at`, `updated_at`, soft-delete fields, and `performed_by`.
 - Every new table should also have a human-readable, UI-facing business id generated through `utils.identifiers.generate_business_id()`. Keep the UUID `id` as the internal primary key; the business id is for display, search, sorting, and user-facing references.
-- All resource mutations (create, update, delete, restore) must write an entry to the `audit_logs` table (via `record_audit` in `services.audit_service`).
+- All resource mutations (create, update, delete, restore, reorder, revoke, or compound writes) must use `commit_with_audit` in `services.audit_service` so the resource change and its audit entry commit atomically.
 - Timezone handling: Base helper `utc_now` must strip timezone info (`tzinfo=None`) when writing to `TIMESTAMP WITHOUT TIME ZONE` postgres columns to prevent `asyncpg` validation failures.
 - Persistence uses explicit SQLModel asynchronous queries (`await session.exec(statement)`).
 - New models must be exported from `models/__init__.py` and imported by metadata wiring such as `core/database.py` and `alembic/env.py` so tests, table creation, and Alembic autogenerate see them.

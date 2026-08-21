@@ -8,7 +8,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from core.exceptions import AppError
 from models.survey import Survey
 from models.survey_distribution import SurveyDistribution
-from services.audit_service import record_audit
+from services.audit_service import AuditEvent, commit_with_audit
 
 
 async def _validate_survey_for_distribution(
@@ -43,16 +43,19 @@ async def create_distribution(
         performed_by=performed_by,
     )
     session.add(distribution)
-    await session.commit()
-    await session.refresh(distribution)
-    await record_audit(
+    await commit_with_audit(
         session,
-        action="create",
-        resource_type="survey_distribution",
-        resource_id=str(distribution.id),
-        performed_by=performed_by,
-        ip_address=ip_address,
+        [
+            AuditEvent(
+                action="create",
+                resource_type="survey_distribution",
+                resource_id=str(distribution.id),
+                performed_by=performed_by,
+                ip_address=ip_address,
+            )
+        ],
     )
+    await session.refresh(distribution)
     return distribution
 
 
@@ -87,16 +90,20 @@ async def revoke_distribution(
     distribution.is_active = False
     distribution.performed_by = performed_by
     session.add(distribution)
-    await session.commit()
-    await session.refresh(distribution)
-    await record_audit(
+    await commit_with_audit(
         session,
-        action="delete",
-        resource_type="survey_distribution",
-        resource_id=str(distribution.id),
-        performed_by=performed_by,
-        ip_address=ip_address,
+        [
+            AuditEvent(
+                action="revoke",
+                resource_type="survey_distribution",
+                resource_id=str(distribution.id),
+                performed_by=performed_by,
+                changes={"is_active": {"before": True, "after": False}},
+                ip_address=ip_address,
+            )
+        ],
     )
+    await session.refresh(distribution)
     return distribution
 
 

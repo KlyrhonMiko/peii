@@ -16,7 +16,7 @@ from schemas.survey import (
     SurveyRestore,
     SurveyUpdate,
 )
-from services.audit_service import record_audit
+from services.audit_service import AuditEvent, commit_with_audit
 from services.base_service import apply_updates, utc_now
 from utils.identifiers import generate_business_id
 from utils.sorting import stable_order_by
@@ -140,16 +140,19 @@ async def create_survey(
     survey = Survey.model_validate(survey_data)
     survey.performed_by = payload.performed_by
     session.add(survey)
-    await session.commit()
-    await session.refresh(survey)
-    await record_audit(
+    await commit_with_audit(
         session,
-        action="create",
-        resource_type="survey",
-        resource_id=survey.survey_id,
-        performed_by=survey.performed_by,
-        ip_address=ip_address,
+        [
+            AuditEvent(
+                action="create",
+                resource_type="survey",
+                resource_id=survey.survey_id,
+                performed_by=survey.performed_by,
+                ip_address=ip_address,
+            )
+        ],
     )
+    await session.refresh(survey)
     return survey
 
 
@@ -168,21 +171,24 @@ async def update_survey(
             continue
         old_val = getattr(survey, key)
         if old_val != val:
-            changes[key] = val
+            changes[key] = {"before": old_val, "after": val}
 
     apply_updates(survey, updates)
     session.add(survey)
-    await session.commit()
-    await session.refresh(survey)
-    await record_audit(
+    await commit_with_audit(
         session,
-        action="update",
-        resource_type="survey",
-        resource_id=survey.survey_id,
-        performed_by=payload.performed_by,
-        changes=changes if changes else None,
-        ip_address=ip_address,
+        [
+            AuditEvent(
+                action="update",
+                resource_type="survey",
+                resource_id=survey.survey_id,
+                performed_by=payload.performed_by,
+                changes=changes if changes else None,
+                ip_address=ip_address,
+            )
+        ],
     )
+    await session.refresh(survey)
     return survey
 
 
@@ -198,16 +204,19 @@ async def soft_delete_survey(
     survey.performed_by = payload.performed_by
     survey.updated_at = utc_now()
     session.add(survey)
-    await session.commit()
-    await session.refresh(survey)
-    await record_audit(
+    await commit_with_audit(
         session,
-        action="delete",
-        resource_type="survey",
-        resource_id=survey.survey_id,
-        performed_by=payload.performed_by,
-        ip_address=ip_address,
+        [
+            AuditEvent(
+                action="delete",
+                resource_type="survey",
+                resource_id=survey.survey_id,
+                performed_by=payload.performed_by,
+                ip_address=ip_address,
+            )
+        ],
     )
+    await session.refresh(survey)
     return survey
 
 
@@ -226,16 +235,19 @@ async def restore_survey(
     survey.performed_by = payload.performed_by
     survey.updated_at = utc_now()
     session.add(survey)
-    await session.commit()
-    await session.refresh(survey)
-    await record_audit(
+    await commit_with_audit(
         session,
-        action="restore",
-        resource_type="survey",
-        resource_id=survey.survey_id,
-        performed_by=payload.performed_by,
-        ip_address=ip_address,
+        [
+            AuditEvent(
+                action="restore",
+                resource_type="survey",
+                resource_id=survey.survey_id,
+                performed_by=payload.performed_by,
+                ip_address=ip_address,
+            )
+        ],
     )
+    await session.refresh(survey)
     return survey
 
 

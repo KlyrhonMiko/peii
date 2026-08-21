@@ -13,8 +13,8 @@ from schemas.survey_question import (
     SurveyQuestionCreate,
     SurveyQuestionUpdate,
 )
-from services.audit_service import record_audit
-from services.base_service import apply_updates
+from services.audit_service import AuditEvent, commit_with_audit
+from services.base_service import apply_updates, utc_now
 
 
 async def _validate_survey_exists(session: AsyncSession, survey_id: UUID) -> Survey:
@@ -99,16 +99,19 @@ async def create_question(
         performed_by=payload.performed_by,
     )
     session.add(question)
-    await session.commit()
-    await session.refresh(question)
-    await record_audit(
+    await commit_with_audit(
         session,
-        action="create",
-        resource_type="survey_question",
-        resource_id=str(question.id),
-        performed_by=payload.performed_by,
-        ip_address=ip_address,
+        [
+            AuditEvent(
+                action="create",
+                resource_type="survey_question",
+                resource_id=str(question.id),
+                performed_by=payload.performed_by,
+                ip_address=ip_address,
+            )
+        ],
     )
+    await session.refresh(question)
     return question
 
 
@@ -135,32 +138,44 @@ async def update_question(
     updates = payload.model_dump(exclude_unset=True)
 
     changes = {}
-    for key, val in updates.items():
+    normalized_updates = updates.copy()
+    if "options" in normalized_updates:
+        normalized_updates["options"] = _serialize_options(normalized_updates["options"])
+    if "config" in normalized_updates:
+        normalized_updates["config"] = _serialize_config(normalized_updates["config"])
+
+    for key, val in normalized_updates.items():
         if key == "performed_by":
             continue
         old_val = getattr(question, key)
+        if key == "options":
+            old_val = _deserialize_options(old_val)
+            val = _deserialize_options(val)
+        elif key == "config":
+            old_val = _deserialize_config(old_val)
+            val = _deserialize_config(val)
         if old_val != val:
-            changes[key] = val
+            changes[key] = {"before": old_val, "after": val}
 
-    if "options" in updates:
-        updates["options"] = _serialize_options(updates["options"])
+    if not changes:
+        return question
 
-    if "config" in updates:
-        updates["config"] = _serialize_config(updates["config"])
-
-    apply_updates(question, updates)
+    apply_updates(question, normalized_updates)
     session.add(question)
-    await session.commit()
-    await session.refresh(question)
-    await record_audit(
+    await commit_with_audit(
         session,
-        action="update",
-        resource_type="survey_question",
-        resource_id=str(question.id),
-        performed_by=payload.performed_by,
-        changes=changes if changes else None,
-        ip_address=ip_address,
+        [
+            AuditEvent(
+                action="update",
+                resource_type="survey_question",
+                resource_id=str(question.id),
+                performed_by=payload.performed_by,
+                changes=changes,
+                ip_address=ip_address,
+            )
+        ],
     )
+    await session.refresh(question)
     return question
 
 
@@ -185,17 +200,23 @@ async def delete_question(
         raise AppError("Question not found.", status_code=status.HTTP_404_NOT_FOUND)
 
     question.is_deleted = True
+    question.deleted_at = utc_now()
+    question.performed_by = performed_by
+    question.updated_at = utc_now()
     session.add(question)
-    await session.commit()
-    await session.refresh(question)
-    await record_audit(
+    await commit_with_audit(
         session,
-        action="delete",
-        resource_type="survey_question",
-        resource_id=str(question.id),
-        performed_by=performed_by,
-        ip_address=ip_address,
+        [
+            AuditEvent(
+                action="delete",
+                resource_type="survey_question",
+                resource_id=str(question.id),
+                performed_by=performed_by,
+                ip_address=ip_address,
+            )
+        ],
     )
+    await session.refresh(question)
     return question
 
 
@@ -223,6 +244,7 @@ async def reorder_questions(
         )
 
     questions = []
+    changes = []
     for idx, qid in enumerate(question_ids):
         result = await session.exec(
             select(SurveyQuestion).where(
@@ -232,22 +254,28 @@ async def reorder_questions(
         )
         question = result.first()
         if question:
+            old_order = question.order_index
             question.order_index = idx
             session.add(question)
             questions.append(question)
+            if old_order != idx:
+                changes.append(
+                    AuditEvent(
+                        action="reorder",
+                        resource_type="survey_question",
+                        resource_id=str(question.id),
+                        performed_by=performed_by,
+                        changes={"order_index": {"before": old_order, "after": idx}},
+                        ip_address=ip_address,
+                    )
+                )
 
-    await session.commit()
+    if not changes:
+        return sorted(questions, key=lambda q: q.order_index)
+
+    await commit_with_audit(session, changes)
     for q in questions:
         await session.refresh(q)
 
     questions.sort(key=lambda q: q.order_index)
-    await record_audit(
-        session,
-        action="update",
-        resource_type="survey_question",
-        resource_id="reorder",
-        performed_by=performed_by,
-        changes={"reordered": True},
-        ip_address=ip_address,
-    )
     return questions

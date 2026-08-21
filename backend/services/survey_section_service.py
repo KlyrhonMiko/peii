@@ -10,7 +10,7 @@ from models.survey import Survey
 from models.survey_question import SurveyQuestion
 from models.survey_section import SurveySection
 from schemas.survey_section import SurveySectionCreate, SurveySectionUpdate
-from services.audit_service import record_audit
+from services.audit_service import AuditEvent, commit_with_audit
 from services.base_service import apply_updates, utc_now
 
 
@@ -96,16 +96,19 @@ async def create_section(
         performed_by=payload.performed_by,
     )
     session.add(section)
-    await session.commit()
-    await session.refresh(section)
-    await record_audit(
+    await commit_with_audit(
         session,
-        action="create",
-        resource_type="survey_section",
-        resource_id=str(section.id),
-        performed_by=payload.performed_by,
-        ip_address=ip_address,
+        [
+            AuditEvent(
+                action="create",
+                resource_type="survey_section",
+                resource_id=str(section.id),
+                performed_by=payload.performed_by,
+                ip_address=ip_address,
+            )
+        ],
     )
+    await session.refresh(section)
     return section
 
 
@@ -126,21 +129,24 @@ async def update_section(
             continue
         old_val = getattr(section, key)
         if old_val != val:
-            changes[key] = val
+            changes[key] = {"before": old_val, "after": val}
 
     apply_updates(section, updates)
     session.add(section)
-    await session.commit()
-    await session.refresh(section)
-    await record_audit(
+    await commit_with_audit(
         session,
-        action="update",
-        resource_type="survey_section",
-        resource_id=str(section.id),
-        performed_by=payload.performed_by,
-        changes=changes if changes else None,
-        ip_address=ip_address,
+        [
+            AuditEvent(
+                action="update",
+                resource_type="survey_section",
+                resource_id=str(section.id),
+                performed_by=payload.performed_by,
+                changes=changes if changes else None,
+                ip_address=ip_address,
+            )
+        ],
     )
+    await session.refresh(section)
     return section
 
 
@@ -158,16 +164,19 @@ async def delete_section(
     section.performed_by = performed_by
     section.updated_at = utc_now()
     session.add(section)
-    await session.commit()
-    await session.refresh(section)
-    await record_audit(
+    await commit_with_audit(
         session,
-        action="delete",
-        resource_type="survey_section",
-        resource_id=str(section.id),
-        performed_by=performed_by,
-        ip_address=ip_address,
+        [
+            AuditEvent(
+                action="delete",
+                resource_type="survey_section",
+                resource_id=str(section.id),
+                performed_by=performed_by,
+                ip_address=ip_address,
+            )
+        ],
     )
+    await session.refresh(section)
     return section
 
 
@@ -195,6 +204,7 @@ async def reorder_sections(
         )
 
     sections = []
+    changes = []
     for idx, sid in enumerate(section_ids):
         result = await session.exec(
             select(SurveySection).where(
@@ -204,22 +214,28 @@ async def reorder_sections(
         )
         section = result.first()
         if section:
+            old_order = section.order_index
             section.order_index = idx
             session.add(section)
             sections.append(section)
+            if old_order != idx:
+                changes.append(
+                    AuditEvent(
+                        action="reorder",
+                        resource_type="survey_section",
+                        resource_id=str(section.id),
+                        performed_by=performed_by,
+                        changes={"order_index": {"before": old_order, "after": idx}},
+                        ip_address=ip_address,
+                    )
+                )
 
-    await session.commit()
+    if not changes:
+        return sorted(sections, key=lambda s: s.order_index)
+
+    await commit_with_audit(session, changes)
     for s in sections:
         await session.refresh(s)
 
     sections.sort(key=lambda s: s.order_index)
-    await record_audit(
-        session,
-        action="update",
-        resource_type="survey_section",
-        resource_id="reorder",
-        performed_by=performed_by,
-        changes={"reordered": True},
-        ip_address=ip_address,
-    )
     return sections
