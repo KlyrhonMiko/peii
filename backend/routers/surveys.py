@@ -11,6 +11,7 @@ from models.survey_section import SurveySection
 from schemas.common import APIResponse
 from schemas.survey import (
     SurveyCreate,
+    SurveyCreateWithStructure,
     SurveyDelete,
     SurveyListQueryParams,
     SurveyRead,
@@ -139,6 +140,33 @@ async def create_survey(
     ip_address = request.client.host if request.client else None
     survey = await survey_service.create_survey(session, payload, ip_address=ip_address)
     return success_response(SurveyRead.model_validate(survey), message="Survey created.")
+
+
+@router.post(
+    "/with-structure",
+    response_model=APIResponse[dict],
+    status_code=status.HTTP_201_CREATED,
+    summary="Create Survey With Structure",
+    description="Atomically create a survey with its ordered sections and questions.",
+)
+async def create_survey_with_structure(
+    payload: SurveyCreateWithStructure,
+    session: AsyncDBSession,
+    request: Request,
+) -> APIResponse[dict]:
+    ip_address = request.client.host if request.client else None
+    survey = await survey_service.create_survey_with_structure(
+        session,
+        payload,
+        ip_address=ip_address,
+    )
+    created_survey, sections = await survey_service.get_survey_with_sections(
+        session, survey.survey_id
+    )
+    return success_response(
+        _survey_structure_data(created_survey, sections),
+        message="Survey created.",
+    )
 
 
 @router.get(

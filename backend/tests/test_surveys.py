@@ -41,6 +41,88 @@ async def test_create_and_list_surveys(client):
     }
 
 
+async def test_create_survey_with_structure_accepts_uuid_client_ids(client):
+    response = await client.post(
+        "/api/v1/surveys/with-structure",
+        json={
+            "title": "Structured Survey",
+            "status": "Active",
+            "sections": [
+                {
+                    "client_id": "550e8400-e29b-41d4-a716-446655440000",
+                    "title": "Main",
+                    "questions": [
+                        {
+                            "client_id": "660e8400-e29b-41d4-a716-446655440000",
+                            "question_text": "How are you?",
+                            "question_type": "text",
+                        }
+                    ],
+                }
+            ],
+        },
+    )
+
+    assert response.status_code == 201
+    body = response.json()
+    assert "request_id" in body["meta"]
+    data = body["data"]
+    assert data["status"] == "Active"
+    assert len(data["sections"]) == 1
+    assert data["sections"][0]["id"] != "550e8400-e29b-41d4-a716-446655440000"
+    assert data["sections"][0]["questions"][0]["id"] != "660e8400-e29b-41d4-a716-446655440000"
+
+
+async def test_create_survey_with_invalid_structure_rolls_back_everything(client):
+    response = await client.post(
+        "/api/v1/surveys/with-structure",
+        json={
+            "title": "Invalid Structured Survey",
+            "sections": [
+                {
+                    "client_id": "local-section",
+                    "title": "Main",
+                    "questions": [
+                        {
+                            "client_id": "local-question",
+                            "question_text": "Choose one",
+                            "question_type": "single_choice",
+                            "options": [],
+                        }
+                    ],
+                }
+            ],
+        },
+    )
+
+    assert response.status_code == 422
+    body = response.json()
+    assert body["data"] is None
+    assert "request_id" in body["meta"]
+    surveys = await client.get("/api/v1/surveys/")
+    assert surveys.json()["data"] == []
+
+
+async def test_create_survey_with_structure_rejects_persisted_ids(client):
+    response = await client.post(
+        "/api/v1/surveys/with-structure",
+        json={
+            "title": "Invalid Identity Survey",
+            "sections": [
+                {
+                    "client_id": "local-section",
+                    "id": "550e8400-e29b-41d4-a716-446655440000",
+                    "title": "Main",
+                    "questions": [],
+                }
+            ],
+        },
+    )
+
+    assert response.status_code == 422
+    assert (await client.get("/api/v1/surveys/")).json()["data"] == []
+
+
 async def test_get_survey_with_questions(client):
     create_resp = await client.post("/api/v1/surveys/", json={
         "title": "Test Survey", "performed_by": None,

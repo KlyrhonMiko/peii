@@ -52,7 +52,7 @@ import { cn, formatDate } from "@/lib/utils"
 import {
   fetchSurveys,
   fetchSurvey,
-  createSurvey,
+  createSurveyWithStructure,
   updateSurvey,
   deleteSurvey,
   replaceSurveyStructure,
@@ -61,7 +61,7 @@ import {
   fetchResponses,
   getScaleOptions,
 } from "@/lib/surveys"
-import type { Survey, SurveyQuestion, SurveySection, Distribution, SurveyResponse, SurveyStatus } from "@/lib/surveys"
+import type { Survey, SurveyQuestion, SurveySection, Distribution, SurveyResponse, SurveyStatus, SurveyStructurePayload } from "@/lib/surveys"
 
 const ALUMNI_QUESTIONNAIRE = [
   {
@@ -250,6 +250,12 @@ type DragItem =
   | { kind: "option"; sectionId: string; questionId: string; index: number }
   | { kind: "column"; sectionId: string; questionId: string; index: number }
 
+type EditorQuestion = SurveyQuestion & { persistedId?: string }
+type EditorSection = Omit<SurveySection, "questions"> & {
+  persistedId?: string
+  questions: EditorQuestion[]
+}
+
 type PendingAction = {
   type: "load" | "view" | "edit" | "generate" | "save" | "delete" | "distribute"
   surveyId?: string
@@ -259,6 +265,37 @@ function createClientId(): string {
   return typeof crypto !== "undefined" && "randomUUID" in crypto
     ? crypto.randomUUID()
     : `client-${Date.now()}-${Math.random().toString(36).slice(2)}`
+}
+
+function toEditorSections(sections: SurveySection[]): EditorSection[] {
+  return sections.map((section) => ({
+    ...section,
+    persistedId: section.id,
+    questions: section.questions.map((question) => ({
+      ...question,
+      persistedId: question.id,
+    })),
+  }))
+}
+
+function toStructurePayload(sections: EditorSection[]): SurveyStructurePayload {
+  return {
+    sections: sections.map((section) => ({
+      client_id: section.id,
+      ...(section.persistedId ? { id: section.persistedId } : {}),
+      title: section.title || "Untitled Section",
+      description: section.description || null,
+      questions: section.questions.map((question) => ({
+        client_id: question.id,
+        ...(question.persistedId ? { id: question.persistedId } : {}),
+        question_text: question.text,
+        question_type: question.type,
+        options: question.options ?? null,
+        config: question.config ?? null,
+        is_required: question.isRequired ?? true,
+      })),
+    })),
+  }
 }
 
 function moveInArray<T>(items: T[], from: number, to: number): T[] {
@@ -312,8 +349,8 @@ export default function SurveyPage() {
   const [generating, setGenerating] = useState(false)
   const [modalState, setModalState] = useState<ModalState>(null)
   const [viewTab, setViewTab] = useState<"questions" | "responses">("questions")
-  const [sections, setSections] = useState<SurveySection[]>([])
-  const [originalSections, setOriginalSections] = useState<SurveySection[]>([])
+  const [sections, setSections] = useState<EditorSection[]>([])
+  const [originalSections, setOriginalSections] = useState<EditorSection[]>([])
   const [targetCohort, setTargetCohort] = useState("Class of 2024")
   const [cohortOpen, setCohortOpen] = useState(false)
   const [openQuestionSelectId, setOpenQuestionSelectId] = useState<string | null>(null)
@@ -326,6 +363,7 @@ export default function SurveyPage() {
   const [distributeSurveyId, setDistributeSurveyId] = useState<string | null>(null)
   const [distributions, setDistributions] = useState<Distribution[]>([])
   const [distLoading, setDistLoading] = useState(false)
+  const [distributionError, setDistributionError] = useState<string | null>(null)
   const [surveyResponses, setSurveyResponses] = useState<SurveyResponse[]>([])
   const [dragItem, setDragItem] = useState<DragItem | null>(null)
   
@@ -463,7 +501,7 @@ export default function SurveyPage() {
         setSurveyDescription(full.description ?? "")
         setTargetCohort(full.targetCohort ?? "Class of 2024")
         setSurveyStatus(full.status)
-        const loaded = full.sections ?? []
+        const loaded = toEditorSections(full.sections ?? [])
         setOriginalSections(loaded)
         setSections(loaded)
         setModalState({ type: "edit", id })
@@ -484,13 +522,11 @@ export default function SurveyPage() {
     await runExclusive({ type: "generate" }, async () => {
       setGenerating(true)
       try {
-        const created = await createSurvey({
+        const created = await createSurveyWithStructure({
           title: "Alumni Survey Questionnaire",
           description: "This comprehensive survey helps us understand your post-graduation journey — from employment outcomes and degree-to-career alignment to socioeconomic impact and personal growth.",
           target_cohort: "All Alumni",
-          status: "Inactive",
-        })
-        await replaceSurveyStructure(created.id, {
+          status: "Active",
           sections: ALUMNI_QUESTIONNAIRE.map((section) => ({
             client_id: createClientId(),
             title: section.title,
@@ -505,9 +541,7 @@ export default function SurveyPage() {
             })),
           })),
         })
-        await updateSurvey(created.surveyId, { status: "Active" })
-        const full = await fetchSurvey(created.surveyId)
-        setSurveys((prev) => [full, ...prev])
+        setSurveys((prev) => [created, ...prev])
         setShowGeneratePreview(false)
       } catch (error) {
         setRequestError(error instanceof Error ? error.message : "We could not generate the questionnaire.")
@@ -521,7 +555,6 @@ export default function SurveyPage() {
     if (!surveyTitle.trim() || saving) return
     setSaving(true)
     setSaveError(null)
-    let createdSurvey: Survey | null = null
     try {
       if (surveyStatus === "Active") {
         if (sections.length === 0) {
@@ -538,41 +571,14 @@ export default function SurveyPage() {
       }
 
       if (modalState?.type === "create") {
-        const created = await createSurvey({
-          title: surveyTitle,
-          description: surveyDescription || null,
-          target_cohort: targetCohort,
-          status: "Inactive",
-        })
-        const saved = await replaceSurveyStructure(created.id, {
-          sections: sections.map((section) => ({
-            client_id: section.id,
-            id: section.id,
-            title: section.title || "Untitled Section",
-            description: section.description || null,
-            questions: section.questions.map((question) => ({
-              client_id: question.id,
-              id: question.id,
-              question_text: question.text,
-              question_type: question.type,
-              options: question.options ?? null,
-              config: question.config ?? null,
-              is_required: question.isRequired ?? true,
-            })),
-          })),
-        })
-        setSections(saved.sections ?? [])
-        setOriginalSections(saved.sections ?? [])
-        setSurveys((prev) => [saved, ...prev.filter((survey) => survey.id !== saved.id)])
-        createdSurvey = saved
-        await updateSurvey(created.surveyId, {
+        const created = await createSurveyWithStructure({
           title: surveyTitle,
           description: surveyDescription || null,
           target_cohort: targetCohort,
           status: surveyStatus,
+          ...toStructurePayload(sections),
         })
-        const full = await fetchSurvey(created.surveyId)
-        setSurveys((prev) => [full, ...prev.filter((survey) => survey.id !== full.id)])
+        setSurveys((prev) => [created, ...prev.filter((survey) => survey.id !== created.id)])
       } else if (modalState?.type === "edit") {
         const target = surveys.find((s) => s.id === modalState.id)
         if (!target) return
@@ -587,27 +593,14 @@ export default function SurveyPage() {
         if (structureChanged) {
           const removedSectionIds = originalSections
             .filter((original) => !sections.some((section) => section.id === original.id))
-            .map((section) => section.id)
+            .flatMap((section) => section.persistedId ? [section.persistedId] : [])
           const saved = await replaceSurveyStructure(target.id, {
-            sections: sections.map((section) => ({
-              client_id: section.id,
-              id: section.id,
-              title: section.title || "Untitled Section",
-              description: section.description || null,
-              questions: section.questions.map((question) => ({
-                client_id: question.id,
-                id: question.id,
-                question_text: question.text,
-                question_type: question.type,
-                options: question.options ?? null,
-                config: question.config ?? null,
-                is_required: question.isRequired ?? true,
-              })),
-            })),
+            ...toStructurePayload(sections),
             cascade_section_ids: removedSectionIds,
           })
-          setSections(saved.sections ?? [])
-          setOriginalSections(saved.sections ?? [])
+          const savedSections = toEditorSections(saved.sections ?? [])
+          setSections(savedSections)
+          setOriginalSections(savedSections)
           setSurveys((prev) => prev.map((survey) => survey.id === saved.id ? saved : survey))
         }
         await updateSurvey(target.surveyId, {
@@ -621,9 +614,6 @@ export default function SurveyPage() {
       }
       handleCloseModal()
     } catch (error) {
-      if (createdSurvey) {
-        setModalState({ type: "edit", id: createdSurvey.id })
-      }
       setSaveError(
         error instanceof Error
           ? error.message
@@ -645,8 +635,17 @@ export default function SurveyPage() {
   const handleOpenDistribute = async (surveyId: string) => {
     if (interactionLocked) return
     setRequestError(null)
+    setDistributionError(null)
+    setDistributions([])
+    setDistributeSurveyId(surveyId)
+
+    const survey = surveys.find((item) => item.id === surveyId)
+    if (survey?.status !== "Active") {
+      setDistributionError("Activate this survey before creating distribution links.")
+      return
+    }
+
     await runExclusive({ type: "distribute", surveyId }, async () => {
-      setDistributeSurveyId(surveyId)
       setDistLoading(true)
       try {
         let items = await fetchDistributions(surveyId)
@@ -657,7 +656,9 @@ export default function SurveyPage() {
         setDistributions(items)
       } catch (error) {
         setDistributions([])
-        setRequestError(error instanceof Error ? error.message : "We could not load distribution links.")
+        const message = error instanceof Error ? error.message : "We could not load distribution links."
+        setDistributionError(message)
+        setRequestError(message)
       } finally {
         setDistLoading(false)
       }
@@ -720,11 +721,11 @@ export default function SurveyPage() {
         sourceSectionIndex === targetSectionIndex && sourceIndex < targetIndex
           ? targetIndex - 1
           : targetIndex
-      question.sectionId = targetSectionId
+      const movedQuestion = { ...question, sectionId: targetSectionId }
       next[targetSectionIndex]!.questions.splice(
         Math.max(0, Math.min(adjustedTargetIndex, next[targetSectionIndex]!.questions.length)),
         0,
-        question,
+        movedQuestion,
       )
       return next
     })
@@ -819,7 +820,7 @@ export default function SurveyPage() {
     }
   }
 
-  const updateSection = (secIdx: number, patch: Partial<SurveySection>) => {
+  const updateSection = (secIdx: number, patch: Partial<EditorSection>) => {
     setSections((prev) => {
       const next = [...prev]
       next[secIdx] = { ...next[secIdx]!, ...patch }
@@ -851,7 +852,7 @@ export default function SurveyPage() {
     })
   }
 
-  const updateQuestion = (secIdx: number, qIdx: number, patch: Partial<SurveyQuestion>) => {
+  const updateQuestion = (secIdx: number, qIdx: number, patch: Partial<EditorQuestion>) => {
     setSections((prev) => {
       const next = [...prev]
       const sec = { ...next[secIdx]! }
@@ -2494,7 +2495,13 @@ export default function SurveyPage() {
       {/* ── Distribution Dialog ─────────────────────────────────────── */}
       <Dialog
         open={distributeSurveyId !== null}
-        onOpenChange={(open) => !open && !interactionLocked && setDistributeSurveyId(null)}
+        onOpenChange={(open) => {
+          if (!open && !interactionLocked) {
+            setDistributeSurveyId(null)
+            setDistributionError(null)
+            setDistributions([])
+          }
+        }}
       >
         <DialogContent className="max-w-md p-0 overflow-hidden bg-white border-slate-200 shadow-2xl sm:rounded-2xl">
           <div className="px-6 pt-6 pb-4">
@@ -2510,7 +2517,14 @@ export default function SurveyPage() {
           </div>
 
           <div className="px-6 pb-6 space-y-4 bg-slate-50/30">
-            {distLoading ? (
+            {distributionError ? (
+              <div
+                className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800"
+                role="alert"
+              >
+                {distributionError}
+              </div>
+            ) : distLoading ? (
               <div className="flex justify-center py-12">
                 <Loader2 className="size-6 animate-spin text-slate-400" />
               </div>

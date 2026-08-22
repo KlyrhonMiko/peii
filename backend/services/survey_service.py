@@ -13,6 +13,7 @@ from models.survey_response import SurveyResponse
 from models.survey_section import SurveySection
 from schemas.survey import (
     SurveyCreate,
+    SurveyCreateWithStructure,
     SurveyDelete,
     SurveyListQueryParams,
     SurveyRestore,
@@ -20,6 +21,7 @@ from schemas.survey import (
 )
 from services.audit_service import AuditEvent, commit_with_audit
 from services.base_service import apply_updates, utc_now
+from services.question_validation import validate_question_definition
 from utils.identifiers import generate_business_id
 from utils.sorting import stable_order_by
 
@@ -204,6 +206,100 @@ async def create_survey(
             ),
         ],
     )
+    await session.refresh(survey)
+    return survey
+
+
+async def create_survey_with_structure(
+    session: AsyncSession,
+    payload: SurveyCreateWithStructure,
+    ip_address: str | None = None,
+) -> Survey:
+    if payload.status == "Active":
+        if not payload.sections:
+            raise AppError(
+                "Active surveys must contain at least one section.",
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            )
+        if any(not section.questions for section in payload.sections):
+            raise AppError(
+                "Every section in an active survey must contain at least one question.",
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            )
+
+    for section_input in payload.sections:
+        for question_input in section_input.questions:
+            try:
+                validate_question_definition(
+                    question_input.question_type,
+                    question_input.options,
+                    question_input.config,
+                )
+            except ValueError as exc:
+                raise AppError(
+                    f"Question definition is invalid: {exc}",
+                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                ) from exc
+
+    survey_data = payload.model_dump(exclude={"performed_by", "sections"})
+    survey_data["survey_id"] = generate_business_id("SURV")
+    survey = Survey.model_validate(survey_data)
+    survey.performed_by = payload.performed_by
+    session.add(survey)
+
+    events = [
+        AuditEvent(
+            action="create",
+            resource_type="survey",
+            resource_id=survey.survey_id,
+            performed_by=survey.performed_by,
+            ip_address=ip_address,
+        )
+    ]
+    for section_index, section_input in enumerate(payload.sections):
+        section: SurveySection = SurveySection(
+            survey_id=survey.id,
+            title=section_input.title,
+            description=section_input.description,
+            order_index=section_index,
+            performed_by=payload.performed_by,
+        )
+        session.add(section)
+        events.append(
+            AuditEvent(
+                action="create",
+                resource_type="survey_section",
+                resource_id=str(section.id),
+                performed_by=payload.performed_by,
+                ip_address=ip_address,
+            )
+        )
+        for question_index, question_input in enumerate(section_input.questions):
+            question: SurveyQuestion = SurveyQuestion(
+                survey_id=survey.id,
+                section_id=section.id,
+                question_text=question_input.question_text,
+                question_type=question_input.question_type,
+                options=_parse_options(question_input.options),
+                config=json.dumps(question_input.config)
+                if question_input.config is not None
+                else None,
+                order_index=question_index,
+                is_required=question_input.is_required,
+                performed_by=payload.performed_by,
+            )
+            session.add(question)
+            events.append(
+                AuditEvent(
+                    action="create",
+                    resource_type="survey_question",
+                    resource_id=str(question.id),
+                    performed_by=payload.performed_by,
+                    ip_address=ip_address,
+                )
+            )
+
+    await commit_with_audit(session, events)
     await session.refresh(survey)
     return survey
 

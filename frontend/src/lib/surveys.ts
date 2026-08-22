@@ -254,6 +254,38 @@ export async function createSurvey(payload: {
   return mapSurvey(res.data!)
 }
 
+export interface SurveyStructurePayload {
+  sections: Array<{
+    client_id: string
+    id?: string
+    title: string
+    description: string | null
+    questions: Array<{
+      client_id: string
+      id?: string
+      question_text: string
+      question_type: string
+      options: string[] | null
+      config: Record<string, unknown> | null
+      is_required: boolean
+    }>
+  }>
+  cascade_section_ids?: string[]
+}
+
+export async function createSurveyWithStructure(payload: {
+  title: string
+  description?: string | null
+  target_cohort?: string | null
+  status?: SurveyStatus
+} & SurveyStructurePayload): Promise<Survey> {
+  const res = await api.post<ApiSurvey>("/surveys/with-structure", {
+    ...payload,
+    performed_by: null,
+  })
+  return mapSurvey(res.data!)
+}
+
 export async function updateSurvey(
   surveyId: string,
   payload: Partial<{
@@ -267,52 +299,11 @@ export async function updateSurvey(
   return mapSurvey(res.data!)
 }
 
-function isUuid(value: string): boolean {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)
-}
-
 export async function replaceSurveyStructure(
   surveyUuid: string,
-  payload: {
-    sections: Array<{
-      client_id: string
-      id?: string
-      title: string
-      description: string | null
-      questions: Array<{
-        client_id: string
-        id?: string
-        question_text: string
-        question_type: string
-        options: string[] | null
-        config: Record<string, unknown> | null
-        is_required: boolean
-      }>
-    }>
-    cascade_section_ids?: string[]
-  },
+  payload: SurveyStructurePayload,
 ): Promise<Survey> {
-  const normalized = {
-    sections: payload.sections.map((section) => ({
-      client_id: section.client_id,
-      ...(section.id && isUuid(section.id) ? { id: section.id } : {}),
-      title: section.title,
-      description: section.description,
-      questions: section.questions.map((question) => ({
-        client_id: question.client_id,
-        ...(question.id && isUuid(question.id) ? { id: question.id } : {}),
-        question_text: question.question_text,
-        question_type: question.question_type,
-        options: question.options,
-        config: question.config,
-        is_required: question.is_required,
-      })),
-    })),
-    ...(payload.cascade_section_ids
-      ? { cascade_section_ids: payload.cascade_section_ids }
-      : {}),
-  }
-  const res = await api.put<ApiSurvey>(`/surveys/${surveyUuid}/structure`, normalized)
+  const res = await api.put<ApiSurvey>(`/surveys/${surveyUuid}/structure`, payload)
   return mapSurvey(res.data!)
 }
 
