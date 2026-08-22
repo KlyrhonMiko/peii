@@ -9,9 +9,11 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from core.exceptions import AppError
 from models.survey import Survey
 from models.survey_question import SurveyQuestion
+from models.survey_response import SurveyResponse
 from models.survey_section import SurveySection
 from schemas.survey import (
     SurveyCreate,
+    SurveyCreateWithStructure,
     SurveyDelete,
     SurveyListQueryParams,
     SurveyRestore,
@@ -19,7 +21,7 @@ from schemas.survey import (
 )
 from services.audit_service import AuditEvent, commit_with_audit
 from services.base_service import apply_updates, utc_now
-from services.survey_version_service import create_initial_version, get_version_for_read
+from services.question_validation import validate_question_definition
 from utils.identifiers import generate_business_id
 from utils.sorting import stable_order_by
 
@@ -78,13 +80,96 @@ async def list_surveys(
 
 
 async def get_survey(
-    session: AsyncSession, survey_id: str, include_deleted: bool = False
+    session: AsyncSession,
+    survey_id: str,
+    include_deleted: bool = False,
+    for_update: bool = False,
 ) -> Survey:
-    result = await session.exec(select(Survey).where(col(Survey.survey_id) == survey_id))
+    statement = select(Survey).where(col(Survey.survey_id) == survey_id)
+    if for_update:
+        statement = statement.with_for_update()
+    result = await session.exec(statement)
     survey = result.first()
     if not survey or (survey.is_deleted and not include_deleted):
         raise AppError("Survey not found.", status_code=status.HTTP_404_NOT_FOUND)
     return survey
+
+
+def _activation_readiness_error(
+    errors: list[dict[str, str]], status_code: int
+) -> AppError:
+    return AppError(
+        "Survey is not ready to be activated.",
+        status_code=status_code,
+        errors=errors,
+    )
+
+
+def _payload_readiness_errors(payload: SurveyCreateWithStructure) -> list[dict[str, str]]:
+    if not payload.sections:
+        return [
+            {
+                "code": "no_sections",
+                "message": "Active surveys must contain at least one section.",
+            }
+        ]
+    return [
+        {
+            "code": "empty_section",
+            "section_id": section.client_id,
+            "message": "Every section in an active survey must contain at least one question.",
+        }
+        for section in payload.sections
+        if not section.questions
+    ]
+
+
+async def get_survey_readiness_errors(
+    session: AsyncSession, survey_id: UUID
+) -> list[dict[str, str]]:
+    sections_result = await session.exec(
+        select(SurveySection).where(
+            col(SurveySection.survey_id) == survey_id,
+            col(SurveySection.is_deleted).is_(False),
+        )
+    )
+    sections = list(sections_result.all())
+    if not sections:
+        return [
+            {
+                "code": "no_sections",
+                "message": "Active surveys must contain at least one section.",
+            }
+        ]
+
+    questions_result = await session.exec(
+        select(SurveyQuestion.section_id)
+        .join(SurveySection, col(SurveySection.id) == SurveyQuestion.section_id)
+        .where(
+            col(SurveyQuestion.survey_id) == survey_id,
+            col(SurveySection.survey_id) == survey_id,
+            col(SurveySection.is_deleted).is_(False),
+            col(SurveyQuestion.is_deleted).is_(False),
+        )
+    )
+    section_ids_with_questions = set(questions_result.all())
+    return [
+        {
+            "code": "empty_section",
+            "section_id": str(section.id),
+            "message": "Every section in an active survey must contain at least one question.",
+        }
+        for section in sections
+        if section.id not in section_ids_with_questions
+    ]
+
+
+async def ensure_survey_ready_for_activation(
+    session: AsyncSession, survey_id: UUID, status_code: int
+) -> None:
+    errors = await get_survey_readiness_errors(session, survey_id)
+    if errors:
+        raise _activation_readiness_error(errors, status_code)
 
 
 async def get_survey_by_uuid(session: AsyncSession, survey_id: UUID) -> Survey:
@@ -100,18 +185,45 @@ async def get_survey_by_uuid(session: AsyncSession, survey_id: UUID) -> Survey:
     return survey
 
 
+async def get_survey_for_structure_edit(
+    session: AsyncSession, survey_id: UUID
+) -> Survey:
+    result = await session.exec(
+        select(Survey)
+        .where(col(Survey.id) == survey_id, col(Survey.is_deleted).is_(False))
+        .with_for_update()
+    )
+    survey = result.first()
+    if not survey:
+        raise AppError("Survey not found.", status_code=status.HTTP_404_NOT_FOUND)
+    if survey.status != "Inactive":
+        raise AppError(
+            "Survey structure can only be edited while the survey is inactive.",
+            status_code=status.HTTP_409_CONFLICT,
+        )
+
+    response_count_result = await session.exec(
+        select(func.count()).select_from(SurveyResponse).where(
+            col(SurveyResponse.survey_id) == survey_id
+        )
+    )
+    if response_count_result.one() > 0:
+        raise AppError(
+            "Survey structure cannot be edited after a response is submitted.",
+            status_code=status.HTTP_409_CONFLICT,
+        )
+    return survey
+
+
 async def get_survey_with_questions(
     session: AsyncSession, survey_id: str
 ) -> tuple[Survey, list[SurveyQuestion]]:
     survey = await get_survey(session, survey_id)
-    version = await get_version_for_read(session, survey.id)
     questions_result = await session.exec(
         select(SurveyQuestion)
         .join(SurveySection, col(SurveySection.id) == SurveyQuestion.section_id)
         .where(
             col(SurveyQuestion.survey_id) == survey.id,
-            col(SurveyQuestion.version_id) == version.id,
-            col(SurveySection.version_id) == version.id,
             col(SurveySection.is_deleted).is_(False),
             col(SurveyQuestion.is_deleted).is_(False),
         )
@@ -130,13 +242,10 @@ async def get_survey_with_sections(
     session: AsyncSession, survey_id: str
 ) -> tuple[Survey, list[tuple[SurveySection, list[SurveyQuestion]]]]:
     survey = await get_survey(session, survey_id)
-    version = await get_version_for_read(session, survey.id)
-
     sections_result = await session.exec(
         select(SurveySection)
         .where(
             col(SurveySection.survey_id) == survey.id,
-            col(SurveySection.version_id) == version.id,
             col(SurveySection.is_deleted).is_(False),
         )
         .order_by(col(SurveySection.order_index), col(SurveySection.id))
@@ -150,7 +259,6 @@ async def get_survey_with_sections(
             .where(
                 col(SurveyQuestion.section_id) == section.id,
                 col(SurveyQuestion.survey_id) == survey.id,
-                col(SurveyQuestion.version_id) == version.id,
                 col(SurveyQuestion.is_deleted).is_(False),
             )
             .order_by(col(SurveyQuestion.order_index), col(SurveyQuestion.id))
@@ -164,11 +272,20 @@ async def get_survey_with_sections(
 async def create_survey(
     session: AsyncSession, payload: SurveyCreate, ip_address: str | None = None
 ) -> Survey:
+    if payload.status == "Active":
+        raise _activation_readiness_error(
+            [
+                {
+                    "code": "no_sections",
+                    "message": "Active surveys must contain at least one section.",
+                }
+            ],
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+        )
     survey_data = payload.model_dump(exclude={"performed_by"})
     survey_data["survey_id"] = generate_business_id("SURV")
     survey = Survey.model_validate(survey_data)
     survey.performed_by = payload.performed_by
-    _version, version_audit = await create_initial_version(session, survey)
     session.add(survey)
     await commit_with_audit(
         session,
@@ -180,9 +297,98 @@ async def create_survey(
                 performed_by=survey.performed_by,
                 ip_address=ip_address,
             ),
-            version_audit,
         ],
     )
+    await session.refresh(survey)
+    return survey
+
+
+async def create_survey_with_structure(
+    session: AsyncSession,
+    payload: SurveyCreateWithStructure,
+    ip_address: str | None = None,
+) -> Survey:
+    if payload.status == "Active":
+        readiness_errors = _payload_readiness_errors(payload)
+        if readiness_errors:
+            raise _activation_readiness_error(
+                readiness_errors,
+                status.HTTP_422_UNPROCESSABLE_CONTENT,
+            )
+
+    for section_input in payload.sections:
+        for question_input in section_input.questions:
+            try:
+                validate_question_definition(
+                    question_input.question_type,
+                    question_input.options,
+                    question_input.config,
+                )
+            except ValueError as exc:
+                raise AppError(
+                    f"Question definition is invalid: {exc}",
+                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                ) from exc
+
+    survey_data = payload.model_dump(exclude={"performed_by", "sections"})
+    survey_data["survey_id"] = generate_business_id("SURV")
+    survey = Survey.model_validate(survey_data)
+    survey.performed_by = payload.performed_by
+    session.add(survey)
+
+    events = [
+        AuditEvent(
+            action="create",
+            resource_type="survey",
+            resource_id=survey.survey_id,
+            performed_by=survey.performed_by,
+            ip_address=ip_address,
+        )
+    ]
+    for section_index, section_input in enumerate(payload.sections):
+        section: SurveySection = SurveySection(
+            survey_id=survey.id,
+            title=section_input.title,
+            description=section_input.description,
+            order_index=section_index,
+            performed_by=payload.performed_by,
+        )
+        session.add(section)
+        events.append(
+            AuditEvent(
+                action="create",
+                resource_type="survey_section",
+                resource_id=str(section.id),
+                performed_by=payload.performed_by,
+                ip_address=ip_address,
+            )
+        )
+        for question_index, question_input in enumerate(section_input.questions):
+            question: SurveyQuestion = SurveyQuestion(
+                survey_id=survey.id,
+                section_id=section.id,
+                question_text=question_input.question_text,
+                question_type=question_input.question_type,
+                options=_parse_options(question_input.options),
+                config=json.dumps(question_input.config)
+                if question_input.config is not None
+                else None,
+                order_index=question_index,
+                is_required=question_input.is_required,
+                performed_by=payload.performed_by,
+            )
+            session.add(question)
+            events.append(
+                AuditEvent(
+                    action="create",
+                    resource_type="survey_question",
+                    resource_id=str(question.id),
+                    performed_by=payload.performed_by,
+                    ip_address=ip_address,
+                )
+            )
+
+    await commit_with_audit(session, events)
     await session.refresh(survey)
     return survey
 
@@ -193,8 +399,15 @@ async def update_survey(
     payload: SurveyUpdate,
     ip_address: str | None = None,
 ) -> Survey:
-    survey = await get_survey(session, survey_id)
+    survey = await get_survey(session, survey_id, for_update=True)
     updates = payload.model_dump(exclude_unset=True)
+    resulting_status = updates.get("status", survey.status)
+    if resulting_status == "Active":
+        await ensure_survey_ready_for_activation(
+            session,
+            survey.id,
+            status.HTTP_409_CONFLICT,
+        )
 
     changes = {}
     for key, val in updates.items():
@@ -257,9 +470,20 @@ async def restore_survey(
     payload: SurveyRestore,
     ip_address: str | None = None,
 ) -> Survey:
-    survey = await get_survey(session, survey_id, include_deleted=True)
+    survey = await get_survey(
+        session,
+        survey_id,
+        include_deleted=True,
+        for_update=True,
+    )
     if not survey.is_deleted:
         raise AppError("Survey is not deleted.", status_code=status.HTTP_400_BAD_REQUEST)
+    if survey.status == "Active":
+        await ensure_survey_ready_for_activation(
+            session,
+            survey.id,
+            status.HTTP_409_CONFLICT,
+        )
 
     survey.is_deleted = False
     survey.deleted_at = None

@@ -1,6 +1,7 @@
 "use client"
 
-import { useState, useEffect, useMemo } from "react"
+import { useState, useEffect, useMemo, useRef } from "react"
+import type { DragEvent } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import {
@@ -36,32 +37,30 @@ import {
   Hash,
   ArrowUpDown,
   Table,
-  Upload,
   ToggleLeft,
   Loader2,
-  ExternalLink,
   Share2,
   Copy,
   Link,
   CheckCircle2,
+  ArrowUp,
+  ArrowDown,
+  GripVertical,
 } from "lucide-react"
 import { cn, formatDate } from "@/lib/utils"
 import {
   fetchSurveys,
   fetchSurvey,
-  createSurvey,
+  createSurveyWithStructure,
   updateSurvey,
   deleteSurvey,
-  createSection,
-  createQuestion,
-  ensureSurveyDraft,
   replaceSurveyStructure,
   createDistribution,
   fetchDistributions,
   fetchResponses,
+  getScaleOptions,
 } from "@/lib/surveys"
-import type { Survey, SurveyQuestion, SurveySection, Distribution, SurveyResponse } from "@/lib/surveys"
-import { SurveyPreview } from "@/components/SurveyPreview"
+import type { Survey, SurveyQuestion, SurveySection, Distribution, SurveyResponse, SurveyStatus, SurveyStructurePayload } from "@/lib/surveys"
 
 const ALUMNI_QUESTIONNAIRE = [
   {
@@ -231,9 +230,10 @@ const QUESTION_TYPES = [
   { value: "ranking", label: "Ranking", icon: ArrowUpDown },
   { value: "matrix", label: "Matrix", icon: Table },
   { value: "datetime", label: "Date/Time", icon: Calendar },
-  { value: "file", label: "File Upload", icon: Upload },
   { value: "boolean", label: "Yes/No", icon: ToggleLeft },
 ] as const
+
+const SURVEY_STATUSES: SurveyStatus[] = ["Inactive", "Active", "Closed"]
 
 type ModalState =
   | { type: "create" }
@@ -241,6 +241,70 @@ type ModalState =
   | { type: "view"; id: string }
   | { type: "settings"; id: string }
   | null
+
+type DragItem =
+  | { kind: "section"; id: string }
+  | { kind: "question"; sectionId: string; id: string }
+  | { kind: "option"; sectionId: string; questionId: string; index: number }
+  | { kind: "column"; sectionId: string; questionId: string; index: number }
+
+type EditorQuestion = SurveyQuestion & { persistedId?: string }
+type EditorSection = Omit<SurveySection, "questions"> & {
+  persistedId?: string
+  questions: EditorQuestion[]
+}
+
+type PendingAction = {
+  type: "view" | "edit" | "generate" | "save" | "delete" | "distribute"
+  surveyId?: string
+} | null
+
+function createClientId(): string {
+  return typeof crypto !== "undefined" && "randomUUID" in crypto
+    ? crypto.randomUUID()
+    : `client-${Date.now()}-${Math.random().toString(36).slice(2)}`
+}
+
+function toEditorSections(sections: SurveySection[]): EditorSection[] {
+  return sections.map((section) => ({
+    ...section,
+    persistedId: section.id,
+    questions: section.questions.map((question) => ({
+      ...question,
+      persistedId: question.id,
+    })),
+  }))
+}
+
+function toStructurePayload(sections: EditorSection[]): SurveyStructurePayload {
+  return {
+    sections: sections.map((section) => ({
+      client_id: section.id,
+      ...(section.persistedId ? { id: section.persistedId } : {}),
+      title: section.title || "Untitled Section",
+      description: section.description || null,
+      questions: section.questions.map((question) => ({
+        client_id: question.id,
+        ...(question.persistedId ? { id: question.persistedId } : {}),
+        question_text: question.text,
+        question_type: question.type,
+        options: question.options ?? null,
+        config: question.config ?? null,
+        is_required: question.isRequired ?? true,
+      })),
+    })),
+  }
+}
+
+function moveInArray<T>(items: T[], from: number, to: number): T[] {
+  if (from === to || from < 0 || to < 0 || from >= items.length || to >= items.length) {
+    return items
+  }
+  const next = [...items]
+  const [item] = next.splice(from, 1)
+  if (item !== undefined) next.splice(to, 0, item)
+  return next
+}
 
 function aggregateResponses(responses: SurveyResponse[]) {
   const counts: Record<string, Record<string, number>> = {}
@@ -275,28 +339,31 @@ function aggregateResponses(responses: SurveyResponse[]) {
 export default function SurveyPage() {
   const [surveys, setSurveys] = useState<Survey[]>([])
   const [loading, setLoading] = useState(true)
+  const [pendingAction, setPendingAction] = useState<Exclude<PendingAction, null> | null>(null)
+  const pendingActionRef = useRef<Exclude<PendingAction, null> | null>(null)
+  const [requestError, setRequestError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
   const [generating, setGenerating] = useState(false)
   const [modalState, setModalState] = useState<ModalState>(null)
   const [viewTab, setViewTab] = useState<"questions" | "responses">("questions")
-  const [sections, setSections] = useState<SurveySection[]>([])
-  const [originalSections, setOriginalSections] = useState<SurveySection[]>([])
+  const [sections, setSections] = useState<EditorSection[]>([])
+  const [originalSections, setOriginalSections] = useState<EditorSection[]>([])
   const [targetCohort, setTargetCohort] = useState("Class of 2024")
   const [cohortOpen, setCohortOpen] = useState(false)
   const [openQuestionSelectId, setOpenQuestionSelectId] = useState<string | null>(null)
   const [statusOpen, setStatusOpen] = useState(false)
-  const [surveyStatus, setSurveyStatus] = useState("Draft")
+  const [surveyStatus, setSurveyStatus] = useState<SurveyStatus>("Inactive")
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null)
   const [surveyTitle, setSurveyTitle] = useState("")
   const [surveyDescription, setSurveyDescription] = useState("")
-  const [previewSurvey, setPreviewSurvey] = useState<Survey | null>(null)
-  const [previewLoading, setPreviewLoading] = useState(false)
   const [showGeneratePreview, setShowGeneratePreview] = useState(false)
   const [distributeSurveyId, setDistributeSurveyId] = useState<string | null>(null)
   const [distributions, setDistributions] = useState<Distribution[]>([])
   const [distLoading, setDistLoading] = useState(false)
+  const [distributionError, setDistributionError] = useState<string | null>(null)
   const [surveyResponses, setSurveyResponses] = useState<SurveyResponse[]>([])
+  const [dragItem, setDragItem] = useState<DragItem | null>(null)
   
   const { counts: responseCounts, texts: responseTexts } = useMemo(
     () => aggregateResponses(surveyResponses),
@@ -304,47 +371,98 @@ export default function SurveyPage() {
   )
   const [copiedToken, setCopiedToken] = useState<string | null>(null)
 
+  const editedSurvey = modalState?.type === "edit"
+    ? surveys.find((survey) => survey.id === modalState.id)
+    : undefined
+  const structureEditable = modalState?.type !== "edit" || (
+    editedSurvey?.status === "Inactive" && editedSurvey.responses === 0
+  )
+
+  const interactionLocked = loading || pendingAction !== null
+  const pendingLabel = loading
+    ? "Loading surveys..."
+    : pendingAction?.type === "view"
+      ? "Loading survey..."
+      : pendingAction?.type === "edit"
+        ? "Opening editor..."
+        : pendingAction?.type === "generate"
+          ? "Generating questionnaire..."
+          : pendingAction?.type === "save"
+            ? "Saving survey..."
+              : pendingAction?.type === "delete"
+                ? "Deleting survey..."
+                : pendingAction?.type === "distribute"
+                  ? "Loading distribution..."
+                  : null
+
+  const runExclusive = async <T,>(
+    action: Exclude<PendingAction, null>,
+    operation: () => Promise<T>,
+  ): Promise<T | undefined> => {
+    if (pendingActionRef.current !== null) return undefined
+    pendingActionRef.current = action
+    setPendingAction(action)
+    try {
+      return await operation()
+    } finally {
+      if (pendingActionRef.current === action) {
+        pendingActionRef.current = null
+        setPendingAction(null)
+      }
+    }
+  }
+
   useEffect(() => {
-    let mounted = true
+    let cancelled = false
     const load = async () => {
       try {
         const result = await fetchSurveys()
-        if (mounted) setSurveys(result.surveys)
-      } catch {
-        /* empty — the empty table communicates the state */
+        if (!cancelled) setSurveys(result.surveys)
+      } catch (error) {
+        if (!cancelled) setRequestError(error instanceof Error ? error.message : "We could not load surveys.")
       } finally {
-        if (mounted) setLoading(false)
+        if (!cancelled) setLoading(false)
       }
     }
     void load()
     return () => {
-      mounted = false
+      cancelled = true
     }
   }, [])
 
   const handleDelete = async (surveyId: string) => {
-    await deleteSurvey(surveyId)
-    setSurveys((prev) => prev.filter((s) => s.surveyId !== surveyId))
+    setRequestError(null)
+    await runExclusive({ type: "delete", surveyId }, async () => {
+      try {
+        await deleteSurvey(surveyId)
+        setSurveys((prev) => prev.filter((s) => s.surveyId !== surveyId))
+      } catch (error) {
+        setRequestError(error instanceof Error ? error.message : "We could not delete the survey.")
+        throw error
+      }
+    })
   }
 
   const handleCloseModal = () => {
     setModalState(null)
+    setDragItem(null)
     setSections([])
     setOriginalSections([])
     setSurveyTitle("")
     setSurveyDescription("")
     setTargetCohort("Class of 2024")
-    setSurveyStatus("Draft")
+    setSurveyStatus("Inactive")
     setViewTab("questions")
   }
 
   const handleOpenCreate = () => {
+    if (interactionLocked) return
     setSurveyTitle("")
     setSurveyDescription("")
     setTargetCohort("Class of 2024")
-    setSurveyStatus("Draft")
+    setSurveyStatus("Inactive")
     setSections([{
-      id: Date.now().toString(),
+      id: createClientId(),
       title: "",
       description: "",
       orderIndex: 0,
@@ -356,149 +474,147 @@ export default function SurveyPage() {
   const handleOpenView = async (id: string) => {
     const survey = surveys.find((s) => s.id === id)
     if (!survey) return
-    try {
-      const full = await fetchSurvey(survey.surveyId)
-      setSurveys((prev) => prev.map((s) => (s.id === id ? { ...s, ...full } : s)))
-      
-      if (full.responses > 0) {
-        const { responses } = await fetchResponses(full.id)
-        setSurveyResponses(responses)
-      } else {
-        setSurveyResponses([])
+    setRequestError(null)
+    await runExclusive({ type: "view", surveyId: id }, async () => {
+      try {
+        const full = await fetchSurvey(survey.surveyId)
+        setSurveys((prev) => prev.map((s) => (s.id === id ? { ...s, ...full } : s)))
+        if (full.responses > 0) {
+          const { responses } = await fetchResponses(full.id)
+          setSurveyResponses(responses)
+        } else {
+          setSurveyResponses([])
+        }
+        setModalState({ type: "view", id })
+      } catch (error) {
+        setRequestError(error instanceof Error ? error.message : "We could not load the survey.")
       }
-      
-      setModalState({ type: "view", id })
-    } catch {
-      // silently fail
-    } finally {
-      // The view modal remains usable while response details are loading.
-    }
+    })
   }
 
   const handleOpenEdit = async (id: string) => {
     const survey = surveys.find((s) => s.id === id)
     if (!survey) return
-    try {
-      await ensureSurveyDraft(survey.id)
-      const full = await fetchSurvey(survey.surveyId)
-      setSurveys((prev) => prev.map((item) => (item.id === full.id ? full : item)))
-      setSurveyTitle(full.title)
-      setSurveyDescription(full.description ?? "")
-      setTargetCohort(full.targetCohort ?? "Class of 2024")
-      setSurveyStatus(full.status ?? "Draft")
-      const loaded = full.sections ?? []
-      setOriginalSections(loaded)
-      setSections(loaded)
-      setModalState({ type: "edit", id })
-    } catch {
-      // silently fail
-    }
+    setRequestError(null)
+    await runExclusive({ type: "edit", surveyId: id }, async () => {
+      try {
+        const full = await fetchSurvey(survey.surveyId)
+        setSurveys((prev) => prev.map((item) => (item.id === full.id ? full : item)))
+        setSurveyTitle(full.title)
+        setSurveyDescription(full.description ?? "")
+        setTargetCohort(full.targetCohort ?? "Class of 2024")
+        setSurveyStatus(full.status)
+        const loaded = toEditorSections(full.sections ?? [])
+        setOriginalSections(loaded)
+        setSections(loaded)
+        setModalState({ type: "edit", id })
+      } catch (error) {
+        setRequestError(error instanceof Error ? error.message : "We could not open the editor.")
+      }
+    })
   }
 
   const handleShowGeneratePreview = () => {
+    if (interactionLocked) return
     setShowGeneratePreview(true)
   }
 
   const handleConfirmGenerate = async () => {
-    if (generating) return
-    setGenerating(true)
-    try {
-      const created = await createSurvey({
-        title: "Alumni Survey Questionnaire",
-        description: "This comprehensive survey helps us understand your post-graduation journey — from employment outcomes and degree-to-career alignment to socioeconomic impact and personal growth.",
-        target_cohort: "All Alumni",
-        status: "Active",
-      })
-      for (const sec of ALUMNI_QUESTIONNAIRE) {
-        const createdSec = await createSection(created.id, {
-          title: sec.title,
-          description: sec.description,
+    if (generating || interactionLocked) return
+    setRequestError(null)
+    await runExclusive({ type: "generate" }, async () => {
+      setGenerating(true)
+      try {
+        const created = await createSurveyWithStructure({
+          title: "Alumni Survey Questionnaire",
+          description: "This comprehensive survey helps us understand your post-graduation journey — from employment outcomes and degree-to-career alignment to socioeconomic impact and personal growth.",
+          target_cohort: "All Alumni",
+          status: "Active",
+          sections: ALUMNI_QUESTIONNAIRE.map((section) => ({
+            client_id: createClientId(),
+            title: section.title,
+            description: section.description,
+            questions: section.questions.map((question) => ({
+              client_id: createClientId(),
+              question_text: question.question_text,
+              question_type: question.question_type,
+              options: question.options,
+              config: question.config,
+              is_required: true,
+            })),
+          })),
         })
-        for (const q of sec.questions) {
-          await createQuestion(created.id, {
-            question_text: q.question_text,
-            question_type: q.question_type,
-            options: q.options ?? null,
-            config: q.config ?? null,
-            is_required: true,
-            section_id: createdSec.id,
-          })
-        }
+        setSurveys((prev) => [created, ...prev])
+        setShowGeneratePreview(false)
+      } catch (error) {
+        setRequestError(error instanceof Error ? error.message : "We could not generate the questionnaire.")
+      } finally {
+        setGenerating(false)
       }
-      const full = await fetchSurvey(created.surveyId)
-      setSurveys((prev) => [full, ...prev])
-      setShowGeneratePreview(false)
-    } catch {
-      /* silently fail */
-    } finally {
-      setGenerating(false)
-    }
+    })
   }
 
-  const handleSaveSurvey = async () => {
+  const performSaveSurvey = async () => {
     if (!surveyTitle.trim() || saving) return
     setSaving(true)
     setSaveError(null)
     try {
+      if (surveyStatus === "Active") {
+        if (sections.length === 0) {
+          setSaveError("Add at least one section before activating the survey.")
+          return
+        }
+        const emptySection = sections.find((section) => section.questions.length === 0)
+        if (emptySection) {
+          setSaveError(
+            `Section "${emptySection.title || "Untitled Section"}" must contain at least one question before activating.`,
+          )
+          return
+        }
+      }
+
       if (modalState?.type === "create") {
-        const created = await createSurvey({
+        const created = await createSurveyWithStructure({
           title: surveyTitle,
           description: surveyDescription || null,
           target_cohort: targetCohort,
           status: surveyStatus,
+          ...toStructurePayload(sections),
         })
-        const full = await replaceSurveyStructure(created.id, {
-          expected_revision: 0,
-          sections: sections.map((section) => ({
-            client_id: section.id,
-            id: section.id,
-            title: section.title || "Untitled Section",
-            description: section.description || null,
-            questions: section.questions.map((question) => ({
-              client_id: question.id,
-              id: question.id,
-              question_text: question.text,
-              question_type: question.type,
-              options: question.options ?? null,
-              config: question.config ?? null,
-              is_required: question.isRequired ?? true,
-            })),
-          })),
-        })
-        setSurveys((prev) => [full, ...prev])
+        setSurveys((prev) => [created, ...prev.filter((survey) => survey.id !== created.id)])
       } else if (modalState?.type === "edit") {
         const target = surveys.find((s) => s.id === modalState.id)
         if (!target) return
 
+        const structureChanged = JSON.stringify(sections) !== JSON.stringify(originalSections)
+        const structureEditable = target.status === "Inactive" && target.responses === 0
+        if (structureChanged && !structureEditable) {
+          setSaveError("Only inactive surveys with no responses can have their structure edited.")
+          return
+        }
+
+        if (structureChanged) {
+          const removedSectionIds = originalSections
+            .filter((original) => !sections.some((section) => section.id === original.id))
+            .flatMap((section) => section.persistedId ? [section.persistedId] : [])
+          const saved = await replaceSurveyStructure(target.id, {
+            ...toStructurePayload(sections),
+            cascade_section_ids: removedSectionIds,
+            expected_updated_at: target.updatedAt,
+          })
+          const savedSections = toEditorSections(saved.sections ?? [])
+          setSections(savedSections)
+          setOriginalSections(savedSections)
+          setSurveys((prev) => prev.map((survey) => survey.id === saved.id ? saved : survey))
+        }
         await updateSurvey(target.surveyId, {
           title: surveyTitle,
           description: surveyDescription || null,
           target_cohort: targetCohort,
           status: surveyStatus,
         })
-        const removedSectionIds = originalSections
-          .filter((original) => !sections.some((section) => section.id === original.id))
-          .map((section) => section.id)
-        const full = await replaceSurveyStructure(target.id, {
-          expected_revision: target.structureRevision ?? 0,
-          sections: sections.map((section) => ({
-            client_id: section.id,
-            id: section.id,
-            title: section.title || "Untitled Section",
-            description: section.description || null,
-            questions: section.questions.map((question) => ({
-              client_id: question.id,
-              id: question.id,
-              question_text: question.text,
-              question_type: question.type,
-              options: question.options ?? null,
-              config: question.config ?? null,
-              is_required: question.isRequired ?? true,
-            })),
-          })),
-          cascade_section_ids: removedSectionIds,
-        })
-        setSurveys((prev) => prev.map((s) => (s.id === full.id ? full : s)))
+        const refreshed = await fetchSurvey(target.surveyId)
+        setSurveys((prev) => prev.map((s) => (s.id === refreshed.id ? refreshed : s)))
       }
       handleCloseModal()
     } catch (error) {
@@ -512,41 +628,45 @@ export default function SurveyPage() {
     }
   }
 
-
-
-  const handlePreview = async (surveyId: string) => {
-    const survey = surveys.find((s) => s.id === surveyId)
-    if (!survey) return
-    setPreviewLoading(true)
-    try {
-      const full = await fetchSurvey(survey.surveyId)
-      setPreviewSurvey(full)
-    } catch {
-      // silently fail
-    } finally {
-      setPreviewLoading(false)
-    }
-  }
-
-  const handleClosePreview = () => {
-    setPreviewSurvey(null)
+  const handleSaveSurvey = async () => {
+    if (!surveyTitle.trim() || saving || interactionLocked) return
+    const action: Exclude<PendingAction, null> = modalState?.type === "edit"
+      ? { type: "save", surveyId: modalState.id }
+      : { type: "save" }
+    await runExclusive(action, performSaveSurvey)
   }
 
   const handleOpenDistribute = async (surveyId: string) => {
+    if (interactionLocked) return
+    setRequestError(null)
+    setDistributionError(null)
+    setDistributions([])
     setDistributeSurveyId(surveyId)
-    setDistLoading(true)
-    try {
-      let items = await fetchDistributions(surveyId)
-      if (items.length === 0) {
-        const created = await createDistribution(surveyId)
-        items = [created]
-      }
-      setDistributions(items)
-    } catch {
-      setDistributions([])
-    } finally {
-      setDistLoading(false)
+
+    const survey = surveys.find((item) => item.id === surveyId)
+    if (survey?.status !== "Active") {
+      setDistributionError("Activate this survey before creating distribution links.")
+      return
     }
+
+    await runExclusive({ type: "distribute", surveyId }, async () => {
+      setDistLoading(true)
+      try {
+        let items = await fetchDistributions(surveyId)
+        if (!items.some((item) => item.isActive)) {
+          const created = await createDistribution(surveyId)
+          items = [created, ...items]
+        }
+        setDistributions(items)
+      } catch (error) {
+        setDistributions([])
+        const message = error instanceof Error ? error.message : "We could not load distribution links."
+        setDistributionError(message)
+        setRequestError(message)
+      } finally {
+        setDistLoading(false)
+      }
+    })
   }
 
   const handleCopyLink = async (token: string) => {
@@ -564,7 +684,7 @@ export default function SurveyPage() {
     setSections((prev) => [
       ...prev,
       {
-        id: Date.now().toString(),
+        id: createClientId(),
         title: "",
         description: "",
         orderIndex: prev.length,
@@ -573,7 +693,138 @@ export default function SurveyPage() {
     ])
   }
 
-  const updateSection = (secIdx: number, patch: Partial<SurveySection>) => {
+  const moveSection = (id: string, delta: number) => {
+    setSections((prev) => {
+      const from = prev.findIndex((section) => section.id === id)
+      const to = from + delta
+      const next = moveInArray(prev, from, to)
+      return next.map((section, index) => ({ ...section, orderIndex: index }))
+    })
+  }
+
+  const moveQuestion = (
+    sourceSectionId: string,
+    questionId: string,
+    targetSectionId: string,
+    targetIndex: number,
+  ) => {
+    setSections((prev) => {
+      const sourceSectionIndex = prev.findIndex((section) => section.id === sourceSectionId)
+      const targetSectionIndex = prev.findIndex((section) => section.id === targetSectionId)
+      if (sourceSectionIndex < 0 || targetSectionIndex < 0) return prev
+
+      const sourceSection = prev[sourceSectionIndex]!
+      const sourceIndex = sourceSection.questions.findIndex((question) => question.id === questionId)
+      if (sourceIndex < 0) return prev
+
+      const next = prev.map((section) => ({ ...section, questions: [...section.questions] }))
+      const [question] = next[sourceSectionIndex]!.questions.splice(sourceIndex, 1)
+      if (!question) return prev
+
+      const adjustedTargetIndex =
+        sourceSectionIndex === targetSectionIndex && sourceIndex < targetIndex
+          ? targetIndex - 1
+          : targetIndex
+      const movedQuestion = { ...question, sectionId: targetSectionId }
+      next[targetSectionIndex]!.questions.splice(
+        Math.max(0, Math.min(adjustedTargetIndex, next[targetSectionIndex]!.questions.length)),
+        0,
+        movedQuestion,
+      )
+      return next
+    })
+  }
+
+  const moveQuestionBy = (sectionId: string, questionId: string, delta: number) => {
+    setSections((prev) => {
+      const section = prev.find((item) => item.id === sectionId)
+      if (!section) return prev
+      const from = section.questions.findIndex((question) => question.id === questionId)
+      const to = from + delta
+      if (from < 0 || to < 0 || to >= section.questions.length) return prev
+      return prev.map((item) =>
+        item.id === sectionId
+          ? { ...item, questions: moveInArray(item.questions, from, to) }
+          : item,
+      )
+    })
+  }
+
+  const moveOption = (
+    sectionId: string,
+    questionId: string,
+    from: number,
+    to: number,
+  ) => {
+    setSections((prev) => prev.map((section) => {
+      if (section.id !== sectionId) return section
+      return {
+        ...section,
+        questions: section.questions.map((question) =>
+          question.id === questionId
+            ? { ...question, options: moveInArray(question.options ?? [], from, to) }
+            : question,
+        ),
+      }
+    }))
+  }
+
+  const moveColumn = (
+    sectionId: string,
+    questionId: string,
+    from: number,
+    to: number,
+  ) => {
+    setSections((prev) => prev.map((section) => {
+      if (section.id !== sectionId) return section
+      return {
+        ...section,
+        questions: section.questions.map((question) => {
+          if (question.id !== questionId) return question
+          const columns = (question.config?.columns as string[] | undefined) ?? []
+          return {
+            ...question,
+            config: { ...(question.config ?? {}), columns: moveInArray(columns, from, to) },
+          }
+        }),
+      }
+    }))
+  }
+
+  const handleDragStart = (event: DragEvent, item: DragItem) => {
+    event.stopPropagation()
+    setDragItem(item)
+    event.dataTransfer.effectAllowed = "move"
+    event.dataTransfer.setData("text/plain", item.kind)
+  }
+
+  const handleDrop = (event: DragEvent, target: DragItem) => {
+    event.preventDefault()
+    event.stopPropagation()
+    const source = dragItem
+    setDragItem(null)
+    if (!source) return
+
+    if (source.kind === "section" && target.kind === "section") {
+      setSections((prev) => {
+        const from = prev.findIndex((section) => section.id === source.id)
+        const to = prev.findIndex((section) => section.id === target.id)
+        return moveInArray(prev, from, to).map((section, index) => ({ ...section, orderIndex: index }))
+      })
+    } else if (source.kind === "question" && target.kind === "section") {
+      moveQuestion(source.sectionId, source.id, target.id, Number.MAX_SAFE_INTEGER)
+    } else if (source.kind === "question" && target.kind === "question") {
+      const targetSection = sections.find((section) => section.id === target.sectionId)
+      const targetIndex = targetSection?.questions.findIndex((question) => question.id === target.id) ?? -1
+      if (targetIndex >= 0) moveQuestion(source.sectionId, source.id, target.sectionId, targetIndex)
+    } else if (source.kind === "option" && target.kind === "option" && source.questionId === target.questionId) {
+      moveOption(source.sectionId, source.questionId, source.index, target.index)
+    } else if (source.kind === "column" && target.kind === "column" && source.questionId === target.questionId) {
+      moveColumn(source.sectionId, source.questionId, source.index, target.index)
+    }
+  }
+
+  const updateSection = (secIdx: number, patch: Partial<EditorSection>) => {
     setSections((prev) => {
       const next = [...prev]
       next[secIdx] = { ...next[secIdx]!, ...patch }
@@ -598,14 +849,14 @@ export default function SurveyPage() {
       const sec = { ...next[secIdx]! }
       sec.questions = [
         ...sec.questions,
-        { id: Date.now().toString(), text: "", type: "text", options: [""], isRequired: true },
+        { id: createClientId(), text: "", type: "text", options: [""], isRequired: true },
       ]
       next[secIdx] = sec
       return next
     })
   }
 
-  const updateQuestion = (secIdx: number, qIdx: number, patch: Partial<SurveyQuestion>) => {
+  const updateQuestion = (secIdx: number, qIdx: number, patch: Partial<EditorQuestion>) => {
     setSections((prev) => {
       const next = [...prev]
       const sec = { ...next[secIdx]! }
@@ -698,6 +949,7 @@ export default function SurveyPage() {
           <Button
             onClick={handleShowGeneratePreview}
             variant="outline"
+            disabled={interactionLocked}
             className="gap-2 border-violet-200 text-violet-700 hover:bg-violet-50"
           >
             <ClipboardList className="size-4" />
@@ -705,6 +957,7 @@ export default function SurveyPage() {
           </Button>
           <Button
             onClick={handleOpenCreate}
+            disabled={interactionLocked}
             className="gap-2 bg-indigo-600 hover:bg-indigo-700 text-white border-0"
           >
             <Plus className="size-4" />
@@ -712,6 +965,18 @@ export default function SurveyPage() {
           </Button>
         </div>
       </div>
+
+      {pendingLabel && (
+        <div className="flex items-center gap-2 text-xs text-slate-500" role="status" aria-live="polite">
+          <Loader2 className="size-3.5 animate-spin" />
+          <span>{pendingLabel}</span>
+        </div>
+      )}
+      {requestError && (
+        <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700" role="alert">
+          {requestError}
+        </div>
+      )}
 
       {/* Survey List */}
       <div className="rounded-xl border border-slate-200/80 bg-white overflow-hidden">
@@ -764,7 +1029,7 @@ export default function SurveyPage() {
                           "inline-flex items-center px-2 py-1 rounded-md text-[11px] font-medium",
                           survey.status === "Active" &&
                             "bg-emerald-50 text-emerald-700",
-                          survey.status === "Draft" &&
+                          survey.status === "Inactive" &&
                             "bg-amber-50 text-amber-700",
                           survey.status === "Closed" &&
                             "bg-slate-100 text-slate-600"
@@ -790,49 +1055,43 @@ export default function SurveyPage() {
                         <Button
                           variant="ghost"
                           size="icon"
-                          onClick={() => handlePreview(survey.id)}
-                          disabled={previewLoading}
-                          className="text-slate-400 hover:text-violet-600 hover:bg-violet-50"
-                          title="Preview Survey Form"
-                        >
-                          <ExternalLink className="size-4" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
                           onClick={() => handleOpenView(survey.id)}
+                          disabled={interactionLocked}
                           className="text-slate-400 hover:text-indigo-600 hover:bg-indigo-50"
                           title="View Details"
                         >
-                          <Eye className="size-4" />
+                          {pendingAction?.type === "view" && pendingAction.surveyId === survey.id ? <Loader2 className="size-4 animate-spin" /> : <Eye className="size-4" />}
                         </Button>
                         <Button
                           variant="ghost"
                           size="icon"
                           onClick={() => handleOpenEdit(survey.id)}
+                          disabled={interactionLocked}
                           className="text-slate-400 hover:text-indigo-600 hover:bg-indigo-50"
                           title="Edit Questions & Details"
                         >
-                          <Pencil className="size-4" />
+                          {pendingAction?.type === "edit" && pendingAction.surveyId === survey.id ? <Loader2 className="size-4 animate-spin" /> : <Pencil className="size-4" />}
                         </Button>
 
                         <Button
                           variant="ghost"
                           size="icon"
                           onClick={() => handleOpenDistribute(survey.id)}
+                          disabled={interactionLocked || survey.status !== "Active"}
                           className="text-slate-400 hover:text-emerald-600 hover:bg-emerald-50"
-                          title="Distribute"
+                          title={survey.status === "Active" ? "Distribute" : "Activate the survey before distributing"}
                         >
-                          <Share2 className="size-4" />
+                          {pendingAction?.type === "distribute" && pendingAction.surveyId === survey.id ? <Loader2 className="size-4 animate-spin" /> : <Share2 className="size-4" />}
                         </Button>
                         <Button
                           variant="ghost"
                           size="icon"
                           onClick={() => setDeleteConfirmId(survey.id)}
+                          disabled={interactionLocked}
                           className="text-slate-400 hover:text-red-600 hover:bg-red-50"
                           title="Delete"
                         >
-                          <Trash className="size-4" />
+                          {pendingAction?.type === "delete" && pendingAction.surveyId === survey.id ? <Loader2 className="size-4 animate-spin" /> : <Trash className="size-4" />}
                         </Button>
                       </div>
                     </td>
@@ -847,7 +1106,7 @@ export default function SurveyPage() {
       {/* ── Create / Edit Survey Dialog ─────────────────────────────── */}
       <Dialog
         open={modalState !== null && (modalState.type === "create" || modalState.type === "edit")}
-        onOpenChange={(open) => !open && handleCloseModal()}
+        onOpenChange={(open) => !open && !interactionLocked && handleCloseModal()}
       >
         <DialogContent 
           showCloseButton={false}
@@ -870,12 +1129,12 @@ export default function SurveyPage() {
               </div>
             </div>
             <div className="flex items-center gap-3">
-              <Button variant="outline" onClick={handleCloseModal} className="h-9">
+              <Button variant="outline" onClick={handleCloseModal} disabled={interactionLocked} className="h-9">
                 Cancel
               </Button>
               <Button
                 onClick={handleSaveSurvey}
-                disabled={!surveyTitle.trim() || saving}
+                disabled={!surveyTitle.trim() || interactionLocked}
                 className="gap-2 bg-indigo-600 hover:bg-indigo-700 text-white h-9"
               >
                 {saving ? (
@@ -896,7 +1155,11 @@ export default function SurveyPage() {
             </div>
           )}
 
-          <div className="flex flex-1 overflow-hidden">
+          <div
+            className={cn("flex flex-1 overflow-hidden", interactionLocked && "pointer-events-none opacity-75")}
+            aria-busy={interactionLocked}
+            inert={interactionLocked}
+          >
             {/* Left Sidebar: Details */}
             <div className="w-[340px] shrink-0 border-r border-slate-200/80 bg-slate-50/50 p-6 overflow-y-auto">
               <fieldset className="space-y-4">
@@ -989,7 +1252,7 @@ export default function SurveyPage() {
                           style={{ width: "var(--anchor-width)" }}
                           className="p-1 flex flex-col gap-0.5 bg-white border border-slate-200 rounded-lg shadow-md animate-in fade-in-0 zoom-in-95 duration-100"
                         >
-                          {["Active", "Draft", "Closed"].map((statusOption) => {
+                          {SURVEY_STATUSES.map((statusOption) => {
                             const isSelected = surveyStatus === statusOption
                             return (
                               <button
@@ -1049,7 +1312,18 @@ export default function SurveyPage() {
             {/* Right Main Area: Questions */}
             <div className="flex-1 bg-white p-8 overflow-y-auto">
               <div className="max-w-3xl mx-auto pb-20">
-                <fieldset className="space-y-4">
+                {!structureEditable && (
+                  <p className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                    {editedSurvey?.responses
+                      ? "The survey structure is locked because it has responses."
+                      : "Set this survey to Inactive and save before changing its structure."}
+                  </p>
+                )}
+                <fieldset
+                  className={cn("space-y-4", !structureEditable && "pointer-events-none opacity-60")}
+                  disabled={!structureEditable}
+                  inert={!structureEditable}
+                >
                     <legend className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-slate-400 mb-1">
                       <span className="flex size-5 items-center justify-center rounded-md bg-slate-100 text-[10px] font-bold text-slate-500">
                         2
@@ -1080,11 +1354,20 @@ export default function SurveyPage() {
                         {sections.map((sec, secIdx) => (
                           <div
                             key={sec.id}
+                            draggable
+                            onDragStart={(event) => handleDragStart(event, { kind: "section", id: sec.id })}
+                            onDragEnd={() => setDragItem(null)}
+                            onDragOver={(event) => event.preventDefault()}
+                            onDrop={(event) => handleDrop(event, { kind: "section", id: sec.id })}
                             className="rounded-xl border border-slate-200/80 bg-white shadow-sm"
                           >
                             {/* Section header */}
                             <div className="flex items-start gap-3 p-4 pb-3 border-b border-slate-100">
                               <div className="flex items-center gap-1.5 pt-1">
+                                <GripVertical
+                                  className="size-4 cursor-grab text-slate-300 active:cursor-grabbing"
+                                  aria-label="Drag section"
+                                />
                                 <span className="flex size-5 items-center justify-center rounded-md bg-violet-50 text-[10px] font-bold text-violet-600">
                                   {secIdx + 1}
                                 </span>
@@ -1120,6 +1403,30 @@ export default function SurveyPage() {
                                   }}
                                 />
                               </div>
+                              <div className="flex items-center gap-0.5 pt-0.5">
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="icon-xs"
+                                  aria-label="Move section up"
+                                  title="Move section up"
+                                  disabled={secIdx === 0}
+                                  onClick={() => moveSection(sec.id, -1)}
+                                >
+                                  <ArrowUp />
+                                </Button>
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="icon-xs"
+                                  aria-label="Move section down"
+                                  title="Move section down"
+                                  disabled={secIdx === sections.length - 1}
+                                  onClick={() => moveSection(sec.id, 1)}
+                                >
+                                  <ArrowDown />
+                                </Button>
+                              </div>
                               <Button
                                 variant="ghost"
                                 size="icon-xs"
@@ -1147,10 +1454,24 @@ export default function SurveyPage() {
                                   {sec.questions.map((q, qIdx) => (
                                     <div
                                       key={q.id}
+                                      draggable
+                                      onDragStart={(event) => handleDragStart(event, {
+                                        kind: "question",
+                                        sectionId: sec.id,
+                                        id: q.id,
+                                      })}
+                                      onDragEnd={() => setDragItem(null)}
+                                      onDragOver={(event) => event.preventDefault()}
+                                      onDrop={(event) => handleDrop(event, {
+                                        kind: "question",
+                                        sectionId: sec.id,
+                                        id: q.id,
+                                      })}
                                       className="group/q rounded-lg border border-slate-200/70 bg-white shadow-sm transition-shadow hover:shadow-md"
                                     >
                                       <div className="flex items-start gap-2 p-3">
                                         <div className="flex items-center gap-1.5 pt-1">
+                                          <GripVertical className="size-4 cursor-grab text-slate-300 active:cursor-grabbing" aria-label="Drag question" />
                                           <span className="flex size-5 items-center justify-center rounded-md bg-indigo-50 text-[10px] font-bold text-indigo-600">
                                             {qIdx + 1}
                                           </span>
@@ -1252,7 +1573,32 @@ export default function SurveyPage() {
                                           </div>
                                         </div>
 
+                                        <div className="flex items-center gap-0.5 pt-0.5">
+                                          <Button
+                                            type="button"
+                                            variant="ghost"
+                                            size="icon-xs"
+                                            aria-label="Move question up"
+                                            title="Move question up"
+                                            disabled={qIdx === 0}
+                                            onClick={() => moveQuestionBy(sec.id, q.id, -1)}
+                                          >
+                                            <ArrowUp />
+                                          </Button>
+                                          <Button
+                                            type="button"
+                                            variant="ghost"
+                                            size="icon-xs"
+                                            aria-label="Move question down"
+                                            title="Move question down"
+                                            disabled={qIdx === sec.questions.length - 1}
+                                            onClick={() => moveQuestionBy(sec.id, q.id, 1)}
+                                          >
+                                            <ArrowDown />
+                                          </Button>
+                                        </div>
                                         <Button
+                                          type="button"
                                           variant="ghost"
                                           size="icon-xs"
                                           onClick={() => removeQuestion(secIdx, q.id)}
@@ -1348,8 +1694,27 @@ export default function SurveyPage() {
                                       {["single_choice", "multiple_choice", "ranking"].includes(q.type) && (
                                         <div className="border-t border-slate-100 bg-slate-50/30 px-3 py-3 rounded-b-xl">
                                           <div className="space-y-1.5 pl-7">
-                                            {q.options?.map((opt, optIdx) => (
-                                              <div key={optIdx} className="flex items-center gap-2">
+                                             {q.options?.map((opt, optIdx) => (
+                                              <div
+                                                key={optIdx}
+                                                draggable
+                                                onDragStart={(event) => handleDragStart(event, {
+                                                  kind: "option",
+                                                  sectionId: sec.id,
+                                                  questionId: q.id,
+                                                  index: optIdx,
+                                                })}
+                                                onDragEnd={() => setDragItem(null)}
+                                                onDragOver={(event) => event.preventDefault()}
+                                                onDrop={(event) => handleDrop(event, {
+                                                  kind: "option",
+                                                  sectionId: sec.id,
+                                                  questionId: q.id,
+                                                  index: optIdx,
+                                                })}
+                                                className="flex items-center gap-2"
+                                              >
+                                                <GripVertical className="size-3.5 cursor-grab text-slate-300" aria-label="Drag option" />
                                                 <span className="flex size-4 shrink-0 items-center justify-center rounded-full border border-slate-300 text-[9px] font-semibold text-slate-400">
                                                   {String.fromCharCode(65 + optIdx)}
                                                 </span>
@@ -1361,12 +1726,32 @@ export default function SurveyPage() {
                                                     updateOption(secIdx, qIdx, optIdx, e.target.value)
                                                   }
                                                 />
-                                                <Button
-                                                  variant="ghost"
-                                                  size="icon-xs"
-                                                  className="text-slate-300 hover:text-red-500 hover:bg-red-50"
-                                                  onClick={() => removeOption(secIdx, qIdx, optIdx)}
-                                                >
+                                                 <Button
+                                                   variant="ghost"
+                                                   size="icon-xs"
+                                                   className="text-slate-300 hover:text-red-500 hover:bg-red-50"
+                                                   aria-label={`Move option ${optIdx + 1} up`}
+                                                   disabled={optIdx === 0}
+                                                   onClick={() => moveOption(sec.id, q.id, optIdx, optIdx - 1)}
+                                                 >
+                                                   <ArrowUp />
+                                                 </Button>
+                                                 <Button
+                                                   variant="ghost"
+                                                   size="icon-xs"
+                                                   className="text-slate-300 hover:text-red-500 hover:bg-red-50"
+                                                   aria-label={`Move option ${optIdx + 1} down`}
+                                                   disabled={optIdx === (q.options?.length ?? 0) - 1}
+                                                   onClick={() => moveOption(sec.id, q.id, optIdx, optIdx + 1)}
+                                                 >
+                                                   <ArrowDown />
+                                                 </Button>
+                                                 <Button
+                                                   variant="ghost"
+                                                   size="icon-xs"
+                                                   className="text-slate-300 hover:text-red-500 hover:bg-red-50"
+                                                   onClick={() => removeOption(secIdx, qIdx, optIdx)}
+                                                 >
                                                   <Trash className="size-3" />
                                                 </Button>
                                               </div>
@@ -1389,8 +1774,27 @@ export default function SurveyPage() {
                                           {/* Rows */}
                                           <div className="space-y-1.5 pl-7">
                                             <span className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Rows</span>
-                                            {q.options?.map((opt, optIdx) => (
-                                              <div key={optIdx} className="flex items-center gap-2">
+                                             {q.options?.map((opt, optIdx) => (
+                                              <div
+                                                key={optIdx}
+                                                draggable
+                                                onDragStart={(event) => handleDragStart(event, {
+                                                  kind: "option",
+                                                  sectionId: sec.id,
+                                                  questionId: q.id,
+                                                  index: optIdx,
+                                                })}
+                                                onDragEnd={() => setDragItem(null)}
+                                                onDragOver={(event) => event.preventDefault()}
+                                                onDrop={(event) => handleDrop(event, {
+                                                  kind: "option",
+                                                  sectionId: sec.id,
+                                                  questionId: q.id,
+                                                  index: optIdx,
+                                                })}
+                                                className="flex items-center gap-2"
+                                              >
+                                                <GripVertical className="size-3.5 cursor-grab text-slate-300" aria-label="Drag row" />
                                                 <span className="text-[10px] font-semibold text-slate-400 w-4">{optIdx + 1}</span>
                                                 <Input
                                                   className="h-7 flex-1 bg-white text-xs"
@@ -1398,12 +1802,32 @@ export default function SurveyPage() {
                                                   value={opt}
                                                   onChange={(e) => updateOption(secIdx, qIdx, optIdx, e.target.value)}
                                                 />
-                                                <Button
-                                                  variant="ghost"
-                                                  size="icon-xs"
-                                                  className="text-slate-300 hover:text-red-500 hover:bg-red-50"
-                                                  onClick={() => removeOption(secIdx, qIdx, optIdx)}
-                                                >
+                                                 <Button
+                                                   variant="ghost"
+                                                   size="icon-xs"
+                                                   className="text-slate-300 hover:text-red-500 hover:bg-red-50"
+                                                   aria-label={`Move row ${optIdx + 1} up`}
+                                                   disabled={optIdx === 0}
+                                                   onClick={() => moveOption(sec.id, q.id, optIdx, optIdx - 1)}
+                                                 >
+                                                   <ArrowUp />
+                                                 </Button>
+                                                 <Button
+                                                   variant="ghost"
+                                                   size="icon-xs"
+                                                   className="text-slate-300 hover:text-red-500 hover:bg-red-50"
+                                                   aria-label={`Move row ${optIdx + 1} down`}
+                                                   disabled={optIdx === (q.options?.length ?? 0) - 1}
+                                                   onClick={() => moveOption(sec.id, q.id, optIdx, optIdx + 1)}
+                                                 >
+                                                   <ArrowDown />
+                                                 </Button>
+                                                 <Button
+                                                   variant="ghost"
+                                                   size="icon-xs"
+                                                   className="text-slate-300 hover:text-red-500 hover:bg-red-50"
+                                                   onClick={() => removeOption(secIdx, qIdx, optIdx)}
+                                                 >
                                                   <Trash className="size-3" />
                                                 </Button>
                                               </div>
@@ -1422,8 +1846,27 @@ export default function SurveyPage() {
                                           {/* Columns */}
                                           <div className="space-y-1.5 pl-7 border-t border-slate-100 pt-3">
                                             <span className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Columns</span>
-                                            {((q.config?.columns as string[]) ?? []).map((col, colIdx) => (
-                                              <div key={colIdx} className="flex items-center gap-2">
+                                             {((q.config?.columns as string[]) ?? []).map((col, colIdx) => (
+                                              <div
+                                                key={colIdx}
+                                                draggable
+                                                onDragStart={(event) => handleDragStart(event, {
+                                                  kind: "column",
+                                                  sectionId: sec.id,
+                                                  questionId: q.id,
+                                                  index: colIdx,
+                                                })}
+                                                onDragEnd={() => setDragItem(null)}
+                                                onDragOver={(event) => event.preventDefault()}
+                                                onDrop={(event) => handleDrop(event, {
+                                                  kind: "column",
+                                                  sectionId: sec.id,
+                                                  questionId: q.id,
+                                                  index: colIdx,
+                                                })}
+                                                className="flex items-center gap-2"
+                                              >
+                                                <GripVertical className="size-3.5 cursor-grab text-slate-300" aria-label="Drag column" />
                                                 <span className="text-[10px] font-semibold text-slate-400 w-4">{String.fromCharCode(65 + colIdx)}</span>
                                                 <Input
                                                   className="h-7 flex-1 bg-white text-xs"
@@ -1437,11 +1880,31 @@ export default function SurveyPage() {
                                                     })
                                                   }}
                                                 />
-                                                <Button
-                                                  variant="ghost"
-                                                  size="icon-xs"
-                                                  className="text-slate-300 hover:text-red-500 hover:bg-red-50"
-                                                  onClick={() => {
+                                                 <Button
+                                                   variant="ghost"
+                                                   size="icon-xs"
+                                                   className="text-slate-300 hover:text-red-500 hover:bg-red-50"
+                                                   aria-label={`Move column ${colIdx + 1} up`}
+                                                   disabled={colIdx === 0}
+                                                   onClick={() => moveColumn(sec.id, q.id, colIdx, colIdx - 1)}
+                                                 >
+                                                   <ArrowUp />
+                                                 </Button>
+                                                 <Button
+                                                   variant="ghost"
+                                                   size="icon-xs"
+                                                   className="text-slate-300 hover:text-red-500 hover:bg-red-50"
+                                                   aria-label={`Move column ${colIdx + 1} down`}
+                                                   disabled={colIdx === (((q.config?.columns as string[]) ?? []).length - 1)}
+                                                   onClick={() => moveColumn(sec.id, q.id, colIdx, colIdx + 1)}
+                                                 >
+                                                   <ArrowDown />
+                                                 </Button>
+                                                 <Button
+                                                   variant="ghost"
+                                                   size="icon-xs"
+                                                   className="text-slate-300 hover:text-red-500 hover:bg-red-50"
+                                                   onClick={() => {
                                                     const newCols = [...((q.config?.columns as string[]) ?? [])]
                                                     newCols.splice(colIdx, 1)
                                                     updateQuestion(secIdx, qIdx, {
@@ -1626,7 +2089,7 @@ export default function SurveyPage() {
                                 className={cn(
                                   "inline-flex items-center px-3 py-1.5 rounded-md text-[13px] font-medium",
                                   survey.status === "Active" && "bg-emerald-50 text-emerald-700",
-                                  survey.status === "Draft" && "bg-amber-50 text-amber-700",
+                                  survey.status === "Inactive" && "bg-amber-50 text-amber-700",
                                   survey.status === "Closed" && "bg-slate-100 text-slate-600"
                                 )}
                               >
@@ -1787,8 +2250,8 @@ export default function SurveyPage() {
                                       <div key={qIdx} className="rounded-xl border border-slate-200/80 bg-white p-6 shadow-sm hover:shadow-md transition-shadow">
                                         <p className="text-[15px] font-medium text-slate-900 mb-6">{qIdx + 1}. {q.text}</p>
                                         
-                                        {q.type === "text" ? (
-                                          <div className="space-y-3">
+                                         {q.type === "text" ? (
+                                           <div className="space-y-3">
                                             {qTexts.length > 0 ? (
                                               qTexts.map((txt, tIdx) => (
                                                 <div key={tIdx} className="bg-slate-50 border border-slate-100 p-4 rounded-xl text-[14px] text-slate-700 italic shadow-sm">&quot;{txt}&quot;</div>
@@ -1797,8 +2260,38 @@ export default function SurveyPage() {
                                               <div className="text-[14px] text-slate-400 italic py-2">No text responses yet.</div>
                                             )}
                                           </div>
-                                        ) : (
-                                          <div className="space-y-4">
+                                         ) : q.type === "scale" ? (
+                                           <div className="space-y-4">
+                                             {getScaleOptions(q).map((option, optionIdx) => {
+                                               const count = qCounts[String(option.value)] ?? 0
+                                               const percent = totalAnswers > 0
+                                                 ? Math.round((count / totalAnswers) * 100)
+                                                 : 0
+
+                                               return (
+                                                 <div key={option.value} className="group">
+                                                   <div className="flex justify-between text-[13px] mb-2">
+                                                     <span className="text-slate-600 font-medium truncate pr-4">
+                                                       {option.value}
+                                                       {option.label && (
+                                                         <span className="text-slate-400 ml-1.5">{option.label}</span>
+                                                       )}
+                                                       {count > 0 && <span className="text-slate-400 ml-1.5">({count})</span>}
+                                                     </span>
+                                                     <span className="font-semibold text-slate-900">{percent}%</span>
+                                                   </div>
+                                                   <div className="h-3 w-full bg-slate-100/80 rounded-full overflow-hidden shadow-inner">
+                                                     <div
+                                                       className={cn("h-full rounded-full transition-all duration-500", optionIdx === 0 ? "bg-indigo-500 shadow-sm" : "bg-indigo-300 group-hover:bg-indigo-400")}
+                                                       style={{ width: `${percent}%` }}
+                                                     />
+                                                   </div>
+                                                 </div>
+                                               )
+                                             })}
+                                           </div>
+                                         ) : (
+                                           <div className="space-y-4">
                                             {((q.options?.length ? q.options : ["Option 1", "Option 2", "Option 3"])).map((opt, optIdx) => {
                                               const isFirst = optIdx === 0
                                               const count = qCounts[opt] || 0
@@ -1844,7 +2337,7 @@ export default function SurveyPage() {
       {/* ── Generate Preview Dialog ──────────────────────────────────── */}
       <Dialog
         open={showGeneratePreview}
-        onOpenChange={(open) => !open && setShowGeneratePreview(false)}
+        onOpenChange={(open) => !open && !interactionLocked && setShowGeneratePreview(false)}
       >
         <DialogContent className="sm:max-w-3xl max-w-[95vw] max-h-[85vh] flex flex-col p-0 gap-0 overflow-hidden border-slate-200/60 rounded-2xl shadow-2xl bg-slate-50/50" showCloseButton={false}>
           {/* Header */}
@@ -1867,6 +2360,7 @@ export default function SurveyPage() {
               variant="ghost"
               size="icon"
               onClick={() => setShowGeneratePreview(false)}
+              disabled={interactionLocked}
               className="text-slate-400 hover:text-slate-600 hover:bg-slate-100 -mr-2"
             >
               <X className="size-4" />
@@ -1948,13 +2442,14 @@ export default function SurveyPage() {
               <Button
                 variant="outline"
                 onClick={() => setShowGeneratePreview(false)}
+                disabled={interactionLocked}
                 className="h-10 px-5 text-[13px] font-medium"
               >
                 Cancel
               </Button>
               <Button
                 onClick={handleConfirmGenerate}
-                disabled={generating}
+                disabled={interactionLocked}
                 className="h-10 px-5 text-[13px] font-medium gap-2 bg-indigo-600 hover:bg-indigo-700 text-white shadow-md shadow-indigo-600/20 border-0 transition-all active:scale-[0.98]"
               >
                 {generating ? (
@@ -1972,7 +2467,7 @@ export default function SurveyPage() {
       {/* Deletion Confirmation Dialog */}
       <Dialog
         open={deleteConfirmId !== null}
-        onOpenChange={(open) => !open && setDeleteConfirmId(null)}
+        onOpenChange={(open) => !open && !interactionLocked && setDeleteConfirmId(null)}
       >
         <DialogContent className="max-w-md" showCloseButton={true}>
           <DialogHeader>
@@ -1985,6 +2480,7 @@ export default function SurveyPage() {
             <Button
               variant="outline"
               onClick={() => setDeleteConfirmId(null)}
+              disabled={interactionLocked}
             >
               Cancel
             </Button>
@@ -2002,7 +2498,9 @@ export default function SurveyPage() {
                 }
                 setDeleteConfirmId(null)
               }}
+              disabled={interactionLocked}
             >
+              {pendingAction?.type === "delete" ? <Loader2 className="size-4 animate-spin" /> : null}
               Delete Survey
             </Button>
           </DialogFooter>
@@ -2012,7 +2510,13 @@ export default function SurveyPage() {
       {/* ── Distribution Dialog ─────────────────────────────────────── */}
       <Dialog
         open={distributeSurveyId !== null}
-        onOpenChange={(open) => !open && setDistributeSurveyId(null)}
+        onOpenChange={(open) => {
+          if (!open && !interactionLocked) {
+            setDistributeSurveyId(null)
+            setDistributionError(null)
+            setDistributions([])
+          }
+        }}
       >
         <DialogContent className="max-w-md p-0 overflow-hidden bg-white border-slate-200 shadow-2xl sm:rounded-2xl">
           <div className="px-6 pt-6 pb-4">
@@ -2028,7 +2532,14 @@ export default function SurveyPage() {
           </div>
 
           <div className="px-6 pb-6 space-y-4 bg-slate-50/30">
-            {distLoading ? (
+            {distributionError ? (
+              <div
+                className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800"
+                role="alert"
+              >
+                {distributionError}
+              </div>
+            ) : distLoading ? (
               <div className="flex justify-center py-12">
                 <Loader2 className="size-6 animate-spin text-slate-400" />
               </div>
@@ -2107,14 +2618,6 @@ export default function SurveyPage() {
         </DialogContent>
       </Dialog>
 
-      {/* ── Preview Dialog ──────────────────────────────────────────── */}
-      {previewSurvey && (
-        <SurveyPreview
-          survey={previewSurvey}
-          open={previewSurvey !== null}
-          onClose={handleClosePreview}
-        />
-      )}
     </div>
   )
 }

@@ -2,22 +2,26 @@ from datetime import datetime
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, field_validator
 
 from schemas.common import ListQueryParams
+from schemas.survey_structure import (
+    SurveyStructureCreateSection,
+    validate_structure_client_ids,
+)
 
 
 class SurveyBaseSchema(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
-SurveyStatus = Literal["Draft", "Active", "Closed"]
+SurveyStatus = Literal["Inactive", "Active", "Closed"]
 
 
 class SurveyBase(SurveyBaseSchema):
     title: str
     description: str | None = None
-    status: SurveyStatus = "Draft"
+    status: SurveyStatus = "Inactive"
     target_cohort: str | None = None
 
 
@@ -34,6 +38,20 @@ class SurveyCreate(SurveyBase):
     )
 
     performed_by: UUID | None = None
+
+
+class SurveyCreateWithStructure(SurveyCreate):
+    model_config = ConfigDict(extra="forbid")
+
+    sections: list[SurveyStructureCreateSection]
+
+    @field_validator("sections")
+    @classmethod
+    def require_unique_structure_client_ids(
+        cls, value: list[SurveyStructureCreateSection]
+    ) -> list[SurveyStructureCreateSection]:
+        validate_structure_client_ids(value)
+        return value
 
 
 class SurveyUpdate(SurveyBaseSchema):

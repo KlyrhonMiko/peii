@@ -11,16 +11,10 @@ class SurveyResponse(BaseModel, table=True):
     __tablename__ = "survey_responses"
     __table_args__ = (
         ForeignKeyConstraint(
-            ["version_id", "survey_id"],
-            ["survey_versions.id", "survey_versions.survey_id"],
-            name="fk_survey_responses_version_owner",
-        ),
-        ForeignKeyConstraint(
-            ["distribution_id", "survey_id", "version_id"],
+            ["distribution_id", "survey_id"],
             [
                 "survey_distributions.id",
                 "survey_distributions.survey_id",
-                "survey_distributions.version_id",
             ],
             name="fk_survey_responses_distribution_owner",
         ),
@@ -32,9 +26,6 @@ class SurveyResponse(BaseModel, table=True):
     )
 
     survey_id: UUID = Field(foreign_key="surveys.id", index=True, nullable=False)
-    version_id: UUID = Field(
-        foreign_key="survey_versions.id", index=True, nullable=False
-    )
     distribution_id: UUID | None = Field(
         default=None, index=True, nullable=True
     )

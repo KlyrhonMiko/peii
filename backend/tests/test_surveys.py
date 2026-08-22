@@ -16,7 +16,7 @@ async def test_create_and_list_surveys(client):
     create_data = create_response.json()["data"]
     assert create_data["title"] == payload["title"]
     assert create_data["survey_id"].startswith("SURV-")
-    assert create_data["status"] == "Draft"
+    assert create_data["status"] == "Inactive"
     assert create_data["responses_count"] == 0
     assert "id" in create_data
 
@@ -39,6 +39,134 @@ async def test_create_and_list_surveys(client):
         "target_cohort": None,
         "search": None,
     }
+
+
+async def test_create_survey_with_structure_accepts_uuid_client_ids(client):
+    response = await client.post(
+        "/api/v1/surveys/with-structure",
+        json={
+            "title": "Structured Survey",
+            "status": "Active",
+            "sections": [
+                {
+                    "client_id": "550e8400-e29b-41d4-a716-446655440000",
+                    "title": "Main",
+                    "questions": [
+                        {
+                            "client_id": "660e8400-e29b-41d4-a716-446655440000",
+                            "question_text": "How are you?",
+                            "question_type": "text",
+                        }
+                    ],
+                }
+            ],
+        },
+    )
+
+    assert response.status_code == 201
+    body = response.json()
+    assert "request_id" in body["meta"]
+    data = body["data"]
+    assert data["status"] == "Active"
+    assert len(data["sections"]) == 1
+    assert data["sections"][0]["id"] != "550e8400-e29b-41d4-a716-446655440000"
+    assert data["sections"][0]["questions"][0]["id"] != "660e8400-e29b-41d4-a716-446655440000"
+
+
+async def test_create_survey_rejects_active_status_without_structure(client):
+    response = await client.post(
+        "/api/v1/surveys/",
+        json={"title": "Incomplete Active Survey", "status": "Active"},
+    )
+
+    assert response.status_code == 422
+    body = response.json()
+    assert body["data"] is None
+    assert body["message"] == "Survey is not ready to be activated."
+    assert body["errors"][0]["code"] == "no_sections"
+    assert "request_id" in body["meta"]
+    assert (await client.get("/api/v1/surveys/")).json()["data"] == []
+
+
+@pytest.mark.parametrize(
+    "sections, error_code",
+    [
+        ([], "no_sections"),
+        (
+            [
+                {
+                    "client_id": "empty-section",
+                    "title": "Empty",
+                    "questions": [],
+                }
+            ],
+            "empty_section",
+        ),
+    ],
+)
+async def test_create_survey_with_structure_rejects_incomplete_active_structure(
+    client, sections, error_code
+):
+    response = await client.post(
+        "/api/v1/surveys/with-structure",
+        json={"title": "Incomplete Structured Survey", "status": "Active", "sections": sections},
+    )
+
+    assert response.status_code == 422
+    body = response.json()
+    assert body["message"] == "Survey is not ready to be activated."
+    assert body["errors"][0]["code"] == error_code
+    assert (await client.get("/api/v1/surveys/")).json()["data"] == []
+
+
+async def test_create_survey_with_invalid_structure_rolls_back_everything(client):
+    response = await client.post(
+        "/api/v1/surveys/with-structure",
+        json={
+            "title": "Invalid Structured Survey",
+            "sections": [
+                {
+                    "client_id": "local-section",
+                    "title": "Main",
+                    "questions": [
+                        {
+                            "client_id": "local-question",
+                            "question_text": "Choose one",
+                            "question_type": "single_choice",
+                            "options": [],
+                        }
+                    ],
+                }
+            ],
+        },
+    )
+
+    assert response.status_code == 422
+    body = response.json()
+    assert body["data"] is None
+    assert "request_id" in body["meta"]
+    surveys = await client.get("/api/v1/surveys/")
+    assert surveys.json()["data"] == []
+
+
+async def test_create_survey_with_structure_rejects_persisted_ids(client):
+    response = await client.post(
+        "/api/v1/surveys/with-structure",
+        json={
+            "title": "Invalid Identity Survey",
+            "sections": [
+                {
+                    "client_id": "local-section",
+                    "id": "550e8400-e29b-41d4-a716-446655440000",
+                    "title": "Main",
+                    "questions": [],
+                }
+            ],
+        },
+    )
+
+    assert response.status_code == 422
+    assert (await client.get("/api/v1/surveys/")).json()["data"] == []
 
 
 async def test_get_survey_with_questions(client):
@@ -76,6 +204,18 @@ async def test_update_survey(client):
         "title": "Old Title", "performed_by": None,
     })
     survey_id = create_resp.json()["data"]["survey_id"]
+    survey_uuid = create_resp.json()["data"]["id"]
+    section_resp = await client.post(
+        f"/api/v1/surveys/{survey_uuid}/sections/", json={"title": "Main"}
+    )
+    await client.post(
+        f"/api/v1/surveys/{survey_uuid}/questions/",
+        json={
+            "question_text": "Status",
+            "question_type": "text",
+            "section_id": section_resp.json()["data"]["id"],
+        },
+    )
 
     update_resp = await client.patch(
         f"/api/v1/surveys/{survey_id}",
@@ -84,6 +224,42 @@ async def test_update_survey(client):
     assert update_resp.status_code == 200
     assert update_resp.json()["data"]["title"] == "New Title"
     assert update_resp.json()["data"]["status"] == "Active"
+
+
+async def test_activation_rejects_empty_survey_without_applying_metadata(client):
+    create_resp = await client.post("/api/v1/surveys/", json={"title": "Old Title"})
+    survey_id = create_resp.json()["data"]["survey_id"]
+
+    update_resp = await client.patch(
+        f"/api/v1/surveys/{survey_id}",
+        json={"title": "New Title", "status": "Active"},
+    )
+
+    assert update_resp.status_code == 409
+    body = update_resp.json()
+    assert body["data"] is None
+    assert body["message"] == "Survey is not ready to be activated."
+    assert body["errors"][0]["code"] == "no_sections"
+    assert "request_id" in body["meta"]
+
+    fetched = await client.get(f"/api/v1/surveys/{survey_id}")
+    assert fetched.json()["data"]["title"] == "Old Title"
+    assert fetched.json()["data"]["status"] == "Inactive"
+
+
+async def test_activation_rejects_section_without_questions(client):
+    create_resp = await client.post("/api/v1/surveys/", json={"title": "Empty Section"})
+    survey = create_resp.json()["data"]
+    await client.post(
+        f"/api/v1/surveys/{survey['id']}/sections/", json={"title": "Main"}
+    )
+
+    response = await client.patch(
+        f"/api/v1/surveys/{survey['survey_id']}", json={"status": "Active"}
+    )
+
+    assert response.status_code == 409
+    assert response.json()["errors"][0]["code"] == "empty_section"
 
 
 async def test_soft_delete_and_restore_survey(client):
@@ -124,18 +300,36 @@ async def test_survey_not_found_uses_universal_error_shape(client):
 
 
 async def test_list_surveys_with_filters(client):
+    await client.post(
+        "/api/v1/surveys/with-structure",
+        json={
+            "title": "Active Survey",
+            "status": "Active",
+            "target_cohort": "Class of 2024",
+            "sections": [
+                {
+                    "client_id": "active-section",
+                    "title": "Main",
+                    "questions": [
+                        {
+                            "client_id": "active-question",
+                            "question_text": "Status",
+                            "question_type": "text",
+                        }
+                    ],
+                }
+            ],
+        },
+    )
     await client.post("/api/v1/surveys/", json={
-        "title": "Active Survey", "status": "Active", "target_cohort": "Class of 2024",
-    })
-    await client.post("/api/v1/surveys/", json={
-        "title": "Draft Survey", "status": "Draft", "target_cohort": "Class of 2025",
+        "title": "Inactive Survey", "status": "Inactive", "target_cohort": "Class of 2025",
     })
 
     resp = await client.get("/api/v1/surveys/?status=Active")
     assert len(resp.json()["data"]) == 1
     assert resp.json()["meta"]["filters"]["status"] == "Active"
 
-    resp = await client.get("/api/v1/surveys/?search=Draft")
+    resp = await client.get("/api/v1/surveys/?search=Inactive")
     assert len(resp.json()["data"]) == 1
 
     resp = await client.get("/api/v1/surveys/?sort_by=title&sort_order=asc")

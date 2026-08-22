@@ -8,7 +8,6 @@ IDEMPOTENCY_KEY = "018f4a1a-7b3b-7d0e-913a-c5f1c5c1c5c2"
 async def _create_active_survey_with_questions(client):
     resp = await client.post("/api/v1/surveys/", json={
         "title": "Response Survey",
-        "status": "Active",
         "performed_by": None,
     })
     survey_uuid = resp.json()["data"]["id"]
@@ -27,8 +26,11 @@ async def _create_active_survey_with_questions(client):
         "section_id": section_id,
     })
 
-    publish_response = await client.post(f"/api/v1/surveys/{survey_uuid}/publish")
-    assert publish_response.status_code == 200
+    status_response = await client.patch(
+        f"/api/v1/surveys/{resp.json()['data']['survey_id']}",
+        json={"status": "Active"},
+    )
+    assert status_response.status_code == 200
 
     dist_resp = await client.post(
         f"/api/v1/surveys/{survey_uuid}/distributions/",
@@ -61,6 +63,7 @@ async def test_submit_response(client):
     assert resp.status_code == 201
     assert resp.json()["data"]["distribution_id"] is not None
     assert "alumni_token" not in resp.json()["data"]
+    assert "version_id" not in resp.json()["data"]
 
 
 async def test_submit_response_requires_idempotency_key(client):
@@ -123,7 +126,7 @@ async def test_submit_response_is_idempotent(client):
 async def test_response_validates_each_answer_type(client):
     survey_response = await client.post(
         "/api/v1/surveys/",
-        json={"title": "Typed Responses", "status": "Active"},
+        json={"title": "Typed Responses"},
     )
     survey_uuid = survey_response.json()["data"]["id"]
     section_response = await client.post(
@@ -178,7 +181,12 @@ async def test_response_validates_each_answer_type(client):
         assert response.status_code == 201
         questions[question_type] = response.json()["data"]["id"]
 
-    assert (await client.post(f"/api/v1/surveys/{survey_uuid}/publish")).status_code == 200
+    assert (
+        await client.patch(
+            f"/api/v1/surveys/{survey_response.json()['data']['survey_id']}",
+            json={"status": "Active"},
+        )
+    ).status_code == 200
     distribution = await client.post(
         f"/api/v1/surveys/{survey_uuid}/distributions/",
         json={"expires_at": EXPIRY},
@@ -218,7 +226,7 @@ async def test_response_validates_each_answer_type(client):
 async def test_required_whitespace_answer_is_rejected(client):
     survey_response = await client.post(
         "/api/v1/surveys/",
-        json={"title": "Required Text", "status": "Active"},
+        json={"title": "Required Text"},
     )
     survey_uuid = survey_response.json()["data"]["id"]
     section_response = await client.post(
@@ -233,7 +241,12 @@ async def test_required_whitespace_answer_is_rejected(client):
         },
     )
     question_id = question.json()["data"]["id"]
-    assert (await client.post(f"/api/v1/surveys/{survey_uuid}/publish")).status_code == 200
+    assert (
+        await client.patch(
+            f"/api/v1/surveys/{survey_response.json()['data']['survey_id']}",
+            json={"status": "Active"},
+        )
+    ).status_code == 200
     distribution = await client.post(
         f"/api/v1/surveys/{survey_uuid}/distributions/",
         json={"expires_at": EXPIRY},
@@ -277,7 +290,7 @@ async def test_revoked_token_rejects_read_and_submit(client):
 async def test_expired_token_rejects_public_access(client, monkeypatch):
     survey_response = await client.post(
         "/api/v1/surveys/",
-        json={"title": "Expired Survey", "status": "Active"},
+        json={"title": "Expired Survey"},
     )
     survey_uuid = survey_response.json()["data"]["id"]
     section_response = await client.post(
@@ -291,7 +304,12 @@ async def test_expired_token_rejects_public_access(client, monkeypatch):
             "section_id": section_response.json()["data"]["id"],
         },
     )
-    assert (await client.post(f"/api/v1/surveys/{survey_uuid}/publish")).status_code == 200
+    assert (
+        await client.patch(
+            f"/api/v1/surveys/{survey_response.json()['data']['survey_id']}",
+            json={"status": "Active"},
+        )
+    ).status_code == 200
     distribution_response = await client.post(
         f"/api/v1/surveys/{survey_uuid}/distributions/",
         json={"expires_at": "2099-01-01T00:00:00+00:00"},

@@ -12,12 +12,16 @@ from models.survey_section import SurveySection
 from schemas.survey_section import SurveySectionCreate, SurveySectionUpdate
 from services.audit_service import AuditEvent, commit_with_audit
 from services.base_service import apply_updates, utc_now
-from services.survey_version_service import ensure_draft_version, get_version_for_read
+from services.distribution_service import revoke_for_structure_change
+from services.survey_service import get_survey_for_structure_edit
 
 
 async def _validate_survey_exists(session: AsyncSession, survey_id: UUID) -> Survey:
     result = await session.exec(
-        select(Survey).where(col(Survey.id) == survey_id, col(Survey.is_deleted).is_(False))
+        select(Survey).where(
+            col(Survey.id) == survey_id,
+            col(Survey.is_deleted).is_(False),
+        )
     )
     survey = result.first()
     if not survey:
@@ -29,12 +33,10 @@ async def list_sections(
     session: AsyncSession, survey_id: UUID
 ) -> list[SurveySection]:
     await _validate_survey_exists(session, survey_id)
-    version = await get_version_for_read(session, survey_id)
     result = await session.exec(
         select(SurveySection)
         .where(
             col(SurveySection.survey_id) == survey_id,
-            col(SurveySection.version_id) == version.id,
             col(SurveySection.is_deleted).is_(False),
         )
         .order_by(col(SurveySection.order_index), col(SurveySection.id))
@@ -46,12 +48,10 @@ async def get_section(
     session: AsyncSession, survey_id: UUID, section_id: UUID
 ) -> SurveySection:
     await _validate_survey_exists(session, survey_id)
-    version = await get_version_for_read(session, survey_id)
     result = await session.exec(
         select(SurveySection).where(
             col(SurveySection.id) == section_id,
             col(SurveySection.survey_id) == survey_id,
-            col(SurveySection.version_id) == version.id,
             col(SurveySection.is_deleted).is_(False),
         )
     )
@@ -70,13 +70,11 @@ async def get_section_with_questions(
         .where(
             col(SurveyQuestion.section_id) == section_id,
             col(SurveyQuestion.survey_id) == survey_id,
-            col(SurveyQuestion.version_id) == section.version_id,
             col(SurveyQuestion.is_deleted).is_(False),
         )
         .order_by(col(SurveyQuestion.order_index), col(SurveyQuestion.id))
     )
-    questions = list(questions_result.all())
-    return section, questions
+    return section, list(questions_result.all())
 
 
 async def create_section(
@@ -85,39 +83,36 @@ async def create_section(
     payload: SurveySectionCreate,
     ip_address: str | None = None,
 ) -> SurveySection:
-    survey = await _validate_survey_exists(session, survey_id)
-    draft, version_events = await ensure_draft_version(session, survey)
-
+    survey = await get_survey_for_structure_edit(session, survey_id)
     max_order_result = await session.exec(
         select(func.max(SurveySection.order_index)).where(
-            col(SurveySection.survey_id) == survey_id,
-            col(SurveySection.version_id) == draft.id,
+            col(SurveySection.survey_id) == survey.id,
             col(SurveySection.is_deleted).is_(False),
         )
     )
     current_max = max_order_result.one()
-    next_order = (current_max if current_max is not None else -1) + 1
-
     section = SurveySection(
-        survey_id=survey_id,
-        version_id=draft.id,
+        survey_id=survey.id,
         title=payload.title,
         description=payload.description,
-        order_index=next_order,
+        order_index=(current_max if current_max is not None else -1) + 1,
         performed_by=payload.performed_by,
     )
     session.add(section)
+    events = await revoke_for_structure_change(
+        session, survey, performed_by=payload.performed_by, ip_address=ip_address
+    )
     await commit_with_audit(
         session,
         [
-            *version_events,
             AuditEvent(
                 action="create",
                 resource_type="survey_section",
                 resource_id=str(section.id),
                 performed_by=payload.performed_by,
                 ip_address=ip_address,
-            )
+            ),
+            *events,
         ],
     )
     await session.refresh(section)
@@ -131,13 +126,11 @@ async def update_section(
     payload: SurveySectionUpdate,
     ip_address: str | None = None,
 ) -> SurveySection:
-    survey = await _validate_survey_exists(session, survey_id)
-    draft, version_events = await ensure_draft_version(session, survey)
+    survey = await get_survey_for_structure_edit(session, survey_id)
     result = await session.exec(
         select(SurveySection).where(
             col(SurveySection.id) == section_id,
-            col(SurveySection.survey_id) == survey_id,
-            col(SurveySection.version_id) == draft.id,
+            col(SurveySection.survey_id) == survey.id,
             col(SurveySection.is_deleted).is_(False),
         )
     )
@@ -146,29 +139,31 @@ async def update_section(
         raise AppError("Section not found.", status_code=status.HTTP_404_NOT_FOUND)
 
     updates = payload.model_dump(exclude_unset=True)
-
-    changes = {}
-    for key, val in updates.items():
-        if key == "performed_by":
-            continue
-        old_val = getattr(section, key)
-        if old_val != val:
-            changes[key] = {"before": old_val, "after": val}
+    changes = {
+        key: {"before": getattr(section, key), "after": value}
+        for key, value in updates.items()
+        if key != "performed_by" and getattr(section, key) != value
+    }
+    if not changes:
+        return section
 
     apply_updates(section, updates)
     session.add(section)
+    revoke_events = await revoke_for_structure_change(
+        session, survey, performed_by=payload.performed_by, ip_address=ip_address
+    )
     await commit_with_audit(
         session,
         [
-            *version_events,
             AuditEvent(
                 action="update",
                 resource_type="survey_section",
                 resource_id=str(section.id),
                 performed_by=payload.performed_by,
-                changes=changes if changes else None,
+                changes=changes,
                 ip_address=ip_address,
-            )
+            ),
+            *revoke_events,
         ],
     )
     await session.refresh(section)
@@ -183,13 +178,11 @@ async def delete_section(
     cascade_questions: bool = False,
     ip_address: str | None = None,
 ) -> SurveySection:
-    survey = await _validate_survey_exists(session, survey_id)
-    draft, version_events = await ensure_draft_version(session, survey)
+    survey = await get_survey_for_structure_edit(session, survey_id)
     result = await session.exec(
         select(SurveySection).where(
             col(SurveySection.id) == section_id,
-            col(SurveySection.survey_id) == survey_id,
-            col(SurveySection.version_id) == draft.id,
+            col(SurveySection.survey_id) == survey.id,
             col(SurveySection.is_deleted).is_(False),
         )
     )
@@ -200,8 +193,7 @@ async def delete_section(
     questions_result = await session.exec(
         select(SurveyQuestion).where(
             col(SurveyQuestion.section_id) == section.id,
-            col(SurveyQuestion.survey_id) == survey_id,
-            col(SurveyQuestion.version_id) == draft.id,
+            col(SurveyQuestion.survey_id) == survey.id,
             col(SurveyQuestion.is_deleted).is_(False),
         )
     )
@@ -212,13 +204,13 @@ async def delete_section(
             status_code=status.HTTP_409_CONFLICT,
         )
 
+    now = utc_now()
     section.is_deleted = True
-    section.deleted_at = utc_now()
+    section.deleted_at = now
     section.performed_by = performed_by
-    section.updated_at = utc_now()
+    section.updated_at = now
     session.add(section)
     events = [
-        *version_events,
         AuditEvent(
             action="delete",
             resource_type="survey_section",
@@ -227,24 +219,27 @@ async def delete_section(
             ip_address=ip_address,
         )
     ]
-    if questions:
-        deleted_at = utc_now()
-        for question in questions:
-            question.is_deleted = True
-            question.deleted_at = deleted_at
-            question.performed_by = performed_by
-            question.updated_at = deleted_at
-            session.add(question)
-            events.append(
-                AuditEvent(
-                    action="delete",
-                    resource_type="survey_question",
-                    resource_id=str(question.id),
-                    performed_by=performed_by,
-                    changes={"reason": "section_cascade"},
-                    ip_address=ip_address,
-                )
+    for question in questions:
+        question.is_deleted = True
+        question.deleted_at = now
+        question.performed_by = performed_by
+        question.updated_at = now
+        session.add(question)
+        events.append(
+            AuditEvent(
+                action="delete",
+                resource_type="survey_question",
+                resource_id=str(question.id),
+                performed_by=performed_by,
+                changes={"reason": "section_cascade"},
+                ip_address=ip_address,
             )
+        )
+    events.extend(
+        await revoke_for_structure_change(
+            session, survey, performed_by=performed_by, ip_address=ip_address
+        )
+    )
     await commit_with_audit(session, events)
     await session.refresh(section)
     return section
@@ -257,68 +252,54 @@ async def reorder_sections(
     performed_by: UUID | None = None,
     ip_address: str | None = None,
 ) -> list[SurveySection]:
-    survey = await _validate_survey_exists(session, survey_id)
-    draft, version_events = await ensure_draft_version(session, survey)
-
+    survey = await get_survey_for_structure_edit(session, survey_id)
     existing_result = await session.exec(
-        select(SurveySection.id).where(
-            col(SurveySection.survey_id) == survey_id,
-            col(SurveySection.version_id) == draft.id,
+        select(SurveySection).where(
+            col(SurveySection.survey_id) == survey.id,
             col(SurveySection.is_deleted).is_(False),
         )
     )
-    existing_ids = set(existing_result.all())
-
-    if len(section_ids) != len(existing_ids) or set(section_ids) != existing_ids:
+    sections_by_id = {section.id: section for section in existing_result.all()}
+    if len(section_ids) != len(sections_by_id) or set(section_ids) != set(sections_by_id):
         raise AppError(
             "Provided section IDs do not match the survey's active sections.",
             status_code=status.HTTP_400_BAD_REQUEST,
         )
 
-    sections = []
-    changes = []
-    for idx, sid in enumerate(section_ids):
-        result = await session.exec(
-            select(SurveySection).where(
-                col(SurveySection.id) == sid,
-                col(SurveySection.survey_id) == survey_id,
-                col(SurveySection.version_id) == draft.id,
-                col(SurveySection.is_deleted).is_(False),
-            )
+    changes = [
+        AuditEvent(
+            action="reorder",
+            resource_type="survey_section",
+            resource_id=str(section_id),
+            performed_by=performed_by,
+            changes={
+                "order_index": {
+                    "before": sections_by_id[section_id].order_index,
+                    "after": index,
+                }
+            },
+            ip_address=ip_address,
         )
-        section = result.first()
-        if section:
-            old_order = section.order_index
-            sections.append(section)
-            if old_order != idx:
-                changes.append(
-                    AuditEvent(
-                        action="reorder",
-                        resource_type="survey_section",
-                        resource_id=str(section.id),
-                        performed_by=performed_by,
-                        changes={"order_index": {"before": old_order, "after": idx}},
-                        ip_address=ip_address,
-                    )
-                )
-
+        for index, section_id in enumerate(section_ids)
+        if sections_by_id[section_id].order_index != index
+    ]
     if not changes:
-        return sorted(sections, key=lambda s: (s.order_index, s.id))
+        return sorted(sections_by_id.values(), key=lambda s: (s.order_index, s.id))
 
-    # Move through a temporary range beyond the current maximum so the active-order
-    # unique index cannot reject a valid permutation while rows still have old values.
+    sections = [sections_by_id[section_id] for section_id in section_ids]
     temporary_base = max(section.order_index for section in sections) + len(sections) + 1
-    for idx, section in enumerate(sections):
-        section.order_index = temporary_base + idx
+    for index, section in enumerate(sections):
+        section.order_index = temporary_base + index
         session.add(section)
     await session.flush()
-    for idx, section in enumerate(sections):
-        section.order_index = idx
+    for index, section in enumerate(sections):
+        section.order_index = index
         session.add(section)
 
-    await commit_with_audit(session, [*version_events, *changes])
-    for s in sections:
-        await session.refresh(s)
-
-    sections.sort(key=lambda s: (s.order_index, s.id))
+    revoke_events = await revoke_for_structure_change(
+        session, survey, performed_by=performed_by, ip_address=ip_address
+    )
+    await commit_with_audit(session, [*changes, *revoke_events])
+    for section in sections:
+        await session.refresh(section)
     return sections
