@@ -1,4 +1,12 @@
+from uuid import UUID, uuid4
+
 import pytest
+from sqlmodel import select
+
+from core.database import get_async_session
+from main import app
+from models.survey import Survey
+from models.survey_distribution import SurveyDistribution
 
 pytestmark = pytest.mark.anyio
 
@@ -19,6 +27,24 @@ async def _activate(client, survey_id: str) -> None:
         f"/api/v1/surveys/{survey_id}", json={"status": "Active"}
     )
     assert response.status_code == 200
+
+
+async def _create_legacy_active_survey(client, title: str) -> tuple[str, str]:
+    override = app.dependency_overrides[get_async_session]
+    session_generator = override()
+    session = await anext(session_generator)
+    try:
+        survey = Survey(
+            survey_id=f"SURV-{uuid4().hex[:8]}",
+            title=title,
+            status="Active",
+        )
+        session.add(survey)
+        await session.commit()
+        await session.refresh(survey)
+        return str(survey.id), survey.survey_id
+    finally:
+        await session_generator.aclose()
 
 
 async def test_question_cannot_use_a_section_from_another_survey(client):
@@ -252,3 +278,73 @@ async def test_response_rejects_unknown_and_missing_required_questions(client):
         headers={"Idempotency-Key": "018f4a1a-7b3b-7d0e-913a-c5f1c5c1c5c4"},
     )
     assert valid.status_code == 201
+
+
+async def test_legacy_invalid_active_survey_cannot_be_distributed_or_submitted(client):
+    survey_uuid, _ = await _create_legacy_active_survey(client, "Legacy Empty Survey")
+
+    distribution = await client.post(
+        f"/api/v1/surveys/{survey_uuid}/distributions/",
+        json={"expires_at": "2099-01-01T00:00:00+00:00"},
+    )
+    assert distribution.status_code == 409
+    assert distribution.json()["message"] == "Survey is not ready for distribution."
+    assert distribution.json()["errors"][0]["code"] == "no_sections"
+
+    override = app.dependency_overrides[get_async_session]
+    session_generator = override()
+    session = await anext(session_generator)
+    try:
+        legacy_distribution = SurveyDistribution(
+            survey_id=UUID(survey_uuid),
+            token="legacy-empty-survey-token",
+        )
+        session.add(legacy_distribution)
+        await session.commit()
+    finally:
+        await session_generator.aclose()
+
+    public_survey = await client.get("/api/v1/survey/legacy-empty-survey-token")
+    response = await client.post(
+        "/api/v1/survey/legacy-empty-survey-token/respond",
+        json={"answers": {}},
+        headers={"Idempotency-Key": "018f4a1a-7b3b-7d0e-913a-c5f1c5c1c5c2"},
+    )
+    assert public_survey.status_code == 404
+    assert response.status_code == 404
+
+    session_generator = override()
+    session = await anext(session_generator)
+    try:
+        stored = await session.exec(select(Survey).where(Survey.id == UUID(survey_uuid)))
+        assert stored.one().responses_count == 0
+    finally:
+        await session_generator.aclose()
+
+
+async def test_restore_rejects_legacy_invalid_active_survey(client):
+    _, survey_business_id = await _create_legacy_active_survey(client, "Deleted Legacy Survey")
+
+    deleted = await client.request(
+        "DELETE", f"/api/v1/surveys/{survey_business_id}", json={}
+    )
+    assert deleted.status_code == 200
+
+    restored = await client.post(
+        f"/api/v1/surveys/{survey_business_id}/restore", json={}
+    )
+    assert restored.status_code == 409
+    body = restored.json()
+    assert body["message"] == "Survey is not ready to be activated."
+    assert body["errors"][0]["code"] == "no_sections"
+
+    override = app.dependency_overrides[get_async_session]
+    session_generator = override()
+    session = await anext(session_generator)
+    try:
+        result = await session.exec(
+            select(Survey).where(Survey.survey_id == survey_business_id)
+        )
+        assert result.one().is_deleted is True
+    finally:
+        await session_generator.aclose()

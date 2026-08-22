@@ -80,13 +80,96 @@ async def list_surveys(
 
 
 async def get_survey(
-    session: AsyncSession, survey_id: str, include_deleted: bool = False
+    session: AsyncSession,
+    survey_id: str,
+    include_deleted: bool = False,
+    for_update: bool = False,
 ) -> Survey:
-    result = await session.exec(select(Survey).where(col(Survey.survey_id) == survey_id))
+    statement = select(Survey).where(col(Survey.survey_id) == survey_id)
+    if for_update:
+        statement = statement.with_for_update()
+    result = await session.exec(statement)
     survey = result.first()
     if not survey or (survey.is_deleted and not include_deleted):
         raise AppError("Survey not found.", status_code=status.HTTP_404_NOT_FOUND)
     return survey
+
+
+def _activation_readiness_error(
+    errors: list[dict[str, str]], status_code: int
+) -> AppError:
+    return AppError(
+        "Survey is not ready to be activated.",
+        status_code=status_code,
+        errors=errors,
+    )
+
+
+def _payload_readiness_errors(payload: SurveyCreateWithStructure) -> list[dict[str, str]]:
+    if not payload.sections:
+        return [
+            {
+                "code": "no_sections",
+                "message": "Active surveys must contain at least one section.",
+            }
+        ]
+    return [
+        {
+            "code": "empty_section",
+            "section_id": section.client_id,
+            "message": "Every section in an active survey must contain at least one question.",
+        }
+        for section in payload.sections
+        if not section.questions
+    ]
+
+
+async def get_survey_readiness_errors(
+    session: AsyncSession, survey_id: UUID
+) -> list[dict[str, str]]:
+    sections_result = await session.exec(
+        select(SurveySection).where(
+            col(SurveySection.survey_id) == survey_id,
+            col(SurveySection.is_deleted).is_(False),
+        )
+    )
+    sections = list(sections_result.all())
+    if not sections:
+        return [
+            {
+                "code": "no_sections",
+                "message": "Active surveys must contain at least one section.",
+            }
+        ]
+
+    questions_result = await session.exec(
+        select(SurveyQuestion.section_id)
+        .join(SurveySection, col(SurveySection.id) == SurveyQuestion.section_id)
+        .where(
+            col(SurveyQuestion.survey_id) == survey_id,
+            col(SurveySection.survey_id) == survey_id,
+            col(SurveySection.is_deleted).is_(False),
+            col(SurveyQuestion.is_deleted).is_(False),
+        )
+    )
+    section_ids_with_questions = set(questions_result.all())
+    return [
+        {
+            "code": "empty_section",
+            "section_id": str(section.id),
+            "message": "Every section in an active survey must contain at least one question.",
+        }
+        for section in sections
+        if section.id not in section_ids_with_questions
+    ]
+
+
+async def ensure_survey_ready_for_activation(
+    session: AsyncSession, survey_id: UUID, status_code: int
+) -> None:
+    errors = await get_survey_readiness_errors(session, survey_id)
+    if errors:
+        raise _activation_readiness_error(errors, status_code)
 
 
 async def get_survey_by_uuid(session: AsyncSession, survey_id: UUID) -> Survey:
@@ -189,6 +272,16 @@ async def get_survey_with_sections(
 async def create_survey(
     session: AsyncSession, payload: SurveyCreate, ip_address: str | None = None
 ) -> Survey:
+    if payload.status == "Active":
+        raise _activation_readiness_error(
+            [
+                {
+                    "code": "no_sections",
+                    "message": "Active surveys must contain at least one section.",
+                }
+            ],
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+        )
     survey_data = payload.model_dump(exclude={"performed_by"})
     survey_data["survey_id"] = generate_business_id("SURV")
     survey = Survey.model_validate(survey_data)
@@ -216,15 +309,11 @@ async def create_survey_with_structure(
     ip_address: str | None = None,
 ) -> Survey:
     if payload.status == "Active":
-        if not payload.sections:
-            raise AppError(
-                "Active surveys must contain at least one section.",
-                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            )
-        if any(not section.questions for section in payload.sections):
-            raise AppError(
-                "Every section in an active survey must contain at least one question.",
-                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+        readiness_errors = _payload_readiness_errors(payload)
+        if readiness_errors:
+            raise _activation_readiness_error(
+                readiness_errors,
+                status.HTTP_422_UNPROCESSABLE_CONTENT,
             )
 
     for section_input in payload.sections:
@@ -310,8 +399,15 @@ async def update_survey(
     payload: SurveyUpdate,
     ip_address: str | None = None,
 ) -> Survey:
-    survey = await get_survey(session, survey_id)
+    survey = await get_survey(session, survey_id, for_update=True)
     updates = payload.model_dump(exclude_unset=True)
+    resulting_status = updates.get("status", survey.status)
+    if resulting_status == "Active":
+        await ensure_survey_ready_for_activation(
+            session,
+            survey.id,
+            status.HTTP_409_CONFLICT,
+        )
 
     changes = {}
     for key, val in updates.items():
@@ -374,9 +470,20 @@ async def restore_survey(
     payload: SurveyRestore,
     ip_address: str | None = None,
 ) -> Survey:
-    survey = await get_survey(session, survey_id, include_deleted=True)
+    survey = await get_survey(
+        session,
+        survey_id,
+        include_deleted=True,
+        for_update=True,
+    )
     if not survey.is_deleted:
         raise AppError("Survey is not deleted.", status_code=status.HTTP_400_BAD_REQUEST)
+    if survey.status == "Active":
+        await ensure_survey_ready_for_activation(
+            session,
+            survey.id,
+            status.HTTP_409_CONFLICT,
+        )
 
     survey.is_deleted = False
     survey.deleted_at = None

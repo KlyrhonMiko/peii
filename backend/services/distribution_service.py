@@ -13,6 +13,7 @@ from models.survey_distribution import SurveyDistribution
 from schemas.survey import SurveyStatus
 from schemas.survey_distribution import DistributionStatus, SurveyDistributionCreate
 from services.audit_service import AuditEvent, commit_with_audit
+from services.survey_service import get_survey_readiness_errors
 
 
 def _public_token_error() -> AppError:
@@ -71,13 +72,20 @@ async def _get_survey(
 async def _validate_survey_for_distribution(
     session: AsyncSession, survey_id: UUID
 ) -> Survey:
-    survey = await _get_survey(session, survey_id)
+    survey = await _get_survey(session, survey_id, for_update=True)
     if not survey:
         raise AppError("Survey not found.", status_code=status.HTTP_404_NOT_FOUND)
     if survey.status != "Active":
         raise AppError(
             "Only active surveys can be distributed.",
             status_code=status.HTTP_400_BAD_REQUEST,
+        )
+    readiness_errors = await get_survey_readiness_errors(session, survey.id)
+    if readiness_errors:
+        raise AppError(
+            "Survey is not ready for distribution.",
+            status_code=status.HTTP_409_CONFLICT,
+            errors=readiness_errors,
         )
     return survey
 
@@ -279,6 +287,8 @@ async def get_distribution_by_token(
         shared_lock=shared_lock,
     )
     if not survey or not _is_active(distribution, survey.status):
+        raise _public_token_error()
+    if await get_survey_readiness_errors(session, survey.id):
         raise _public_token_error()
     return distribution
 
