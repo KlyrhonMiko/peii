@@ -30,7 +30,6 @@ class SurveyStructureSection(BaseModel):
 class SurveyStructureReplace(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    expected_revision: int | None = None
     sections: list[SurveyStructureSection]
     cascade_section_ids: list[UUID] = Field(default_factory=list)
 

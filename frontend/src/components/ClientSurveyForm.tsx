@@ -103,6 +103,7 @@ export function ClientSurveyForm({
   const [submitted, setSubmitted] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
   const idempotencyKey = useRef<string | null>(null)
+  const submittingRef = useRef(false)
 
   const section = sections[sectionIdx]
   if (submitted) {
@@ -161,6 +162,7 @@ export function ClientSurveyForm({
   }
 
   const goNext = () => {
+    if (submitting) return
     if (!validateSection()) {
       setValidationAlertOpen(true)
       return
@@ -168,10 +170,12 @@ export function ClientSurveyForm({
     if (!isLast) setSectionIdx((p) => p + 1)
   }
   const goPrev = () => {
+    if (submitting) return
     if (!isFirst) setSectionIdx((p) => p - 1)
   }
 
   const setAnswer = (qId: string, value: AnswerValue) => {
+    if (submitting) return
     setAnswers((prev) => ({ ...prev, [qId]: value }))
     if (errors[qId]) {
       setErrors((prev) => {
@@ -191,6 +195,7 @@ export function ClientSurveyForm({
   }
 
   const onSubmitClick = () => {
+    if (submitting) return
     if (!validateSection()) {
       setValidationAlertOpen(true)
       return
@@ -199,7 +204,8 @@ export function ClientSurveyForm({
   }
 
   const handleSubmit = async () => {
-    if (submitting) return
+    if (submittingRef.current || submitting) return
+    submittingRef.current = true
     setSubmitting(true)
     setSubmitError(null)
     try {
@@ -234,6 +240,7 @@ export function ClientSurveyForm({
     } catch {
       setSubmitError("We could not submit your response. Please try again.")
     } finally {
+      submittingRef.current = false
       setSubmitting(false)
     }
   }
@@ -242,7 +249,12 @@ export function ClientSurveyForm({
     <div className="min-h-screen bg-[#f0f2f5]">
       <div className="h-[240px] bg-gradient-to-br from-indigo-600 via-indigo-500 to-violet-500" />
 
-      <div className="mx-auto w-full max-w-[640px] px-4 -mt-[200px] pb-12">
+      <fieldset
+        disabled={submitting}
+        aria-busy={submitting}
+        className="contents"
+      >
+      <div className={`mx-auto w-full max-w-[640px] px-4 -mt-[200px] pb-12 ${submitting ? "pointer-events-none opacity-90" : ""}`}>
         {/* Title card */}
         <div className="relative mb-4 overflow-hidden rounded-xl border-t-[6px] border-t-indigo-500 bg-white shadow-sm ring-1 ring-black/[0.04]">
           <div className="px-7 pb-6 pt-7">
@@ -448,6 +460,7 @@ export function ClientSurveyForm({
               {q.question_type === "ranking" && (() => {
                 const currentOrder = (answers[q.id] as string[] | undefined) ?? q.options ?? []
                 const handleMove = (idx: number, direction: "up" | "down") => {
+                  if (submitting) return
                   const nextOrder = [...currentOrder]
                   const targetIdx = direction === "up" ? idx - 1 : idx + 1
                   if (targetIdx < 0 || targetIdx >= nextOrder.length) return
@@ -613,6 +626,12 @@ export function ClientSurveyForm({
           ))}
         </div>
 
+        {submitting && (
+          <div className="mt-5 flex items-center gap-2 text-xs text-slate-500" role="status" aria-live="polite">
+            <Loader2 className="size-3.5 animate-spin" />
+            <span>Submitting your response...</span>
+          </div>
+        )}
         {submitError && (
           <div className="mt-5 flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2.5 text-sm text-red-700" role="alert">
             <AlertCircle className="mt-0.5 size-4 shrink-0" />
@@ -674,8 +693,9 @@ export function ClientSurveyForm({
           </p>
         </footer>
       </div>
+      </fieldset>
 
-      <Dialog open={validationAlertOpen} onOpenChange={setValidationAlertOpen}>
+      <Dialog open={validationAlertOpen} onOpenChange={(open) => !submitting && setValidationAlertOpen(open)}>
         <DialogContent className="sm:max-w-[400px]">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-rose-600">
@@ -687,7 +707,7 @@ export function ClientSurveyForm({
             </DialogDescription>
           </DialogHeader>
           <DialogFooter className="mt-2">
-            <Button onClick={() => setValidationAlertOpen(false)} className="bg-indigo-600 hover:bg-indigo-700 text-white border-0 shadow-sm">
+            <Button disabled={submitting} onClick={() => setValidationAlertOpen(false)} className="bg-indigo-600 hover:bg-indigo-700 text-white border-0 shadow-sm">
               Got it
             </Button>
           </DialogFooter>

@@ -9,6 +9,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from core.exceptions import AppError
 from models.survey import Survey
 from models.survey_question import SurveyQuestion
+from models.survey_response import SurveyResponse
 from models.survey_section import SurveySection
 from schemas.survey import (
     SurveyCreate,
@@ -19,7 +20,6 @@ from schemas.survey import (
 )
 from services.audit_service import AuditEvent, commit_with_audit
 from services.base_service import apply_updates, utc_now
-from services.survey_version_service import create_initial_version, get_version_for_read
 from utils.identifiers import generate_business_id
 from utils.sorting import stable_order_by
 
@@ -100,18 +100,45 @@ async def get_survey_by_uuid(session: AsyncSession, survey_id: UUID) -> Survey:
     return survey
 
 
+async def get_survey_for_structure_edit(
+    session: AsyncSession, survey_id: UUID
+) -> Survey:
+    result = await session.exec(
+        select(Survey)
+        .where(col(Survey.id) == survey_id, col(Survey.is_deleted).is_(False))
+        .with_for_update()
+    )
+    survey = result.first()
+    if not survey:
+        raise AppError("Survey not found.", status_code=status.HTTP_404_NOT_FOUND)
+    if survey.status != "Inactive":
+        raise AppError(
+            "Survey structure can only be edited while the survey is inactive.",
+            status_code=status.HTTP_409_CONFLICT,
+        )
+
+    response_count_result = await session.exec(
+        select(func.count()).select_from(SurveyResponse).where(
+            col(SurveyResponse.survey_id) == survey_id
+        )
+    )
+    if response_count_result.one() > 0:
+        raise AppError(
+            "Survey structure cannot be edited after a response is submitted.",
+            status_code=status.HTTP_409_CONFLICT,
+        )
+    return survey
+
+
 async def get_survey_with_questions(
     session: AsyncSession, survey_id: str
 ) -> tuple[Survey, list[SurveyQuestion]]:
     survey = await get_survey(session, survey_id)
-    version = await get_version_for_read(session, survey.id)
     questions_result = await session.exec(
         select(SurveyQuestion)
         .join(SurveySection, col(SurveySection.id) == SurveyQuestion.section_id)
         .where(
             col(SurveyQuestion.survey_id) == survey.id,
-            col(SurveyQuestion.version_id) == version.id,
-            col(SurveySection.version_id) == version.id,
             col(SurveySection.is_deleted).is_(False),
             col(SurveyQuestion.is_deleted).is_(False),
         )
@@ -130,13 +157,10 @@ async def get_survey_with_sections(
     session: AsyncSession, survey_id: str
 ) -> tuple[Survey, list[tuple[SurveySection, list[SurveyQuestion]]]]:
     survey = await get_survey(session, survey_id)
-    version = await get_version_for_read(session, survey.id)
-
     sections_result = await session.exec(
         select(SurveySection)
         .where(
             col(SurveySection.survey_id) == survey.id,
-            col(SurveySection.version_id) == version.id,
             col(SurveySection.is_deleted).is_(False),
         )
         .order_by(col(SurveySection.order_index), col(SurveySection.id))
@@ -150,7 +174,6 @@ async def get_survey_with_sections(
             .where(
                 col(SurveyQuestion.section_id) == section.id,
                 col(SurveyQuestion.survey_id) == survey.id,
-                col(SurveyQuestion.version_id) == version.id,
                 col(SurveyQuestion.is_deleted).is_(False),
             )
             .order_by(col(SurveyQuestion.order_index), col(SurveyQuestion.id))
@@ -168,7 +191,6 @@ async def create_survey(
     survey_data["survey_id"] = generate_business_id("SURV")
     survey = Survey.model_validate(survey_data)
     survey.performed_by = payload.performed_by
-    _version, version_audit = await create_initial_version(session, survey)
     session.add(survey)
     await commit_with_audit(
         session,
@@ -180,7 +202,6 @@ async def create_survey(
                 performed_by=survey.performed_by,
                 ip_address=ip_address,
             ),
-            version_audit,
         ],
     )
     await session.refresh(survey)

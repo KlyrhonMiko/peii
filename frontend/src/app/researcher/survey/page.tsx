@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useMemo } from "react"
+import { useState, useEffect, useMemo, useRef } from "react"
 import type { DragEvent } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -40,7 +40,6 @@ import {
   Upload,
   ToggleLeft,
   Loader2,
-  ExternalLink,
   Share2,
   Copy,
   Link,
@@ -56,18 +55,13 @@ import {
   createSurvey,
   updateSurvey,
   deleteSurvey,
-  createSection,
-  createQuestion,
-  ensureSurveyDraft,
   replaceSurveyStructure,
-  publishSurvey,
-  discardSurveyDraft,
   createDistribution,
   fetchDistributions,
   fetchResponses,
+  getScaleOptions,
 } from "@/lib/surveys"
-import type { Survey, SurveyQuestion, SurveySection, Distribution, SurveyResponse } from "@/lib/surveys"
-import { SurveyPreview } from "@/components/SurveyPreview"
+import type { Survey, SurveyQuestion, SurveySection, Distribution, SurveyResponse, SurveyStatus } from "@/lib/surveys"
 
 const ALUMNI_QUESTIONNAIRE = [
   {
@@ -241,6 +235,8 @@ const QUESTION_TYPES = [
   { value: "boolean", label: "Yes/No", icon: ToggleLeft },
 ] as const
 
+const SURVEY_STATUSES: SurveyStatus[] = ["Inactive", "Active", "Closed"]
+
 type ModalState =
   | { type: "create" }
   | { type: "edit"; id: string }
@@ -253,6 +249,11 @@ type DragItem =
   | { kind: "question"; sectionId: string; id: string }
   | { kind: "option"; sectionId: string; questionId: string; index: number }
   | { kind: "column"; sectionId: string; questionId: string; index: number }
+
+type PendingAction = {
+  type: "load" | "view" | "edit" | "generate" | "save" | "delete" | "distribute"
+  surveyId?: string
+} | null
 
 function createClientId(): string {
   return typeof crypto !== "undefined" && "randomUUID" in crypto
@@ -303,6 +304,9 @@ function aggregateResponses(responses: SurveyResponse[]) {
 export default function SurveyPage() {
   const [surveys, setSurveys] = useState<Survey[]>([])
   const [loading, setLoading] = useState(true)
+  const [pendingAction, setPendingAction] = useState<Exclude<PendingAction, null> | null>(null)
+  const pendingActionRef = useRef<Exclude<PendingAction, null> | null>(null)
+  const [requestError, setRequestError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
   const [generating, setGenerating] = useState(false)
@@ -314,12 +318,10 @@ export default function SurveyPage() {
   const [cohortOpen, setCohortOpen] = useState(false)
   const [openQuestionSelectId, setOpenQuestionSelectId] = useState<string | null>(null)
   const [statusOpen, setStatusOpen] = useState(false)
-  const [surveyStatus, setSurveyStatus] = useState("Draft")
+  const [surveyStatus, setSurveyStatus] = useState<SurveyStatus>("Inactive")
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null)
   const [surveyTitle, setSurveyTitle] = useState("")
   const [surveyDescription, setSurveyDescription] = useState("")
-  const [previewSurvey, setPreviewSurvey] = useState<Survey | null>(null)
-  const [previewLoading, setPreviewLoading] = useState(false)
   const [showGeneratePreview, setShowGeneratePreview] = useState(false)
   const [distributeSurveyId, setDistributeSurveyId] = useState<string | null>(null)
   const [distributions, setDistributions] = useState<Distribution[]>([])
@@ -333,17 +335,53 @@ export default function SurveyPage() {
   )
   const [copiedToken, setCopiedToken] = useState<string | null>(null)
 
+  const interactionLocked = pendingAction !== null
+  const pendingLabel = pendingAction?.type === "load"
+    ? "Loading surveys..."
+    : pendingAction?.type === "view"
+      ? "Loading survey..."
+      : pendingAction?.type === "edit"
+        ? "Opening editor..."
+        : pendingAction?.type === "generate"
+          ? "Generating questionnaire..."
+          : pendingAction?.type === "save"
+            ? "Saving survey..."
+              : pendingAction?.type === "delete"
+                ? "Deleting survey..."
+                : pendingAction?.type === "distribute"
+                  ? "Loading distribution..."
+                  : null
+
+  const runExclusive = async <T,>(
+    action: Exclude<PendingAction, null>,
+    operation: () => Promise<T>,
+  ): Promise<T | undefined> => {
+    if (pendingActionRef.current !== null) return undefined
+    pendingActionRef.current = action
+    setPendingAction(action)
+    try {
+      return await operation()
+    } finally {
+      if (pendingActionRef.current === action) {
+        pendingActionRef.current = null
+        setPendingAction(null)
+      }
+    }
+  }
+
   useEffect(() => {
     let mounted = true
     const load = async () => {
-      try {
-        const result = await fetchSurveys()
-        if (mounted) setSurveys(result.surveys)
-      } catch {
-        /* empty — the empty table communicates the state */
-      } finally {
-        if (mounted) setLoading(false)
-      }
+      await runExclusive({ type: "load" }, async () => {
+        try {
+          const result = await fetchSurveys()
+          if (mounted) setSurveys(result.surveys)
+        } catch (error) {
+          if (mounted) setRequestError(error instanceof Error ? error.message : "We could not load surveys.")
+        } finally {
+          if (mounted) setLoading(false)
+        }
+      })
     }
     void load()
     return () => {
@@ -352,8 +390,16 @@ export default function SurveyPage() {
   }, [])
 
   const handleDelete = async (surveyId: string) => {
-    await deleteSurvey(surveyId)
-    setSurveys((prev) => prev.filter((s) => s.surveyId !== surveyId))
+    setRequestError(null)
+    await runExclusive({ type: "delete", surveyId }, async () => {
+      try {
+        await deleteSurvey(surveyId)
+        setSurveys((prev) => prev.filter((s) => s.surveyId !== surveyId))
+      } catch (error) {
+        setRequestError(error instanceof Error ? error.message : "We could not delete the survey.")
+        throw error
+      }
+    })
   }
 
   const handleCloseModal = () => {
@@ -364,15 +410,16 @@ export default function SurveyPage() {
     setSurveyTitle("")
     setSurveyDescription("")
     setTargetCohort("Class of 2024")
-    setSurveyStatus("Draft")
+    setSurveyStatus("Inactive")
     setViewTab("questions")
   }
 
   const handleOpenCreate = () => {
+    if (interactionLocked) return
     setSurveyTitle("")
     setSurveyDescription("")
     setTargetCohort("Class of 2024")
-    setSurveyStatus("Draft")
+    setSurveyStatus("Inactive")
     setSections([{
       id: createClientId(),
       title: "",
@@ -386,101 +433,105 @@ export default function SurveyPage() {
   const handleOpenView = async (id: string) => {
     const survey = surveys.find((s) => s.id === id)
     if (!survey) return
-    try {
-      const full = await fetchSurvey(survey.surveyId)
-      setSurveys((prev) => prev.map((s) => (s.id === id ? { ...s, ...full } : s)))
-      
-      if (full.responses > 0) {
-        const { responses } = await fetchResponses(full.id)
-        setSurveyResponses(responses)
-      } else {
-        setSurveyResponses([])
+    setRequestError(null)
+    await runExclusive({ type: "view", surveyId: id }, async () => {
+      try {
+        const full = await fetchSurvey(survey.surveyId)
+        setSurveys((prev) => prev.map((s) => (s.id === id ? { ...s, ...full } : s)))
+        if (full.responses > 0) {
+          const { responses } = await fetchResponses(full.id)
+          setSurveyResponses(responses)
+        } else {
+          setSurveyResponses([])
+        }
+        setModalState({ type: "view", id })
+      } catch (error) {
+        setRequestError(error instanceof Error ? error.message : "We could not load the survey.")
       }
-      
-      setModalState({ type: "view", id })
-    } catch {
-      // silently fail
-    } finally {
-      // The view modal remains usable while response details are loading.
-    }
+    })
   }
 
   const handleOpenEdit = async (id: string) => {
     const survey = surveys.find((s) => s.id === id)
     if (!survey) return
-    try {
-      await ensureSurveyDraft(survey.id)
-      const full = await fetchSurvey(survey.surveyId)
-      setSurveys((prev) => prev.map((item) => (item.id === full.id ? full : item)))
-      setSurveyTitle(full.title)
-      setSurveyDescription(full.description ?? "")
-      setTargetCohort(full.targetCohort ?? "Class of 2024")
-      setSurveyStatus(full.status ?? "Draft")
-      const loaded = full.sections ?? []
-      setOriginalSections(loaded)
-      setSections(loaded)
-      setModalState({ type: "edit", id })
-    } catch {
-      // silently fail
-    }
+    setRequestError(null)
+    await runExclusive({ type: "edit", surveyId: id }, async () => {
+      try {
+        const full = await fetchSurvey(survey.surveyId)
+        setSurveys((prev) => prev.map((item) => (item.id === full.id ? full : item)))
+        setSurveyTitle(full.title)
+        setSurveyDescription(full.description ?? "")
+        setTargetCohort(full.targetCohort ?? "Class of 2024")
+        setSurveyStatus(full.status)
+        const loaded = full.sections ?? []
+        setOriginalSections(loaded)
+        setSections(loaded)
+        setModalState({ type: "edit", id })
+      } catch (error) {
+        setRequestError(error instanceof Error ? error.message : "We could not open the editor.")
+      }
+    })
   }
 
   const handleShowGeneratePreview = () => {
+    if (interactionLocked) return
     setShowGeneratePreview(true)
   }
 
   const handleConfirmGenerate = async () => {
-    if (generating) return
-    setGenerating(true)
-    try {
-      const created = await createSurvey({
-        title: "Alumni Survey Questionnaire",
-        description: "This comprehensive survey helps us understand your post-graduation journey — from employment outcomes and degree-to-career alignment to socioeconomic impact and personal growth.",
-        target_cohort: "All Alumni",
-        status: "Active",
-      })
-      for (const sec of ALUMNI_QUESTIONNAIRE) {
-        const createdSec = await createSection(created.id, {
-          title: sec.title,
-          description: sec.description,
+    if (generating || interactionLocked) return
+    setRequestError(null)
+    await runExclusive({ type: "generate" }, async () => {
+      setGenerating(true)
+      try {
+        const created = await createSurvey({
+          title: "Alumni Survey Questionnaire",
+          description: "This comprehensive survey helps us understand your post-graduation journey — from employment outcomes and degree-to-career alignment to socioeconomic impact and personal growth.",
+          target_cohort: "All Alumni",
+          status: "Inactive",
         })
-        for (const q of sec.questions) {
-          await createQuestion(created.id, {
-            question_text: q.question_text,
-            question_type: q.question_type,
-            options: q.options ?? null,
-            config: q.config ?? null,
-            is_required: true,
-            section_id: createdSec.id,
-          })
-        }
+        await replaceSurveyStructure(created.id, {
+          sections: ALUMNI_QUESTIONNAIRE.map((section) => ({
+            client_id: createClientId(),
+            title: section.title,
+            description: section.description,
+            questions: section.questions.map((question) => ({
+              client_id: createClientId(),
+              question_text: question.question_text,
+              question_type: question.question_type,
+              options: question.options,
+              config: question.config,
+              is_required: true,
+            })),
+          })),
+        })
+        await updateSurvey(created.surveyId, { status: "Active" })
+        const full = await fetchSurvey(created.surveyId)
+        setSurveys((prev) => [full, ...prev])
+        setShowGeneratePreview(false)
+      } catch (error) {
+        setRequestError(error instanceof Error ? error.message : "We could not generate the questionnaire.")
+      } finally {
+        setGenerating(false)
       }
-      await publishSurvey(created.id)
-      const full = await fetchSurvey(created.surveyId)
-      setSurveys((prev) => [full, ...prev])
-      setShowGeneratePreview(false)
-    } catch {
-      /* silently fail */
-    } finally {
-      setGenerating(false)
-    }
+    })
   }
 
-  const handleSaveSurvey = async () => {
+  const performSaveSurvey = async () => {
     if (!surveyTitle.trim() || saving) return
     setSaving(true)
     setSaveError(null)
-    let createdDraft: Survey | null = null
+    let createdSurvey: Survey | null = null
     try {
       if (surveyStatus === "Active") {
         if (sections.length === 0) {
-          setSaveError("Add at least one section before publishing the survey.")
+          setSaveError("Add at least one section before activating the survey.")
           return
         }
         const emptySection = sections.find((section) => section.questions.length === 0)
         if (emptySection) {
           setSaveError(
-            `Section "${emptySection.title || "Untitled Section"}" must contain at least one question before publishing.`,
+            `Section "${emptySection.title || "Untitled Section"}" must contain at least one question before activating.`,
           )
           return
         }
@@ -491,10 +542,9 @@ export default function SurveyPage() {
           title: surveyTitle,
           description: surveyDescription || null,
           target_cohort: targetCohort,
-          status: "Draft",
+          status: "Inactive",
         })
         const saved = await replaceSurveyStructure(created.id, {
-          expected_revision: created.structureRevision ?? 0,
           sections: sections.map((section) => ({
             client_id: section.id,
             id: section.id,
@@ -514,8 +564,7 @@ export default function SurveyPage() {
         setSections(saved.sections ?? [])
         setOriginalSections(saved.sections ?? [])
         setSurveys((prev) => [saved, ...prev.filter((survey) => survey.id !== saved.id)])
-        createdDraft = saved
-        if (surveyStatus === "Active") await publishSurvey(created.id)
+        createdSurvey = saved
         await updateSurvey(created.surveyId, {
           title: surveyTitle,
           description: surveyDescription || null,
@@ -523,37 +572,44 @@ export default function SurveyPage() {
           status: surveyStatus,
         })
         const full = await fetchSurvey(created.surveyId)
-        setSurveys((prev) => [full, ...prev])
+        setSurveys((prev) => [full, ...prev.filter((survey) => survey.id !== full.id)])
       } else if (modalState?.type === "edit") {
         const target = surveys.find((s) => s.id === modalState.id)
         if (!target) return
 
-        const removedSectionIds = originalSections
-          .filter((original) => !sections.some((section) => section.id === original.id))
-          .map((section) => section.id)
-        const saved = await replaceSurveyStructure(target.id, {
-          expected_revision: target.structureRevision ?? 0,
-          sections: sections.map((section) => ({
-            client_id: section.id,
-            id: section.id,
-            title: section.title || "Untitled Section",
-            description: section.description || null,
-            questions: section.questions.map((question) => ({
-              client_id: question.id,
-              id: question.id,
-              question_text: question.text,
-              question_type: question.type,
-              options: question.options ?? null,
-              config: question.config ?? null,
-              is_required: question.isRequired ?? true,
+        const structureChanged = JSON.stringify(sections) !== JSON.stringify(originalSections)
+        const structureEditable = target.status === "Inactive" && target.responses === 0
+        if (structureChanged && !structureEditable) {
+          setSaveError("Only inactive surveys with no responses can have their structure edited.")
+          return
+        }
+
+        if (structureChanged) {
+          const removedSectionIds = originalSections
+            .filter((original) => !sections.some((section) => section.id === original.id))
+            .map((section) => section.id)
+          const saved = await replaceSurveyStructure(target.id, {
+            sections: sections.map((section) => ({
+              client_id: section.id,
+              id: section.id,
+              title: section.title || "Untitled Section",
+              description: section.description || null,
+              questions: section.questions.map((question) => ({
+                client_id: question.id,
+                id: question.id,
+                question_text: question.text,
+                question_type: question.type,
+                options: question.options ?? null,
+                config: question.config ?? null,
+                is_required: question.isRequired ?? true,
+              })),
             })),
-          })),
-          cascade_section_ids: removedSectionIds,
-        })
-        setSections(saved.sections ?? [])
-        setOriginalSections(saved.sections ?? [])
-        setSurveys((prev) => prev.map((survey) => survey.id === saved.id ? saved : survey))
-        if (surveyStatus === "Active") await publishSurvey(target.id)
+            cascade_section_ids: removedSectionIds,
+          })
+          setSections(saved.sections ?? [])
+          setOriginalSections(saved.sections ?? [])
+          setSurveys((prev) => prev.map((survey) => survey.id === saved.id ? saved : survey))
+        }
         await updateSurvey(target.surveyId, {
           title: surveyTitle,
           description: surveyDescription || null,
@@ -565,8 +621,8 @@ export default function SurveyPage() {
       }
       handleCloseModal()
     } catch (error) {
-      if (createdDraft) {
-        setModalState({ type: "edit", id: createdDraft.id })
+      if (createdSurvey) {
+        setModalState({ type: "edit", id: createdSurvey.id })
       }
       setSaveError(
         error instanceof Error
@@ -578,60 +634,34 @@ export default function SurveyPage() {
     }
   }
 
-  const handleDiscardDraft = async () => {
-    if (modalState?.type !== "edit" || saving) return
-    if (!window.confirm("Discard this draft and restore the last published version?")) return
-    const target = surveys.find((survey) => survey.id === modalState.id)
-    if (!target) return
-    setSaving(true)
-    setSaveError(null)
-    try {
-      await discardSurveyDraft(target.id)
-      const refreshed = await fetchSurvey(target.surveyId)
-      setSurveys((prev) => prev.map((survey) => survey.id === refreshed.id ? refreshed : survey))
-      handleCloseModal()
-    } catch (error) {
-      setSaveError(error instanceof Error ? error.message : "We could not discard the draft.")
-    } finally {
-      setSaving(false)
-    }
-  }
-
-
-
-  const handlePreview = async (surveyId: string) => {
-    const survey = surveys.find((s) => s.id === surveyId)
-    if (!survey) return
-    setPreviewLoading(true)
-    try {
-      const full = await fetchSurvey(survey.surveyId)
-      setPreviewSurvey(full)
-    } catch {
-      // silently fail
-    } finally {
-      setPreviewLoading(false)
-    }
-  }
-
-  const handleClosePreview = () => {
-    setPreviewSurvey(null)
+  const handleSaveSurvey = async () => {
+    if (!surveyTitle.trim() || saving || interactionLocked) return
+    const action: Exclude<PendingAction, null> = modalState?.type === "edit"
+      ? { type: "save", surveyId: modalState.id }
+      : { type: "save" }
+    await runExclusive(action, performSaveSurvey)
   }
 
   const handleOpenDistribute = async (surveyId: string) => {
-    setDistributeSurveyId(surveyId)
-    setDistLoading(true)
-    try {
-      let items = await fetchDistributions(surveyId)
-      if (items.length === 0) {
-        const created = await createDistribution(surveyId)
-        items = [created]
+    if (interactionLocked) return
+    setRequestError(null)
+    await runExclusive({ type: "distribute", surveyId }, async () => {
+      setDistributeSurveyId(surveyId)
+      setDistLoading(true)
+      try {
+        let items = await fetchDistributions(surveyId)
+        if (items.length === 0) {
+          const created = await createDistribution(surveyId)
+          items = [created]
+        }
+        setDistributions(items)
+      } catch (error) {
+        setDistributions([])
+        setRequestError(error instanceof Error ? error.message : "We could not load distribution links.")
+      } finally {
+        setDistLoading(false)
       }
-      setDistributions(items)
-    } catch {
-      setDistributions([])
-    } finally {
-      setDistLoading(false)
-    }
+    })
   }
 
   const handleCopyLink = async (token: string) => {
@@ -914,6 +944,7 @@ export default function SurveyPage() {
           <Button
             onClick={handleShowGeneratePreview}
             variant="outline"
+            disabled={interactionLocked}
             className="gap-2 border-violet-200 text-violet-700 hover:bg-violet-50"
           >
             <ClipboardList className="size-4" />
@@ -921,6 +952,7 @@ export default function SurveyPage() {
           </Button>
           <Button
             onClick={handleOpenCreate}
+            disabled={interactionLocked}
             className="gap-2 bg-indigo-600 hover:bg-indigo-700 text-white border-0"
           >
             <Plus className="size-4" />
@@ -928,6 +960,18 @@ export default function SurveyPage() {
           </Button>
         </div>
       </div>
+
+      {pendingLabel && (
+        <div className="flex items-center gap-2 text-xs text-slate-500" role="status" aria-live="polite">
+          <Loader2 className="size-3.5 animate-spin" />
+          <span>{pendingLabel}</span>
+        </div>
+      )}
+      {requestError && (
+        <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700" role="alert">
+          {requestError}
+        </div>
+      )}
 
       {/* Survey List */}
       <div className="rounded-xl border border-slate-200/80 bg-white overflow-hidden">
@@ -980,7 +1024,7 @@ export default function SurveyPage() {
                           "inline-flex items-center px-2 py-1 rounded-md text-[11px] font-medium",
                           survey.status === "Active" &&
                             "bg-emerald-50 text-emerald-700",
-                          survey.status === "Draft" &&
+                          survey.status === "Inactive" &&
                             "bg-amber-50 text-amber-700",
                           survey.status === "Closed" &&
                             "bg-slate-100 text-slate-600"
@@ -1006,49 +1050,43 @@ export default function SurveyPage() {
                         <Button
                           variant="ghost"
                           size="icon"
-                          onClick={() => handlePreview(survey.id)}
-                          disabled={previewLoading}
-                          className="text-slate-400 hover:text-violet-600 hover:bg-violet-50"
-                          title="Preview Survey Form"
-                        >
-                          <ExternalLink className="size-4" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
                           onClick={() => handleOpenView(survey.id)}
+                          disabled={interactionLocked}
                           className="text-slate-400 hover:text-indigo-600 hover:bg-indigo-50"
                           title="View Details"
                         >
-                          <Eye className="size-4" />
+                          {pendingAction?.type === "view" && pendingAction.surveyId === survey.id ? <Loader2 className="size-4 animate-spin" /> : <Eye className="size-4" />}
                         </Button>
                         <Button
                           variant="ghost"
                           size="icon"
                           onClick={() => handleOpenEdit(survey.id)}
+                          disabled={interactionLocked}
                           className="text-slate-400 hover:text-indigo-600 hover:bg-indigo-50"
                           title="Edit Questions & Details"
                         >
-                          <Pencil className="size-4" />
+                          {pendingAction?.type === "edit" && pendingAction.surveyId === survey.id ? <Loader2 className="size-4 animate-spin" /> : <Pencil className="size-4" />}
                         </Button>
 
                         <Button
                           variant="ghost"
                           size="icon"
                           onClick={() => handleOpenDistribute(survey.id)}
+                          disabled={interactionLocked}
                           className="text-slate-400 hover:text-emerald-600 hover:bg-emerald-50"
                           title="Distribute"
                         >
-                          <Share2 className="size-4" />
+                          {pendingAction?.type === "distribute" && pendingAction.surveyId === survey.id ? <Loader2 className="size-4 animate-spin" /> : <Share2 className="size-4" />}
                         </Button>
                         <Button
                           variant="ghost"
                           size="icon"
                           onClick={() => setDeleteConfirmId(survey.id)}
+                          disabled={interactionLocked}
                           className="text-slate-400 hover:text-red-600 hover:bg-red-50"
                           title="Delete"
                         >
-                          <Trash className="size-4" />
+                          {pendingAction?.type === "delete" && pendingAction.surveyId === survey.id ? <Loader2 className="size-4 animate-spin" /> : <Trash className="size-4" />}
                         </Button>
                       </div>
                     </td>
@@ -1063,7 +1101,7 @@ export default function SurveyPage() {
       {/* ── Create / Edit Survey Dialog ─────────────────────────────── */}
       <Dialog
         open={modalState !== null && (modalState.type === "create" || modalState.type === "edit")}
-        onOpenChange={(open) => !open && handleCloseModal()}
+        onOpenChange={(open) => !open && !interactionLocked && handleCloseModal()}
       >
         <DialogContent 
           showCloseButton={false}
@@ -1086,22 +1124,12 @@ export default function SurveyPage() {
               </div>
             </div>
             <div className="flex items-center gap-3">
-              {modalState?.type === "edit" && (
-                <Button
-                  variant="ghost"
-                  onClick={handleDiscardDraft}
-                  disabled={saving}
-                  className="h-9 text-red-600 hover:bg-red-50 hover:text-red-700"
-                >
-                  Discard Draft
-                </Button>
-              )}
-              <Button variant="outline" onClick={handleCloseModal} className="h-9">
+              <Button variant="outline" onClick={handleCloseModal} disabled={interactionLocked} className="h-9">
                 Cancel
               </Button>
               <Button
                 onClick={handleSaveSurvey}
-                disabled={!surveyTitle.trim() || saving}
+                disabled={!surveyTitle.trim() || interactionLocked}
                 className="gap-2 bg-indigo-600 hover:bg-indigo-700 text-white h-9"
               >
                 {saving ? (
@@ -1122,7 +1150,11 @@ export default function SurveyPage() {
             </div>
           )}
 
-          <div className="flex flex-1 overflow-hidden">
+          <div
+            className={cn("flex flex-1 overflow-hidden", interactionLocked && "pointer-events-none opacity-75")}
+            aria-busy={interactionLocked}
+            inert={interactionLocked}
+          >
             {/* Left Sidebar: Details */}
             <div className="w-[340px] shrink-0 border-r border-slate-200/80 bg-slate-50/50 p-6 overflow-y-auto">
               <fieldset className="space-y-4">
@@ -1215,7 +1247,7 @@ export default function SurveyPage() {
                           style={{ width: "var(--anchor-width)" }}
                           className="p-1 flex flex-col gap-0.5 bg-white border border-slate-200 rounded-lg shadow-md animate-in fade-in-0 zoom-in-95 duration-100"
                         >
-                          {["Active", "Draft", "Closed"].map((statusOption) => {
+                          {SURVEY_STATUSES.map((statusOption) => {
                             const isSelected = surveyStatus === statusOption
                             return (
                               <button
@@ -2041,7 +2073,7 @@ export default function SurveyPage() {
                                 className={cn(
                                   "inline-flex items-center px-3 py-1.5 rounded-md text-[13px] font-medium",
                                   survey.status === "Active" && "bg-emerald-50 text-emerald-700",
-                                  survey.status === "Draft" && "bg-amber-50 text-amber-700",
+                                  survey.status === "Inactive" && "bg-amber-50 text-amber-700",
                                   survey.status === "Closed" && "bg-slate-100 text-slate-600"
                                 )}
                               >
@@ -2202,8 +2234,8 @@ export default function SurveyPage() {
                                       <div key={qIdx} className="rounded-xl border border-slate-200/80 bg-white p-6 shadow-sm hover:shadow-md transition-shadow">
                                         <p className="text-[15px] font-medium text-slate-900 mb-6">{qIdx + 1}. {q.text}</p>
                                         
-                                        {q.type === "text" ? (
-                                          <div className="space-y-3">
+                                         {q.type === "text" ? (
+                                           <div className="space-y-3">
                                             {qTexts.length > 0 ? (
                                               qTexts.map((txt, tIdx) => (
                                                 <div key={tIdx} className="bg-slate-50 border border-slate-100 p-4 rounded-xl text-[14px] text-slate-700 italic shadow-sm">&quot;{txt}&quot;</div>
@@ -2212,8 +2244,38 @@ export default function SurveyPage() {
                                               <div className="text-[14px] text-slate-400 italic py-2">No text responses yet.</div>
                                             )}
                                           </div>
-                                        ) : (
-                                          <div className="space-y-4">
+                                         ) : q.type === "scale" ? (
+                                           <div className="space-y-4">
+                                             {getScaleOptions(q).map((option, optionIdx) => {
+                                               const count = qCounts[String(option.value)] ?? 0
+                                               const percent = totalAnswers > 0
+                                                 ? Math.round((count / totalAnswers) * 100)
+                                                 : 0
+
+                                               return (
+                                                 <div key={option.value} className="group">
+                                                   <div className="flex justify-between text-[13px] mb-2">
+                                                     <span className="text-slate-600 font-medium truncate pr-4">
+                                                       {option.value}
+                                                       {option.label && (
+                                                         <span className="text-slate-400 ml-1.5">{option.label}</span>
+                                                       )}
+                                                       {count > 0 && <span className="text-slate-400 ml-1.5">({count})</span>}
+                                                     </span>
+                                                     <span className="font-semibold text-slate-900">{percent}%</span>
+                                                   </div>
+                                                   <div className="h-3 w-full bg-slate-100/80 rounded-full overflow-hidden shadow-inner">
+                                                     <div
+                                                       className={cn("h-full rounded-full transition-all duration-500", optionIdx === 0 ? "bg-indigo-500 shadow-sm" : "bg-indigo-300 group-hover:bg-indigo-400")}
+                                                       style={{ width: `${percent}%` }}
+                                                     />
+                                                   </div>
+                                                 </div>
+                                               )
+                                             })}
+                                           </div>
+                                         ) : (
+                                           <div className="space-y-4">
                                             {((q.options?.length ? q.options : ["Option 1", "Option 2", "Option 3"])).map((opt, optIdx) => {
                                               const isFirst = optIdx === 0
                                               const count = qCounts[opt] || 0
@@ -2259,7 +2321,7 @@ export default function SurveyPage() {
       {/* ── Generate Preview Dialog ──────────────────────────────────── */}
       <Dialog
         open={showGeneratePreview}
-        onOpenChange={(open) => !open && setShowGeneratePreview(false)}
+        onOpenChange={(open) => !open && !interactionLocked && setShowGeneratePreview(false)}
       >
         <DialogContent className="sm:max-w-3xl max-w-[95vw] max-h-[85vh] flex flex-col p-0 gap-0 overflow-hidden border-slate-200/60 rounded-2xl shadow-2xl bg-slate-50/50" showCloseButton={false}>
           {/* Header */}
@@ -2282,6 +2344,7 @@ export default function SurveyPage() {
               variant="ghost"
               size="icon"
               onClick={() => setShowGeneratePreview(false)}
+              disabled={interactionLocked}
               className="text-slate-400 hover:text-slate-600 hover:bg-slate-100 -mr-2"
             >
               <X className="size-4" />
@@ -2363,13 +2426,14 @@ export default function SurveyPage() {
               <Button
                 variant="outline"
                 onClick={() => setShowGeneratePreview(false)}
+                disabled={interactionLocked}
                 className="h-10 px-5 text-[13px] font-medium"
               >
                 Cancel
               </Button>
               <Button
                 onClick={handleConfirmGenerate}
-                disabled={generating}
+                disabled={interactionLocked}
                 className="h-10 px-5 text-[13px] font-medium gap-2 bg-indigo-600 hover:bg-indigo-700 text-white shadow-md shadow-indigo-600/20 border-0 transition-all active:scale-[0.98]"
               >
                 {generating ? (
@@ -2387,7 +2451,7 @@ export default function SurveyPage() {
       {/* Deletion Confirmation Dialog */}
       <Dialog
         open={deleteConfirmId !== null}
-        onOpenChange={(open) => !open && setDeleteConfirmId(null)}
+        onOpenChange={(open) => !open && !interactionLocked && setDeleteConfirmId(null)}
       >
         <DialogContent className="max-w-md" showCloseButton={true}>
           <DialogHeader>
@@ -2400,6 +2464,7 @@ export default function SurveyPage() {
             <Button
               variant="outline"
               onClick={() => setDeleteConfirmId(null)}
+              disabled={interactionLocked}
             >
               Cancel
             </Button>
@@ -2417,7 +2482,9 @@ export default function SurveyPage() {
                 }
                 setDeleteConfirmId(null)
               }}
+              disabled={interactionLocked}
             >
+              {pendingAction?.type === "delete" ? <Loader2 className="size-4 animate-spin" /> : null}
               Delete Survey
             </Button>
           </DialogFooter>
@@ -2427,7 +2494,7 @@ export default function SurveyPage() {
       {/* ── Distribution Dialog ─────────────────────────────────────── */}
       <Dialog
         open={distributeSurveyId !== null}
-        onOpenChange={(open) => !open && setDistributeSurveyId(null)}
+        onOpenChange={(open) => !open && !interactionLocked && setDistributeSurveyId(null)}
       >
         <DialogContent className="max-w-md p-0 overflow-hidden bg-white border-slate-200 shadow-2xl sm:rounded-2xl">
           <div className="px-6 pt-6 pb-4">
@@ -2522,14 +2589,6 @@ export default function SurveyPage() {
         </DialogContent>
       </Dialog>
 
-      {/* ── Preview Dialog ──────────────────────────────────────────── */}
-      {previewSurvey && (
-        <SurveyPreview
-          survey={previewSurvey}
-          open={previewSurvey !== null}
-          onClose={handleClosePreview}
-        />
-      )}
     </div>
   )
 }

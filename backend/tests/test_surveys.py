@@ -16,7 +16,7 @@ async def test_create_and_list_surveys(client):
     create_data = create_response.json()["data"]
     assert create_data["title"] == payload["title"]
     assert create_data["survey_id"].startswith("SURV-")
-    assert create_data["status"] == "Draft"
+    assert create_data["status"] == "Inactive"
     assert create_data["responses_count"] == 0
     assert "id" in create_data
 
@@ -128,14 +128,14 @@ async def test_list_surveys_with_filters(client):
         "title": "Active Survey", "status": "Active", "target_cohort": "Class of 2024",
     })
     await client.post("/api/v1/surveys/", json={
-        "title": "Draft Survey", "status": "Draft", "target_cohort": "Class of 2025",
+        "title": "Inactive Survey", "status": "Inactive", "target_cohort": "Class of 2025",
     })
 
     resp = await client.get("/api/v1/surveys/?status=Active")
     assert len(resp.json()["data"]) == 1
     assert resp.json()["meta"]["filters"]["status"] == "Active"
 
-    resp = await client.get("/api/v1/surveys/?search=Draft")
+    resp = await client.get("/api/v1/surveys/?search=Inactive")
     assert len(resp.json()["data"]) == 1
 
     resp = await client.get("/api/v1/surveys/?sort_by=title&sort_order=asc")

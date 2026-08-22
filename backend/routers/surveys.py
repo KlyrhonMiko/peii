@@ -8,7 +8,6 @@ from core.responses import list_meta_response, success_response
 from models.survey import Survey
 from models.survey_question import SurveyQuestion
 from models.survey_section import SurveySection
-from models.survey_version import SurveyVersion
 from schemas.common import APIResponse
 from schemas.survey import (
     SurveyCreate,
@@ -22,9 +21,7 @@ from schemas.survey import (
 from schemas.survey_question import SurveyQuestionRead
 from schemas.survey_section import SurveySectionRead
 from schemas.survey_structure import SurveyStructureReplace
-from schemas.survey_version import SurveyVersionRead
-from services import survey_service, survey_structure_service, survey_version_service
-from services.survey_version_service import get_version_for_read
+from services import survey_service, survey_structure_service
 
 router = APIRouter()
 
@@ -59,7 +56,6 @@ SurveyListParams = Annotated[SurveyListQueryParams, Depends(get_survey_list_quer
 def _survey_structure_data(
     survey: Survey,
     sections_with_questions: list[tuple[SurveySection, list[SurveyQuestion]]],
-    version: SurveyVersion,
 ) -> dict:
     survey_data = SurveyRead.model_validate(survey).model_dump()
     section_list: list[dict] = []
@@ -70,10 +66,6 @@ def _survey_structure_data(
         section_data["questions"] = section_qs
         section_list.append(section_data)
         all_questions.extend(section_qs)
-    version_data = SurveyVersionRead.model_validate(version)
-    survey_data["version_id"] = version_data.id
-    survey_data["version_number"] = version_data.version_number
-    survey_data["structure_revision"] = version_data.structure_revision
     survey_data["sections"] = section_list
     survey_data["questions"] = all_questions
     return survey_data
@@ -82,8 +74,8 @@ def _survey_structure_data(
 @router.put(
     "/{survey_id}/structure",
     response_model=APIResponse[dict],
-    summary="Replace Survey Draft Structure",
-    description="Atomically replace the ordered sections and questions in a survey draft.",
+    summary="Replace Survey Structure",
+    description="Atomically replace the ordered sections and questions in an inactive survey.",
 )
 async def replace_survey_structure(
     survey_id: UUID,
@@ -93,7 +85,7 @@ async def replace_survey_structure(
 ) -> APIResponse[dict]:
     survey = await survey_service.get_survey_by_uuid(session, survey_id)
     ip_address = request.client.host if request.client else None
-    await survey_structure_service.replace_draft_structure(
+    await survey_structure_service.replace_structure(
         session,
         survey,
         payload,
@@ -102,70 +94,9 @@ async def replace_survey_structure(
     updated_survey, sections = await survey_service.get_survey_with_sections(
         session, survey.survey_id
     )
-    version = await get_version_for_read(session, survey.id)
     return success_response(
-        _survey_structure_data(updated_survey, sections, version),
+        _survey_structure_data(updated_survey, sections),
         message="Survey structure saved.",
-    )
-
-
-@router.post(
-    "/{survey_id}/draft",
-    response_model=APIResponse[SurveyVersionRead],
-    summary="Create Survey Draft",
-    description="Create an editable survey structure draft from the current published version.",
-)
-async def create_survey_draft(
-    survey_id: UUID,
-    session: AsyncDBSession,
-    request: Request,
-) -> APIResponse[SurveyVersionRead]:
-    survey = await survey_service.get_survey_by_uuid(session, survey_id)
-    version = await survey_version_service.ensure_editable_draft(session, survey)
-    return success_response(
-        SurveyVersionRead.model_validate(version),
-        message="Survey draft ready.",
-    )
-
-
-@router.delete(
-    "/{survey_id}/draft",
-    response_model=APIResponse[SurveyVersionRead],
-    summary="Discard Survey Draft",
-    description="Discard the active editable draft without changing the published version.",
-)
-async def discard_survey_draft(
-    survey_id: UUID,
-    session: AsyncDBSession,
-    request: Request,
-) -> APIResponse[SurveyVersionRead]:
-    survey = await survey_service.get_survey_by_uuid(session, survey_id)
-    ip_address = request.client.host if request.client else None
-    version = await survey_version_service.discard_draft(
-        session, survey, ip_address=ip_address
-    )
-    return success_response(
-        SurveyVersionRead.model_validate(version),
-        message="Survey draft discarded.",
-    )
-
-
-@router.post(
-    "/{survey_id}/publish",
-    response_model=APIResponse[SurveyVersionRead],
-    summary="Publish Survey Draft",
-    description="Publish the current draft structure as an immutable survey version.",
-)
-async def publish_survey_draft(
-    survey_id: UUID,
-    session: AsyncDBSession,
-    request: Request,
-) -> APIResponse[SurveyVersionRead]:
-    survey = await survey_service.get_survey_by_uuid(session, survey_id)
-    version = await survey_version_service.publish_current_draft(session, survey)
-    return success_response(
-        SurveyVersionRead.model_validate(version),
-        message="Survey version published.",
     )
 
 
@@ -223,8 +154,7 @@ async def get_survey(
     survey, sections_with_questions = await survey_service.get_survey_with_sections(
         session, survey_id
     )
-    version = await get_version_for_read(session, survey.id)
-    survey_data = _survey_structure_data(survey, sections_with_questions, version)
+    survey_data = _survey_structure_data(survey, sections_with_questions)
     return success_response(survey_data)
 
 

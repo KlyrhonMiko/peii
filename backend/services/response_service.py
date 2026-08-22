@@ -131,7 +131,6 @@ def _validate_answer(question: SurveyQuestion, answer: object) -> None:
 async def _validate_answers(
     session: AsyncSession,
     survey_id: UUID,
-    version_id: UUID,
     answers: dict[str, object],
 ) -> None:
     questions_result = await session.exec(
@@ -139,9 +138,7 @@ async def _validate_answers(
         .join(SurveySection, col(SurveySection.id) == SurveyQuestion.section_id)
         .where(
             col(SurveyQuestion.survey_id) == survey_id,
-            col(SurveyQuestion.version_id) == version_id,
             col(SurveySection.survey_id) == survey_id,
-            col(SurveySection.version_id) == version_id,
             col(SurveySection.is_deleted).is_(False),
             col(SurveyQuestion.is_deleted).is_(False),
         )
@@ -154,7 +151,7 @@ async def _validate_answers(
         {
             "question_id": question_id,
             "code": "unknown_question",
-            "message": "Question does not belong to this survey version.",
+            "message": "Question does not belong to this survey.",
         }
         for question_id in unknown_keys
     )
@@ -252,11 +249,10 @@ async def submit_response(
             "Survey not found or no longer active.", status_code=status.HTTP_404_NOT_FOUND
         )
 
-    await _validate_answers(session, distribution.survey_id, distribution.version_id, answers)
+    await _validate_answers(session, distribution.survey_id, answers)
 
     response = SurveyResponse(
         survey_id=distribution.survey_id,
-        version_id=distribution.version_id,
         distribution_id=distribution.id,
         idempotency_key=idempotency_key,
         idempotency_hash=answers_hash,

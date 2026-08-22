@@ -11,13 +11,13 @@ class SurveyBaseSchema(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
-SurveyStatus = Literal["Draft", "Active", "Closed"]
+SurveyStatus = Literal["Inactive", "Active", "Closed"]
 
 
 class SurveyBase(SurveyBaseSchema):
     title: str
     description: str | None = None
-    status: SurveyStatus = "Draft"
+    status: SurveyStatus = "Inactive"
     target_cohort: str | None = None
 
 

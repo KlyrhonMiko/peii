@@ -35,11 +35,9 @@ class SurveyDistributionRead(SurveyDistributionBaseSchema):
             "example": {
                 "id": "018f4a1a-7b3b-7d0e-913a-c5f1c5c1c5c2",
                 "survey_id": "018f4a1a-7b3b-7d0e-913a-c5f1c5c1c5c3",
-                "version_id": "018f4a1a-7b3b-7d0e-913a-c5f1c5c1c5c5",
                 "token": "abc123def456ghi789jkl012mno345pqr",
                 "status": "active",
                 "is_active": True,
-                "is_legacy": False,
                 "expires_at": "2027-01-01T00:00:00Z",
                 "revoked_at": None,
                 "created_at": "2026-06-21T12:00:00Z",
@@ -49,11 +47,9 @@ class SurveyDistributionRead(SurveyDistributionBaseSchema):
 
     id: UUID
     survey_id: UUID
-    version_id: UUID
     token: str
     status: DistributionStatus
     is_active: bool
-    is_legacy: bool
     expires_at: datetime | None
     revoked_at: datetime | None
     created_at: datetime

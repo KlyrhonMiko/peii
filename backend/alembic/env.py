@@ -24,7 +24,6 @@ from models import (  # noqa: F401,E402
     SurveyQuestion,
     SurveyResponse,
     SurveySection,
-    SurveyVersion,
     User,
 )
 

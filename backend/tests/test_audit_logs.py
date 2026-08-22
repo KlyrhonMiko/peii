@@ -117,7 +117,7 @@ async def _audits_for(client, resource_type, resource_id, action=None):
 async def test_all_mutation_families_create_audits(client):
     survey_response = await client.post(
         "/api/v1/surveys/",
-        json={"title": "Audited Survey", "status": "Active"},
+        json={"title": "Audited Survey"},
         headers={"X-Request-ID": "audit-integration-request"},
     )
     survey = survey_response.json()["data"]
@@ -182,7 +182,11 @@ async def test_all_mutation_families_create_audits(client):
         "DELETE", f"/api/v1/surveys/{survey_uuid}/questions/{first_question_id}"
     )
     assert len(await _audits_for(client, "survey_question", first_question_id, "delete")) == 1
-    assert (await client.post(f"/api/v1/surveys/{survey_uuid}/publish")).status_code == 200
+    assert (
+        await client.patch(
+            f"/api/v1/surveys/{survey_id}", json={"status": "Active"}
+        )
+    ).status_code == 200
 
     distribution = await client.post(
         f"/api/v1/surveys/{survey_uuid}/distributions/",

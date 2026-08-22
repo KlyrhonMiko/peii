@@ -11,12 +11,8 @@ class SurveyQuestion(BaseModel, table=True):
     __tablename__ = "survey_questions"
     __table_args__ = (
         ForeignKeyConstraint(
-            ["section_id", "survey_id", "version_id"],
-            [
-                "survey_sections.id",
-                "survey_sections.survey_id",
-                "survey_sections.version_id",
-            ],
+            ["section_id", "survey_id"],
+            ["survey_sections.id", "survey_sections.survey_id"],
             name="fk_survey_questions_section_owner",
         ),
         CheckConstraint("order_index >= 0", name="ck_survey_questions_order_index"),
@@ -31,9 +27,6 @@ class SurveyQuestion(BaseModel, table=True):
     )
 
     survey_id: UUID = Field(foreign_key="surveys.id", index=True, nullable=False)
-    version_id: UUID = Field(
-        foreign_key="survey_versions.id", index=True, nullable=False
-    )
     section_id: UUID = Field(
         foreign_key="survey_sections.id", index=True, nullable=False
     )

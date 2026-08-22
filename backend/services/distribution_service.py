@@ -10,7 +10,6 @@ from core.exceptions import AppError
 from models.base_model import utc_now
 from models.survey import Survey
 from models.survey_distribution import SurveyDistribution
-from models.survey_version import SurveyVersion
 from schemas.survey import SurveyStatus
 from schemas.survey_distribution import DistributionStatus, SurveyDistributionCreate
 from services.audit_service import AuditEvent, commit_with_audit
@@ -97,37 +96,6 @@ async def _generate_token(session: AsyncSession) -> str:
     )
 
 
-async def _ensure_published_version(
-    session: AsyncSession,
-    survey: Survey,
-) -> tuple[SurveyVersion, list[AuditEvent]]:
-    published_result = await session.exec(
-        select(SurveyVersion)
-        .where(
-            col(SurveyVersion.survey_id) == survey.id,
-            col(SurveyVersion.status) == "published",
-            col(SurveyVersion.is_deleted).is_(False),
-        )
-        .order_by(col(SurveyVersion.version_number).desc())
-    )
-    published = published_result.first()
-    draft_result = await session.exec(
-        select(SurveyVersion).where(
-            col(SurveyVersion.survey_id) == survey.id,
-            col(SurveyVersion.status) == "draft",
-            col(SurveyVersion.is_deleted).is_(False),
-        )
-    )
-    draft = draft_result.first()
-    if published and draft is None:
-        return published, []
-
-    raise AppError(
-        "Publish the survey draft before creating a distribution.",
-        status_code=status.HTTP_409_CONFLICT,
-    )
-
-
 async def create_distribution(
     session: AsyncSession,
     survey_id: UUID,
@@ -135,12 +103,10 @@ async def create_distribution(
     performed_by: UUID | None = None,
     ip_address: str | None = None,
 ) -> SurveyDistribution:
-    survey = await _validate_survey_for_distribution(session, survey_id)
-    version, version_events = await _ensure_published_version(session, survey)
+    await _validate_survey_for_distribution(session, survey_id)
     token = await _generate_token(session)
     distribution = SurveyDistribution(
         survey_id=survey_id,
-        version_id=version.id,
         token=token,
         expires_at=_normalize_expiry(payload.expires_at),
         performed_by=performed_by,
@@ -149,7 +115,6 @@ async def create_distribution(
     await commit_with_audit(
         session,
         [
-            *version_events,
             AuditEvent(
                 action="create",
                 resource_type="survey_distribution",
@@ -238,7 +203,6 @@ async def rotate_distribution(
     ip_address: str | None = None,
 ) -> tuple[SurveyDistribution, SurveyStatus | str]:
     survey = await _validate_survey_for_distribution(session, survey_id)
-    version, version_events = await _ensure_published_version(session, survey)
     result = await session.exec(
         select(SurveyDistribution)
         .where(
@@ -254,7 +218,6 @@ async def rotate_distribution(
 
     replacement = SurveyDistribution(
         survey_id=survey_id,
-        version_id=version.id,
         token=await _generate_token(session),
         expires_at=_normalize_expiry(payload.expires_at),
         performed_by=performed_by,
@@ -267,7 +230,6 @@ async def rotate_distribution(
     await commit_with_audit(
         session,
         [
-            *version_events,
             AuditEvent(
                 action="create",
                 resource_type="survey_distribution",
@@ -318,14 +280,40 @@ async def get_distribution_by_token(
     )
     if not survey or not _is_active(distribution, survey.status):
         raise _public_token_error()
-    version_result = await session.exec(
-        select(SurveyVersion).where(
-            col(SurveyVersion.id) == distribution.version_id,
-            col(SurveyVersion.survey_id) == distribution.survey_id,
-            col(SurveyVersion.is_deleted).is_(False),
-            col(SurveyVersion.status).in_(["published", "superseded"]),
-        )
-    )
-    if version_result.first() is None:
-        raise _public_token_error()
     return distribution
+
+
+async def revoke_for_structure_change(
+    session: AsyncSession,
+    survey_id: UUID,
+    performed_by: UUID | None = None,
+    ip_address: str | None = None,
+) -> list[AuditEvent]:
+    result = await session.exec(
+        select(SurveyDistribution)
+        .where(
+            col(SurveyDistribution.survey_id) == survey_id,
+            col(SurveyDistribution.is_deleted).is_(False),
+            col(SurveyDistribution.revoked_at).is_(None),
+        )
+        .with_for_update()
+    )
+    distributions = list(result.all())
+    now = utc_now()
+    events: list[AuditEvent] = []
+    for distribution in distributions:
+        distribution.revoked_at = now
+        distribution.updated_at = now
+        distribution.performed_by = performed_by
+        session.add(distribution)
+        events.append(
+            AuditEvent(
+                action="revoke",
+                resource_type="survey_distribution",
+                resource_id=str(distribution.id),
+                performed_by=performed_by,
+                changes={"reason": "survey_structure_changed"},
+                ip_address=ip_address,
+            )
+        )
+    return events
