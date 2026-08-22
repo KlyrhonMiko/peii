@@ -100,7 +100,7 @@ async def create_section(
     )
     session.add(section)
     events = await revoke_for_structure_change(
-        session, survey.id, performed_by=payload.performed_by, ip_address=ip_address
+        session, survey, performed_by=payload.performed_by, ip_address=ip_address
     )
     await commit_with_audit(
         session,
@@ -150,7 +150,7 @@ async def update_section(
     apply_updates(section, updates)
     session.add(section)
     revoke_events = await revoke_for_structure_change(
-        session, survey.id, performed_by=payload.performed_by, ip_address=ip_address
+        session, survey, performed_by=payload.performed_by, ip_address=ip_address
     )
     await commit_with_audit(
         session,
@@ -237,7 +237,7 @@ async def delete_section(
         )
     events.extend(
         await revoke_for_structure_change(
-            session, survey.id, performed_by=performed_by, ip_address=ip_address
+            session, survey, performed_by=performed_by, ip_address=ip_address
         )
     )
     await commit_with_audit(session, events)
@@ -297,7 +297,7 @@ async def reorder_sections(
         session.add(section)
 
     revoke_events = await revoke_for_structure_change(
-        session, survey.id, performed_by=performed_by, ip_address=ip_address
+        session, survey, performed_by=performed_by, ip_address=ip_address
     )
     await commit_with_audit(session, [*changes, *revoke_events])
     for section in sections:

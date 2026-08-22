@@ -1,3 +1,4 @@
+from datetime import datetime
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -65,6 +66,7 @@ def validate_structure_client_ids(
 class SurveyStructureReplace(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    expected_updated_at: datetime
     sections: list[SurveyStructureSection]
     cascade_section_ids: list[UUID] = Field(default_factory=list)
 

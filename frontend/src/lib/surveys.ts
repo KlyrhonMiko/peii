@@ -10,7 +10,6 @@ export interface Distribution {
   token: string
   status: "active" | "suspended" | "expired" | "revoked"
   isActive: boolean
-  isLegacy: boolean
   expiresAt: string | null
   revokedAt: string | null
   createdAt: string
@@ -31,6 +30,7 @@ export interface Survey {
   status: SurveyStatus
   responses: number
   dateCreated: string
+  updatedAt: string
   targetCohort?: string
   description?: string
   questions?: SurveyQuestion[]
@@ -137,7 +137,6 @@ export interface ApiDistribution {
   token: string
   status: "active" | "suspended" | "expired" | "revoked"
   is_active: boolean
-  is_legacy: boolean
   expires_at: string | null
   revoked_at: string | null
   created_at: string
@@ -181,6 +180,7 @@ function mapSurvey(api: ApiSurvey): Survey {
     status: api.status,
     responses: api.responses_count,
     dateCreated: api.created_at,
+    updatedAt: api.updated_at,
     ...(api.target_cohort ? { targetCohort: api.target_cohort } : {}),
     ...(api.description ? { description: api.description } : {}),
     ...(api.questions ? { questions: api.questions.map(mapQuestion) } : {}),
@@ -209,7 +209,6 @@ function mapDistribution(api: ApiDistribution): Distribution {
     token: api.token,
     status: api.status,
     isActive: api.is_active,
-    isLegacy: api.is_legacy,
     expiresAt: api.expires_at,
     revokedAt: api.revoked_at,
     createdAt: api.created_at,
@@ -301,7 +300,7 @@ export async function updateSurvey(
 
 export async function replaceSurveyStructure(
   surveyUuid: string,
-  payload: SurveyStructurePayload,
+  payload: SurveyStructurePayload & { expected_updated_at: string },
 ): Promise<Survey> {
   const res = await api.put<ApiSurvey>(`/surveys/${surveyUuid}/structure`, payload)
   return mapSurvey(res.data!)

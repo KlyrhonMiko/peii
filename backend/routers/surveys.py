@@ -84,11 +84,10 @@ async def replace_survey_structure(
     session: AsyncDBSession,
     request: Request,
 ) -> APIResponse[dict]:
-    survey = await survey_service.get_survey_by_uuid(session, survey_id)
     ip_address = request.client.host if request.client else None
-    await survey_structure_service.replace_structure(
+    survey = await survey_structure_service.replace_structure(
         session,
-        survey,
+        survey_id,
         payload,
         ip_address=ip_address,
     )

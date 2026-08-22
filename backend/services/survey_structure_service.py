@@ -31,7 +31,7 @@ def _serialize_config(config: dict | None) -> str | None:
 
 async def replace_structure(
     session: AsyncSession,
-    survey: Survey,
+    survey_id: UUID,
     payload: SurveyStructureReplace,
     performed_by: UUID | None = None,
     ip_address: str | None = None,
@@ -50,7 +50,18 @@ async def replace_structure(
                     status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 ) from exc
 
-    survey = await get_survey_for_structure_edit(session, survey.id)
+    survey = await get_survey_for_structure_edit(session, survey_id)
+    if payload.expected_updated_at != survey.updated_at:
+        raise AppError(
+            "Survey structure was updated by another editor. Reload and try again.",
+            status_code=status.HTTP_409_CONFLICT,
+            errors=[
+                {
+                    "code": "stale_structure",
+                    "message": "Survey structure was updated by another editor.",
+                }
+            ],
+        )
     sections_result = await session.exec(
         select(SurveySection).where(
             col(SurveySection.survey_id) == survey.id,
@@ -394,7 +405,7 @@ async def replace_structure(
     events.extend(
         await revoke_for_structure_change(
             session,
-            survey.id,
+            survey,
             performed_by=performed_by,
             ip_address=ip_address,
         )

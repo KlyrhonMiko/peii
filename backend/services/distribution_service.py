@@ -295,14 +295,14 @@ async def get_distribution_by_token(
 
 async def revoke_for_structure_change(
     session: AsyncSession,
-    survey_id: UUID,
+    survey: Survey,
     performed_by: UUID | None = None,
     ip_address: str | None = None,
 ) -> list[AuditEvent]:
     result = await session.exec(
         select(SurveyDistribution)
         .where(
-            col(SurveyDistribution.survey_id) == survey_id,
+            col(SurveyDistribution.survey_id) == survey.id,
             col(SurveyDistribution.is_deleted).is_(False),
             col(SurveyDistribution.revoked_at).is_(None),
         )
@@ -310,6 +310,9 @@ async def revoke_for_structure_change(
     )
     distributions = list(result.all())
     now = utc_now()
+    survey.updated_at = now
+    survey.performed_by = performed_by
+    session.add(survey)
     events: list[AuditEvent] = []
     for distribution in distributions:
         distribution.revoked_at = now

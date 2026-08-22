@@ -87,6 +87,34 @@ const TYPE_LABEL: Record<string, string> = {
 type AnswerValue = string | string[] | number | boolean | Record<string, string>
 type Answers = Record<string, AnswerValue>
 
+function isBlankAnswer(value: AnswerValue | undefined): boolean {
+  return value === undefined || value === null || (
+    typeof value === "string" && !value.trim()
+  ) || (Array.isArray(value) && value.length === 0) || (
+    typeof value === "object" && !Array.isArray(value) && Object.keys(value).length === 0
+  )
+}
+
+function matrixValidationError(question: PublicQuestion, value: AnswerValue | undefined): string | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return "Complete every matrix row"
+  }
+  const rows = question.options ?? []
+  const configuredColumns = question.config?.columns
+  const columns = Array.isArray(configuredColumns)
+    ? configuredColumns.filter((column): column is string => typeof column === "string")
+    : ["Poor", "Fair", "Good", "Excellent"]
+  const answers = value
+  if (
+    Object.keys(answers).length !== rows.length ||
+    rows.some((row) => !Object.hasOwn(answers, row)) ||
+    Object.values(answers).some((answer) => !columns.includes(answer))
+  ) {
+    return "Complete every matrix row"
+  }
+  return null
+}
+
 
 
 export function ClientSurveyForm({
@@ -136,22 +164,18 @@ export function ClientSurveyForm({
     let isValid = true
     const newErrors: Record<string, string> = {}
     for (const q of section.questions) {
+      const val = answers[q.id]
+      if (q.question_type === "matrix" && (q.is_required || !isBlankAnswer(val))) {
+        const matrixError = matrixValidationError(q, val)
+        if (matrixError) {
+          newErrors[q.id] = matrixError
+          isValid = false
+        }
+        continue
+      }
       if (q.is_required) {
-        const val = answers[q.id]
-        const isEmptyObject =
-          typeof val === "object" &&
-          val !== null &&
-          !Array.isArray(val) &&
-          Object.keys(val).length === 0
         const rankingHasDefault = q.question_type === "ranking" && (q.options?.length ?? 0) > 0
-        if (
-          !rankingHasDefault &&
-          (val === undefined ||
-            val === null ||
-            val === "" ||
-            (Array.isArray(val) && val.length === 0) ||
-            isEmptyObject)
-        ) {
+        if (!rankingHasDefault && isBlankAnswer(val)) {
           newErrors[q.id] = "This question is required"
           isValid = false
         }
@@ -580,13 +604,10 @@ export function ClientSurveyForm({
               )}
 
               {q.question_type === "file" && (
-                <div className="flex flex-col items-center gap-2 rounded-lg border-2 border-dashed border-slate-200 bg-slate-50/50 px-4 py-6 text-center transition-colors hover:border-indigo-300 hover:bg-indigo-50/30">
-                  <Upload className="size-6 text-slate-300" />
+                <div className="flex flex-col items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-6 text-center">
+                  <Upload className="size-6 text-slate-400" />
                   <p className="text-xs text-slate-500">
-                    Click to upload or drag and drop
-                  </p>
-                  <p className="text-[11px] text-slate-400">
-                    PDF, images, or documents
+                    File upload questions are not currently supported.
                   </p>
                 </div>
               )}

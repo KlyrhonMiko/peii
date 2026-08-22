@@ -37,7 +37,6 @@ import {
   Hash,
   ArrowUpDown,
   Table,
-  Upload,
   ToggleLeft,
   Loader2,
   Share2,
@@ -231,7 +230,6 @@ const QUESTION_TYPES = [
   { value: "ranking", label: "Ranking", icon: ArrowUpDown },
   { value: "matrix", label: "Matrix", icon: Table },
   { value: "datetime", label: "Date/Time", icon: Calendar },
-  { value: "file", label: "File Upload", icon: Upload },
   { value: "boolean", label: "Yes/No", icon: ToggleLeft },
 ] as const
 
@@ -257,7 +255,7 @@ type EditorSection = Omit<SurveySection, "questions"> & {
 }
 
 type PendingAction = {
-  type: "load" | "view" | "edit" | "generate" | "save" | "delete" | "distribute"
+  type: "view" | "edit" | "generate" | "save" | "delete" | "distribute"
   surveyId?: string
 } | null
 
@@ -373,8 +371,15 @@ export default function SurveyPage() {
   )
   const [copiedToken, setCopiedToken] = useState<string | null>(null)
 
-  const interactionLocked = pendingAction !== null
-  const pendingLabel = pendingAction?.type === "load"
+  const editedSurvey = modalState?.type === "edit"
+    ? surveys.find((survey) => survey.id === modalState.id)
+    : undefined
+  const structureEditable = modalState?.type !== "edit" || (
+    editedSurvey?.status === "Inactive" && editedSurvey.responses === 0
+  )
+
+  const interactionLocked = loading || pendingAction !== null
+  const pendingLabel = loading
     ? "Loading surveys..."
     : pendingAction?.type === "view"
       ? "Loading survey..."
@@ -408,22 +413,20 @@ export default function SurveyPage() {
   }
 
   useEffect(() => {
-    let mounted = true
+    let cancelled = false
     const load = async () => {
-      await runExclusive({ type: "load" }, async () => {
-        try {
-          const result = await fetchSurveys()
-          if (mounted) setSurveys(result.surveys)
-        } catch (error) {
-          if (mounted) setRequestError(error instanceof Error ? error.message : "We could not load surveys.")
-        } finally {
-          if (mounted) setLoading(false)
-        }
-      })
+      try {
+        const result = await fetchSurveys()
+        if (!cancelled) setSurveys(result.surveys)
+      } catch (error) {
+        if (!cancelled) setRequestError(error instanceof Error ? error.message : "We could not load surveys.")
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
     }
     void load()
     return () => {
-      mounted = false
+      cancelled = true
     }
   }, [])
 
@@ -597,6 +600,7 @@ export default function SurveyPage() {
           const saved = await replaceSurveyStructure(target.id, {
             ...toStructurePayload(sections),
             cascade_section_ids: removedSectionIds,
+            expected_updated_at: target.updatedAt,
           })
           const savedSections = toEditorSections(saved.sections ?? [])
           setSections(savedSections)
@@ -649,9 +653,9 @@ export default function SurveyPage() {
       setDistLoading(true)
       try {
         let items = await fetchDistributions(surveyId)
-        if (items.length === 0) {
+        if (!items.some((item) => item.isActive)) {
           const created = await createDistribution(surveyId)
-          items = [created]
+          items = [created, ...items]
         }
         setDistributions(items)
       } catch (error) {
@@ -1073,9 +1077,9 @@ export default function SurveyPage() {
                           variant="ghost"
                           size="icon"
                           onClick={() => handleOpenDistribute(survey.id)}
-                          disabled={interactionLocked}
+                          disabled={interactionLocked || survey.status !== "Active"}
                           className="text-slate-400 hover:text-emerald-600 hover:bg-emerald-50"
-                          title="Distribute"
+                          title={survey.status === "Active" ? "Distribute" : "Activate the survey before distributing"}
                         >
                           {pendingAction?.type === "distribute" && pendingAction.surveyId === survey.id ? <Loader2 className="size-4 animate-spin" /> : <Share2 className="size-4" />}
                         </Button>
@@ -1308,7 +1312,18 @@ export default function SurveyPage() {
             {/* Right Main Area: Questions */}
             <div className="flex-1 bg-white p-8 overflow-y-auto">
               <div className="max-w-3xl mx-auto pb-20">
-                <fieldset className="space-y-4">
+                {!structureEditable && (
+                  <p className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                    {editedSurvey?.responses
+                      ? "The survey structure is locked because it has responses."
+                      : "Set this survey to Inactive and save before changing its structure."}
+                  </p>
+                )}
+                <fieldset
+                  className={cn("space-y-4", !structureEditable && "pointer-events-none opacity-60")}
+                  disabled={!structureEditable}
+                  inert={!structureEditable}
+                >
                     <legend className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-slate-400 mb-1">
                       <span className="flex size-5 items-center justify-center rounded-md bg-slate-100 text-[10px] font-bold text-slate-500">
                         2

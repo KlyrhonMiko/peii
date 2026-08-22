@@ -132,7 +132,7 @@ async def create_question(
     )
     session.add(question)
     revoke_events = await revoke_for_structure_change(
-        session, survey.id, performed_by=payload.performed_by, ip_address=ip_address
+        session, survey, performed_by=payload.performed_by, ip_address=ip_address
     )
     await commit_with_audit(
         session,
@@ -238,7 +238,7 @@ async def update_question(
     apply_updates(question, normalized_updates)
     session.add(question)
     revoke_events = await revoke_for_structure_change(
-        session, survey.id, performed_by=payload.performed_by, ip_address=ip_address
+        session, survey, performed_by=payload.performed_by, ip_address=ip_address
     )
     await commit_with_audit(
         session,
@@ -284,7 +284,7 @@ async def delete_question(
     question.updated_at = now
     session.add(question)
     revoke_events = await revoke_for_structure_change(
-        session, survey.id, performed_by=performed_by, ip_address=ip_address
+        session, survey, performed_by=performed_by, ip_address=ip_address
     )
     await commit_with_audit(
         session,
@@ -389,7 +389,7 @@ async def reorder_questions(
         session.add(question)
 
     revoke_events = await revoke_for_structure_change(
-        session, survey.id, performed_by=performed_by, ip_address=ip_address
+        session, survey, performed_by=performed_by, ip_address=ip_address
     )
     await commit_with_audit(session, [*changes, *revoke_events])
     for question in questions:

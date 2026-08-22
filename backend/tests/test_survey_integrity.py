@@ -108,13 +108,15 @@ async def test_duplicate_question_reorder_ids_are_rejected(client):
     assert response.status_code == 422
 
 
-async def test_structure_replace_has_no_revision_or_version_fields(client):
+async def test_structure_replace_rejects_a_stale_updated_at_precondition(client):
     survey_uuid, survey_business_id, _ = await _create_survey_with_section(
         client, "Structure Survey"
     )
+    original = (await client.get(f"/api/v1/surveys/{survey_business_id}")).json()["data"]
     response = await client.put(
         f"/api/v1/surveys/{survey_uuid}/structure",
         json={
+            "expected_updated_at": original["updated_at"],
             "sections": [
                 {
                     "client_id": "local-section",
@@ -133,12 +135,55 @@ async def test_structure_replace_has_no_revision_or_version_fields(client):
     )
     assert response.status_code == 200
     data = response.json()["data"]
-    assert "structure_revision" not in data
-    assert "version_id" not in data
     assert data["sections"][0]["questions"][0]["is_required"] is False
+    assert data["updated_at"] != original["updated_at"]
+
+    stale = await client.put(
+        f"/api/v1/surveys/{survey_uuid}/structure",
+        json={
+            "expected_updated_at": original["updated_at"],
+            "sections": [
+                {
+                    "client_id": "local-section",
+                    "id": data["sections"][0]["id"],
+                    "title": "Changed by another editor",
+                    "questions": [
+                        {
+                            "client_id": "local-question",
+                            "id": data["sections"][0]["questions"][0]["id"],
+                            "question_text": "Status",
+                            "question_type": "text",
+                            "is_required": False,
+                        }
+                    ],
+                }
+            ],
+        },
+    )
+    assert stale.status_code == 409
+    assert stale.json()["errors"][0]["code"] == "stale_structure"
 
     fetched = await client.get(f"/api/v1/surveys/{survey_business_id}")
-    assert "structure_revision" not in fetched.json()["data"]
+    assert fetched.json()["data"]["sections"][0]["title"] == "Employment"
+
+
+async def test_individual_structure_change_invalidates_structure_precondition(client):
+    survey_uuid, survey_business_id, section_id = await _create_survey_with_section(
+        client, "Concurrent Structure Survey"
+    )
+    original = (await client.get(f"/api/v1/surveys/{survey_business_id}")).json()["data"]
+    question = await client.post(
+        f"/api/v1/surveys/{survey_uuid}/questions/",
+        json={"question_text": "Status", "question_type": "text", "section_id": section_id},
+    )
+
+    stale = await client.put(
+        f"/api/v1/surveys/{survey_uuid}/structure",
+        json={"expected_updated_at": original["updated_at"], "sections": []},
+    )
+    assert stale.status_code == 409
+    assert stale.json()["errors"][0]["code"] == "stale_structure"
+    assert question.status_code == 201
 
 
 async def test_structure_can_reorder_sections_while_inactive(client):
@@ -151,6 +196,7 @@ async def test_structure_can_reorder_sections_while_inactive(client):
     swapped = await client.put(
         f"/api/v1/surveys/{survey_uuid}/structure",
         json={
+            "expected_updated_at": initial["updated_at"],
             "sections": [
                 {
                     "client_id": second_section["id"],
