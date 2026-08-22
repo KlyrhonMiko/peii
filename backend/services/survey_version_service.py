@@ -112,8 +112,7 @@ async def ensure_draft_version(
     latest_result = await session.exec(
         select(SurveyVersion)
         .where(
-            col(SurveyVersion.survey_id) == survey.id,
-            col(SurveyVersion.is_deleted).is_(False),
+            col(SurveyVersion.survey_id) == survey.id
         )
         .order_by(col(SurveyVersion.version_number).desc())
     )
@@ -214,6 +213,30 @@ async def ensure_draft_version(
 
     await session.flush()
     return draft, events
+
+
+def structure_revision_event(
+    draft: SurveyVersion,
+    performed_by: UUID | None = None,
+    ip_address: str | None = None,
+) -> AuditEvent:
+    previous_revision = draft.structure_revision
+    draft.structure_revision += 1
+    draft.updated_at = utc_now()
+    draft.performed_by = performed_by
+    return AuditEvent(
+        action="update",
+        resource_type="survey_version",
+        resource_id=str(draft.id),
+        performed_by=performed_by,
+        changes={
+            "structure_revision": {
+                "before": previous_revision,
+                "after": draft.structure_revision,
+            }
+        },
+        ip_address=ip_address,
+    )
 
 
 async def publish_draft(
@@ -321,8 +344,67 @@ async def publish_current_draft(
     survey: Survey,
     ip_address: str | None = None,
 ) -> SurveyVersion:
-    draft, clone_events = await ensure_draft_version(session, survey)
+    draft_result = await session.exec(
+        select(SurveyVersion)
+        .where(
+            col(SurveyVersion.survey_id) == survey.id,
+            col(SurveyVersion.status) == "draft",
+            col(SurveyVersion.is_deleted).is_(False),
+        )
+        .order_by(col(SurveyVersion.version_number).desc())
+        .with_for_update()
+    )
+    draft = draft_result.first()
+    if draft is None:
+        raise AppError(
+            "Create a survey draft before publishing.",
+            status_code=status.HTTP_409_CONFLICT,
+        )
     publish_events = await publish_draft(session, survey, draft)
-    await commit_with_audit(session, [*clone_events, *publish_events])
+    await commit_with_audit(session, publish_events)
+    await session.refresh(draft)
+    return draft
+
+
+async def discard_draft(
+    session: AsyncSession,
+    survey: Survey,
+    ip_address: str | None = None,
+) -> SurveyVersion:
+    result = await session.exec(
+        select(SurveyVersion)
+        .where(
+            col(SurveyVersion.survey_id) == survey.id,
+            col(SurveyVersion.status) == "draft",
+            col(SurveyVersion.is_deleted).is_(False),
+        )
+        .with_for_update()
+    )
+    draft = result.first()
+    if draft is None:
+        raise AppError(
+            "No editable survey draft exists.",
+            status_code=status.HTTP_404_NOT_FOUND,
+        )
+
+    now = utc_now()
+    draft.is_deleted = True
+    draft.deleted_at = now
+    draft.updated_at = now
+    draft.performed_by = survey.performed_by
+    session.add(draft)
+    await commit_with_audit(
+        session,
+        [
+            AuditEvent(
+                action="delete",
+                resource_type="survey_version",
+                resource_id=str(draft.id),
+                performed_by=survey.performed_by,
+                changes={"reason": "discard_draft"},
+                ip_address=ip_address,
+            )
+        ],
+    )
     await session.refresh(draft)
     return draft

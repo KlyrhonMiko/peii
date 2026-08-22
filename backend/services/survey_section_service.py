@@ -12,7 +12,11 @@ from models.survey_section import SurveySection
 from schemas.survey_section import SurveySectionCreate, SurveySectionUpdate
 from services.audit_service import AuditEvent, commit_with_audit
 from services.base_service import apply_updates, utc_now
-from services.survey_version_service import ensure_draft_version, get_version_for_read
+from services.survey_version_service import (
+    ensure_draft_version,
+    get_version_for_read,
+    structure_revision_event,
+)
 
 
 async def _validate_survey_exists(session: AsyncSession, survey_id: UUID) -> Survey:
@@ -111,6 +115,7 @@ async def create_section(
         session,
         [
             *version_events,
+            structure_revision_event(draft, payload.performed_by, ip_address),
             AuditEvent(
                 action="create",
                 resource_type="survey_section",
@@ -161,6 +166,7 @@ async def update_section(
         session,
         [
             *version_events,
+            structure_revision_event(draft, payload.performed_by, ip_address),
             AuditEvent(
                 action="update",
                 resource_type="survey_section",
@@ -219,6 +225,7 @@ async def delete_section(
     session.add(section)
     events = [
         *version_events,
+        structure_revision_event(draft, performed_by, ip_address),
         AuditEvent(
             action="delete",
             resource_type="survey_section",
@@ -316,7 +323,11 @@ async def reorder_sections(
         section.order_index = idx
         session.add(section)
 
-    await commit_with_audit(session, [*version_events, *changes])
+    session.add(draft)
+    await commit_with_audit(
+        session,
+        [structure_revision_event(draft, performed_by, ip_address), *version_events, *changes],
+    )
     for s in sections:
         await session.refresh(s)
 

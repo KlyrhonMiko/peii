@@ -48,6 +48,7 @@ export interface SurveyQuestion {
   surveyId?: string
   config?: Record<string, unknown> | null
   isRequired?: boolean
+  orderIndex?: number
 }
 
 export interface SurveySection {
@@ -179,6 +180,7 @@ function mapQuestion(api: ApiQuestion): SurveyQuestion {
     ...(api.config ? { config: api.config } : {}),
     sectionId: api.section_id,
     isRequired: api.is_required,
+    orderIndex: api.order_index,
   }
 }
 
@@ -228,6 +230,14 @@ export async function fetchSurvey(surveyId: string): Promise<Survey> {
 
 export async function ensureSurveyDraft(surveyUuid: string): Promise<void> {
   await api.post(`/surveys/${surveyUuid}/draft`)
+}
+
+export async function publishSurvey(surveyUuid: string): Promise<void> {
+  await api.post(`/surveys/${surveyUuid}/publish`)
+}
+
+export async function discardSurveyDraft(surveyUuid: string): Promise<void> {
+  await api.delete(`/surveys/${surveyUuid}/draft`)
 }
 
 export async function createSurvey(payload: {

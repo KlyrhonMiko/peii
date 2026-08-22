@@ -49,6 +49,19 @@ class SurveyStructureReplace(BaseModel):
         ]
         if len(question_ids) != len(set(question_ids)):
             raise ValueError("Question client_id values must be unique.")
+        section_persisted_ids = [
+            section.id for section in value if section.id is not None
+        ]
+        if len(section_persisted_ids) != len(set(section_persisted_ids)):
+            raise ValueError("Persisted section id values must be unique.")
+        question_persisted_ids = [
+            question.id
+            for section in value
+            for question in section.questions
+            if question.id is not None
+        ]
+        if len(question_persisted_ids) != len(set(question_persisted_ids)):
+            raise ValueError("Persisted question id values must be unique.")
         return value
 
     @field_validator("cascade_section_ids")

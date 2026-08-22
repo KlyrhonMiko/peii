@@ -128,6 +128,28 @@ async def create_survey_draft(
     )
 
 
+@router.delete(
+    "/{survey_id}/draft",
+    response_model=APIResponse[SurveyVersionRead],
+    summary="Discard Survey Draft",
+    description="Discard the active editable draft without changing the published version.",
+)
+async def discard_survey_draft(
+    survey_id: UUID,
+    session: AsyncDBSession,
+    request: Request,
+) -> APIResponse[SurveyVersionRead]:
+    survey = await survey_service.get_survey_by_uuid(session, survey_id)
+    ip_address = request.client.host if request.client else None
+    version = await survey_version_service.discard_draft(
+        session, survey, ip_address=ip_address
+    )
+    return success_response(
+        SurveyVersionRead.model_validate(version),
+        message="Survey draft discarded.",
+    )
+
+
 @router.post(
     "/{survey_id}/publish",
     response_model=APIResponse[SurveyVersionRead],

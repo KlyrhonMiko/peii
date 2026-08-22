@@ -89,10 +89,11 @@ async def test_structure_replace_returns_canonical_ids_and_revision(client):
     survey_uuid, survey_business_id, _ = await _create_survey_with_section(
         client, "Structure Survey"
     )
+    initial = (await client.get(f"/api/v1/surveys/{survey_business_id}")).json()["data"]
     response = await client.put(
         f"/api/v1/surveys/{survey_uuid}/structure",
         json={
-            "expected_revision": 0,
+            "expected_revision": initial["structure_revision"],
             "sections": [
                 {
                     "client_id": "local-section",
@@ -115,7 +116,7 @@ async def test_structure_replace_returns_canonical_ids_and_revision(client):
 
     assert response.status_code == 200
     data = response.json()["data"]
-    assert data["structure_revision"] == 1
+    assert data["structure_revision"] == initial["structure_revision"] + 1
     assert len(data["sections"]) == 1
     assert len(data["sections"][0]["questions"]) == 1
     assert data["sections"][0]["questions"][0]["is_required"] is False
@@ -124,7 +125,7 @@ async def test_structure_replace_returns_canonical_ids_and_revision(client):
     unchanged = await client.put(
         f"/api/v1/surveys/{survey_uuid}/structure",
         json={
-            "expected_revision": 1,
+            "expected_revision": data["structure_revision"],
             "sections": [
                 {
                     "client_id": data["sections"][0]["id"],
@@ -147,16 +148,188 @@ async def test_structure_replace_returns_canonical_ids_and_revision(client):
         },
     )
     assert unchanged.status_code == 200
-    assert unchanged.json()["data"]["structure_revision"] == 2
+    assert unchanged.json()["data"]["structure_revision"] == data["structure_revision"] + 1
 
     stale = await client.put(
         f"/api/v1/surveys/{survey_uuid}/structure",
-        json={"expected_revision": 1, "sections": []},
+        json={"expected_revision": data["structure_revision"], "sections": []},
     )
     assert stale.status_code == 409
 
     fetched = await client.get(f"/api/v1/surveys/{survey_business_id}")
-    assert fetched.json()["data"]["structure_revision"] == 2
+    assert (
+        fetched.json()["data"]["structure_revision"]
+        == unchanged.json()["data"]["structure_revision"]
+    )
+
+
+async def test_structure_replace_can_swap_existing_sections(client):
+    survey_uuid, survey_business_id, _ = await _create_survey_with_section(
+        client, "Section Swap"
+    )
+    second = await client.post(
+        f"/api/v1/surveys/{survey_uuid}/sections/",
+        json={"title": "Second"},
+    )
+    assert second.status_code == 201
+
+    initial = (await client.get(f"/api/v1/surveys/{survey_business_id}")).json()["data"]
+    first_section, second_section = initial["sections"]
+
+    swapped = await client.put(
+        f"/api/v1/surveys/{survey_uuid}/structure",
+        json={
+            "expected_revision": initial["structure_revision"],
+            "sections": [
+                {
+                    "client_id": second_section["id"],
+                    "id": second_section["id"],
+                    "title": second_section["title"],
+                    "description": second_section["description"],
+                    "questions": [],
+                },
+                {
+                    "client_id": first_section["id"],
+                    "id": first_section["id"],
+                    "title": first_section["title"],
+                    "description": first_section["description"],
+                    "questions": [],
+                },
+            ],
+        },
+    )
+
+    assert swapped.status_code == 200
+    sections = swapped.json()["data"]["sections"]
+    assert [section["id"] for section in sections] == [
+        second_section["id"],
+        first_section["id"],
+    ]
+    assert [section["order_index"] for section in sections] == [0, 1]
+
+
+async def test_structure_replace_preserves_question_moved_from_removed_section(client):
+    survey_uuid, survey_business_id, source_section_id = await _create_survey_with_section(
+        client, "Question Move"
+    )
+    target = await client.post(
+        f"/api/v1/surveys/{survey_uuid}/sections/",
+        json={"title": "Target"},
+    )
+    target_section_id = target.json()["data"]["id"]
+    question = await client.post(
+        f"/api/v1/surveys/{survey_uuid}/questions/",
+        json={
+            "question_text": "Move me",
+            "question_type": "text",
+            "section_id": source_section_id,
+        },
+    )
+    question_id = question.json()["data"]["id"]
+
+    initial = (await client.get(f"/api/v1/surveys/{survey_business_id}")).json()["data"]
+    target_section = next(
+        section for section in initial["sections"] if section["id"] == target_section_id
+    )
+
+    moved = await client.put(
+        f"/api/v1/surveys/{survey_uuid}/structure",
+        json={
+            "expected_revision": initial["structure_revision"],
+            "cascade_section_ids": [source_section_id],
+            "sections": [
+                {
+                    "client_id": target_section["id"],
+                    "id": target_section["id"],
+                    "title": target_section["title"],
+                    "description": target_section["description"],
+                    "questions": [
+                        {
+                            "client_id": question_id,
+                            "id": question_id,
+                            "question_text": "Move me",
+                            "question_type": "text",
+                            "options": None,
+                            "config": None,
+                            "is_required": True,
+                        }
+                    ],
+                }
+            ],
+        },
+    )
+
+    assert moved.status_code == 200
+    data = moved.json()["data"]
+    assert data["sections"][0]["questions"][0]["id"] == question_id
+    assert data["sections"][0]["questions"][0]["is_deleted"] is False
+    assert data["sections"][0]["questions"][0]["section_id"] == target_section_id
+
+
+async def test_structure_replace_rejects_duplicate_persisted_ids(client):
+    survey_uuid, survey_business_id, _ = await _create_survey_with_section(
+        client, "Duplicate Structure IDs"
+    )
+    second = await client.post(
+        f"/api/v1/surveys/{survey_uuid}/sections/",
+        json={"title": "Second"},
+    )
+    assert second.status_code == 201
+    initial = (await client.get(f"/api/v1/surveys/{survey_business_id}")).json()["data"]
+    section = initial["sections"][0]
+
+    response = await client.put(
+        f"/api/v1/surveys/{survey_uuid}/structure",
+        json={
+            "expected_revision": initial["structure_revision"],
+            "sections": [
+                {
+                    "client_id": "first-reference",
+                    "id": section["id"],
+                    "title": section["title"],
+                    "description": section["description"],
+                    "questions": [],
+                },
+                {
+                    "client_id": "second-reference",
+                    "id": section["id"],
+                    "title": section["title"],
+                    "description": section["description"],
+                    "questions": [],
+                },
+            ],
+        },
+    )
+
+    assert response.status_code == 422
+
+
+async def test_granular_section_reorder_advances_structure_revision(client):
+    survey_uuid, survey_business_id, _ = await _create_survey_with_section(
+        client, "Granular Revision"
+    )
+    second = await client.post(
+        f"/api/v1/surveys/{survey_uuid}/sections/",
+        json={"title": "Second"},
+    )
+    assert second.status_code == 201
+    initial = (await client.get(f"/api/v1/surveys/{survey_business_id}")).json()["data"]
+    original_revision = initial["structure_revision"]
+    section_ids = [section["id"] for section in initial["sections"]]
+
+    reordered = await client.patch(
+        f"/api/v1/surveys/{survey_uuid}/sections/reorder",
+        json={"section_ids": list(reversed(section_ids))},
+    )
+    assert reordered.status_code == 200
+
+    current = (await client.get(f"/api/v1/surveys/{survey_business_id}")).json()["data"]
+    assert current["structure_revision"] == original_revision + 1
+    stale = await client.put(
+        f"/api/v1/surveys/{survey_uuid}/structure",
+        json={"expected_revision": original_revision, "sections": []},
+    )
+    assert stale.status_code == 409
 
 
 async def test_distribution_keeps_published_structure_after_new_draft(client):
@@ -183,6 +356,49 @@ async def test_distribution_keeps_published_structure_after_new_draft(client):
     assert public.status_code == 200
     assert public.json()["data"]["questions"][0]["id"] == question_id
     assert published_version == distribution.json()["data"]["version_id"]
+
+
+async def test_publish_requires_an_existing_draft(client):
+    survey_uuid, _, section_id = await _create_survey_with_section(
+        client, "Publish Retry"
+    )
+    question = await client.post(
+        f"/api/v1/surveys/{survey_uuid}/questions/",
+        json={
+            "question_text": "Publish once",
+            "question_type": "text",
+            "section_id": section_id,
+        },
+    )
+    assert question.status_code == 201
+    assert (await client.post(f"/api/v1/surveys/{survey_uuid}/publish")).status_code == 200
+    retry = await client.post(f"/api/v1/surveys/{survey_uuid}/publish")
+    assert retry.status_code == 409
+
+
+async def test_discarded_version_numbers_are_not_reused(client):
+    survey_uuid, _, section_id = await _create_survey_with_section(
+        client, "Discarded Version Number"
+    )
+    question = await client.post(
+        f"/api/v1/surveys/{survey_uuid}/questions/",
+        json={
+            "question_text": "Versioned question",
+            "question_type": "text",
+            "section_id": section_id,
+        },
+    )
+    assert question.status_code == 201
+    assert (await client.post(f"/api/v1/surveys/{survey_uuid}/publish")).status_code == 200
+
+    draft = await client.post(f"/api/v1/surveys/{survey_uuid}/draft")
+    assert draft.status_code == 200
+    discarded = await client.delete(f"/api/v1/surveys/{survey_uuid}/draft")
+    assert discarded.status_code == 200
+
+    recreated = await client.post(f"/api/v1/surveys/{survey_uuid}/draft")
+    assert recreated.status_code == 200
+    assert recreated.json()["data"]["version_number"] == 3
 
 
 async def test_response_rejects_unknown_and_missing_required_questions(client):

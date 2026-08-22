@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect, useMemo } from "react"
+import type { DragEvent } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import {
@@ -44,6 +45,9 @@ import {
   Copy,
   Link,
   CheckCircle2,
+  ArrowUp,
+  ArrowDown,
+  GripVertical,
 } from "lucide-react"
 import { cn, formatDate } from "@/lib/utils"
 import {
@@ -56,6 +60,8 @@ import {
   createQuestion,
   ensureSurveyDraft,
   replaceSurveyStructure,
+  publishSurvey,
+  discardSurveyDraft,
   createDistribution,
   fetchDistributions,
   fetchResponses,
@@ -242,6 +248,28 @@ type ModalState =
   | { type: "settings"; id: string }
   | null
 
+type DragItem =
+  | { kind: "section"; id: string }
+  | { kind: "question"; sectionId: string; id: string }
+  | { kind: "option"; sectionId: string; questionId: string; index: number }
+  | { kind: "column"; sectionId: string; questionId: string; index: number }
+
+function createClientId(): string {
+  return typeof crypto !== "undefined" && "randomUUID" in crypto
+    ? crypto.randomUUID()
+    : `client-${Date.now()}-${Math.random().toString(36).slice(2)}`
+}
+
+function moveInArray<T>(items: T[], from: number, to: number): T[] {
+  if (from === to || from < 0 || to < 0 || from >= items.length || to >= items.length) {
+    return items
+  }
+  const next = [...items]
+  const [item] = next.splice(from, 1)
+  if (item !== undefined) next.splice(to, 0, item)
+  return next
+}
+
 function aggregateResponses(responses: SurveyResponse[]) {
   const counts: Record<string, Record<string, number>> = {}
   const texts: Record<string, string[]> = {}
@@ -297,6 +325,7 @@ export default function SurveyPage() {
   const [distributions, setDistributions] = useState<Distribution[]>([])
   const [distLoading, setDistLoading] = useState(false)
   const [surveyResponses, setSurveyResponses] = useState<SurveyResponse[]>([])
+  const [dragItem, setDragItem] = useState<DragItem | null>(null)
   
   const { counts: responseCounts, texts: responseTexts } = useMemo(
     () => aggregateResponses(surveyResponses),
@@ -329,6 +358,7 @@ export default function SurveyPage() {
 
   const handleCloseModal = () => {
     setModalState(null)
+    setDragItem(null)
     setSections([])
     setOriginalSections([])
     setSurveyTitle("")
@@ -344,7 +374,7 @@ export default function SurveyPage() {
     setTargetCohort("Class of 2024")
     setSurveyStatus("Draft")
     setSections([{
-      id: Date.now().toString(),
+      id: createClientId(),
       title: "",
       description: "",
       orderIndex: 0,
@@ -425,6 +455,7 @@ export default function SurveyPage() {
           })
         }
       }
+      await publishSurvey(created.id)
       const full = await fetchSurvey(created.surveyId)
       setSurveys((prev) => [full, ...prev])
       setShowGeneratePreview(false)
@@ -439,16 +470,31 @@ export default function SurveyPage() {
     if (!surveyTitle.trim() || saving) return
     setSaving(true)
     setSaveError(null)
+    let createdDraft: Survey | null = null
     try {
+      if (surveyStatus === "Active") {
+        if (sections.length === 0) {
+          setSaveError("Add at least one section before publishing the survey.")
+          return
+        }
+        const emptySection = sections.find((section) => section.questions.length === 0)
+        if (emptySection) {
+          setSaveError(
+            `Section "${emptySection.title || "Untitled Section"}" must contain at least one question before publishing.`,
+          )
+          return
+        }
+      }
+
       if (modalState?.type === "create") {
         const created = await createSurvey({
           title: surveyTitle,
           description: surveyDescription || null,
           target_cohort: targetCohort,
-          status: surveyStatus,
+          status: "Draft",
         })
-        const full = await replaceSurveyStructure(created.id, {
-          expected_revision: 0,
+        const saved = await replaceSurveyStructure(created.id, {
+          expected_revision: created.structureRevision ?? 0,
           sections: sections.map((section) => ({
             client_id: section.id,
             id: section.id,
@@ -465,21 +511,27 @@ export default function SurveyPage() {
             })),
           })),
         })
-        setSurveys((prev) => [full, ...prev])
-      } else if (modalState?.type === "edit") {
-        const target = surveys.find((s) => s.id === modalState.id)
-        if (!target) return
-
-        await updateSurvey(target.surveyId, {
+        setSections(saved.sections ?? [])
+        setOriginalSections(saved.sections ?? [])
+        setSurveys((prev) => [saved, ...prev.filter((survey) => survey.id !== saved.id)])
+        createdDraft = saved
+        if (surveyStatus === "Active") await publishSurvey(created.id)
+        await updateSurvey(created.surveyId, {
           title: surveyTitle,
           description: surveyDescription || null,
           target_cohort: targetCohort,
           status: surveyStatus,
         })
+        const full = await fetchSurvey(created.surveyId)
+        setSurveys((prev) => [full, ...prev])
+      } else if (modalState?.type === "edit") {
+        const target = surveys.find((s) => s.id === modalState.id)
+        if (!target) return
+
         const removedSectionIds = originalSections
           .filter((original) => !sections.some((section) => section.id === original.id))
           .map((section) => section.id)
-        const full = await replaceSurveyStructure(target.id, {
+        const saved = await replaceSurveyStructure(target.id, {
           expected_revision: target.structureRevision ?? 0,
           sections: sections.map((section) => ({
             client_id: section.id,
@@ -498,15 +550,48 @@ export default function SurveyPage() {
           })),
           cascade_section_ids: removedSectionIds,
         })
-        setSurveys((prev) => prev.map((s) => (s.id === full.id ? full : s)))
+        setSections(saved.sections ?? [])
+        setOriginalSections(saved.sections ?? [])
+        setSurveys((prev) => prev.map((survey) => survey.id === saved.id ? saved : survey))
+        if (surveyStatus === "Active") await publishSurvey(target.id)
+        await updateSurvey(target.surveyId, {
+          title: surveyTitle,
+          description: surveyDescription || null,
+          target_cohort: targetCohort,
+          status: surveyStatus,
+        })
+        const refreshed = await fetchSurvey(target.surveyId)
+        setSurveys((prev) => prev.map((s) => (s.id === refreshed.id ? refreshed : s)))
       }
       handleCloseModal()
     } catch (error) {
+      if (createdDraft) {
+        setModalState({ type: "edit", id: createdDraft.id })
+      }
       setSaveError(
         error instanceof Error
           ? error.message
           : "We could not save the survey. Please try again.",
       )
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleDiscardDraft = async () => {
+    if (modalState?.type !== "edit" || saving) return
+    if (!window.confirm("Discard this draft and restore the last published version?")) return
+    const target = surveys.find((survey) => survey.id === modalState.id)
+    if (!target) return
+    setSaving(true)
+    setSaveError(null)
+    try {
+      await discardSurveyDraft(target.id)
+      const refreshed = await fetchSurvey(target.surveyId)
+      setSurveys((prev) => prev.map((survey) => survey.id === refreshed.id ? refreshed : survey))
+      handleCloseModal()
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : "We could not discard the draft.")
     } finally {
       setSaving(false)
     }
@@ -564,13 +649,144 @@ export default function SurveyPage() {
     setSections((prev) => [
       ...prev,
       {
-        id: Date.now().toString(),
+        id: createClientId(),
         title: "",
         description: "",
         orderIndex: prev.length,
         questions: [],
       },
     ])
+  }
+
+  const moveSection = (id: string, delta: number) => {
+    setSections((prev) => {
+      const from = prev.findIndex((section) => section.id === id)
+      const to = from + delta
+      const next = moveInArray(prev, from, to)
+      return next.map((section, index) => ({ ...section, orderIndex: index }))
+    })
+  }
+
+  const moveQuestion = (
+    sourceSectionId: string,
+    questionId: string,
+    targetSectionId: string,
+    targetIndex: number,
+  ) => {
+    setSections((prev) => {
+      const sourceSectionIndex = prev.findIndex((section) => section.id === sourceSectionId)
+      const targetSectionIndex = prev.findIndex((section) => section.id === targetSectionId)
+      if (sourceSectionIndex < 0 || targetSectionIndex < 0) return prev
+
+      const sourceSection = prev[sourceSectionIndex]!
+      const sourceIndex = sourceSection.questions.findIndex((question) => question.id === questionId)
+      if (sourceIndex < 0) return prev
+
+      const next = prev.map((section) => ({ ...section, questions: [...section.questions] }))
+      const [question] = next[sourceSectionIndex]!.questions.splice(sourceIndex, 1)
+      if (!question) return prev
+
+      const adjustedTargetIndex =
+        sourceSectionIndex === targetSectionIndex && sourceIndex < targetIndex
+          ? targetIndex - 1
+          : targetIndex
+      question.sectionId = targetSectionId
+      next[targetSectionIndex]!.questions.splice(
+        Math.max(0, Math.min(adjustedTargetIndex, next[targetSectionIndex]!.questions.length)),
+        0,
+        question,
+      )
+      return next
+    })
+  }
+
+  const moveQuestionBy = (sectionId: string, questionId: string, delta: number) => {
+    setSections((prev) => {
+      const section = prev.find((item) => item.id === sectionId)
+      if (!section) return prev
+      const from = section.questions.findIndex((question) => question.id === questionId)
+      const to = from + delta
+      if (from < 0 || to < 0 || to >= section.questions.length) return prev
+      return prev.map((item) =>
+        item.id === sectionId
+          ? { ...item, questions: moveInArray(item.questions, from, to) }
+          : item,
+      )
+    })
+  }
+
+  const moveOption = (
+    sectionId: string,
+    questionId: string,
+    from: number,
+    to: number,
+  ) => {
+    setSections((prev) => prev.map((section) => {
+      if (section.id !== sectionId) return section
+      return {
+        ...section,
+        questions: section.questions.map((question) =>
+          question.id === questionId
+            ? { ...question, options: moveInArray(question.options ?? [], from, to) }
+            : question,
+        ),
+      }
+    }))
+  }
+
+  const moveColumn = (
+    sectionId: string,
+    questionId: string,
+    from: number,
+    to: number,
+  ) => {
+    setSections((prev) => prev.map((section) => {
+      if (section.id !== sectionId) return section
+      return {
+        ...section,
+        questions: section.questions.map((question) => {
+          if (question.id !== questionId) return question
+          const columns = (question.config?.columns as string[] | undefined) ?? []
+          return {
+            ...question,
+            config: { ...(question.config ?? {}), columns: moveInArray(columns, from, to) },
+          }
+        }),
+      }
+    }))
+  }
+
+  const handleDragStart = (event: DragEvent, item: DragItem) => {
+    event.stopPropagation()
+    setDragItem(item)
+    event.dataTransfer.effectAllowed = "move"
+    event.dataTransfer.setData("text/plain", item.kind)
+  }
+
+  const handleDrop = (event: DragEvent, target: DragItem) => {
+    event.preventDefault()
+    event.stopPropagation()
+    const source = dragItem
+    setDragItem(null)
+    if (!source) return
+
+    if (source.kind === "section" && target.kind === "section") {
+      setSections((prev) => {
+        const from = prev.findIndex((section) => section.id === source.id)
+        const to = prev.findIndex((section) => section.id === target.id)
+        return moveInArray(prev, from, to).map((section, index) => ({ ...section, orderIndex: index }))
+      })
+    } else if (source.kind === "question" && target.kind === "section") {
+      moveQuestion(source.sectionId, source.id, target.id, Number.MAX_SAFE_INTEGER)
+    } else if (source.kind === "question" && target.kind === "question") {
+      const targetSection = sections.find((section) => section.id === target.sectionId)
+      const targetIndex = targetSection?.questions.findIndex((question) => question.id === target.id) ?? -1
+      if (targetIndex >= 0) moveQuestion(source.sectionId, source.id, target.sectionId, targetIndex)
+    } else if (source.kind === "option" && target.kind === "option" && source.questionId === target.questionId) {
+      moveOption(source.sectionId, source.questionId, source.index, target.index)
+    } else if (source.kind === "column" && target.kind === "column" && source.questionId === target.questionId) {
+      moveColumn(source.sectionId, source.questionId, source.index, target.index)
+    }
   }
 
   const updateSection = (secIdx: number, patch: Partial<SurveySection>) => {
@@ -598,7 +814,7 @@ export default function SurveyPage() {
       const sec = { ...next[secIdx]! }
       sec.questions = [
         ...sec.questions,
-        { id: Date.now().toString(), text: "", type: "text", options: [""], isRequired: true },
+        { id: createClientId(), text: "", type: "text", options: [""], isRequired: true },
       ]
       next[secIdx] = sec
       return next
@@ -870,6 +1086,16 @@ export default function SurveyPage() {
               </div>
             </div>
             <div className="flex items-center gap-3">
+              {modalState?.type === "edit" && (
+                <Button
+                  variant="ghost"
+                  onClick={handleDiscardDraft}
+                  disabled={saving}
+                  className="h-9 text-red-600 hover:bg-red-50 hover:text-red-700"
+                >
+                  Discard Draft
+                </Button>
+              )}
               <Button variant="outline" onClick={handleCloseModal} className="h-9">
                 Cancel
               </Button>
@@ -1080,11 +1306,20 @@ export default function SurveyPage() {
                         {sections.map((sec, secIdx) => (
                           <div
                             key={sec.id}
+                            draggable
+                            onDragStart={(event) => handleDragStart(event, { kind: "section", id: sec.id })}
+                            onDragEnd={() => setDragItem(null)}
+                            onDragOver={(event) => event.preventDefault()}
+                            onDrop={(event) => handleDrop(event, { kind: "section", id: sec.id })}
                             className="rounded-xl border border-slate-200/80 bg-white shadow-sm"
                           >
                             {/* Section header */}
                             <div className="flex items-start gap-3 p-4 pb-3 border-b border-slate-100">
                               <div className="flex items-center gap-1.5 pt-1">
+                                <GripVertical
+                                  className="size-4 cursor-grab text-slate-300 active:cursor-grabbing"
+                                  aria-label="Drag section"
+                                />
                                 <span className="flex size-5 items-center justify-center rounded-md bg-violet-50 text-[10px] font-bold text-violet-600">
                                   {secIdx + 1}
                                 </span>
@@ -1120,6 +1355,30 @@ export default function SurveyPage() {
                                   }}
                                 />
                               </div>
+                              <div className="flex items-center gap-0.5 pt-0.5">
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="icon-xs"
+                                  aria-label="Move section up"
+                                  title="Move section up"
+                                  disabled={secIdx === 0}
+                                  onClick={() => moveSection(sec.id, -1)}
+                                >
+                                  <ArrowUp />
+                                </Button>
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="icon-xs"
+                                  aria-label="Move section down"
+                                  title="Move section down"
+                                  disabled={secIdx === sections.length - 1}
+                                  onClick={() => moveSection(sec.id, 1)}
+                                >
+                                  <ArrowDown />
+                                </Button>
+                              </div>
                               <Button
                                 variant="ghost"
                                 size="icon-xs"
@@ -1147,10 +1406,24 @@ export default function SurveyPage() {
                                   {sec.questions.map((q, qIdx) => (
                                     <div
                                       key={q.id}
+                                      draggable
+                                      onDragStart={(event) => handleDragStart(event, {
+                                        kind: "question",
+                                        sectionId: sec.id,
+                                        id: q.id,
+                                      })}
+                                      onDragEnd={() => setDragItem(null)}
+                                      onDragOver={(event) => event.preventDefault()}
+                                      onDrop={(event) => handleDrop(event, {
+                                        kind: "question",
+                                        sectionId: sec.id,
+                                        id: q.id,
+                                      })}
                                       className="group/q rounded-lg border border-slate-200/70 bg-white shadow-sm transition-shadow hover:shadow-md"
                                     >
                                       <div className="flex items-start gap-2 p-3">
                                         <div className="flex items-center gap-1.5 pt-1">
+                                          <GripVertical className="size-4 cursor-grab text-slate-300 active:cursor-grabbing" aria-label="Drag question" />
                                           <span className="flex size-5 items-center justify-center rounded-md bg-indigo-50 text-[10px] font-bold text-indigo-600">
                                             {qIdx + 1}
                                           </span>
@@ -1252,7 +1525,32 @@ export default function SurveyPage() {
                                           </div>
                                         </div>
 
+                                        <div className="flex items-center gap-0.5 pt-0.5">
+                                          <Button
+                                            type="button"
+                                            variant="ghost"
+                                            size="icon-xs"
+                                            aria-label="Move question up"
+                                            title="Move question up"
+                                            disabled={qIdx === 0}
+                                            onClick={() => moveQuestionBy(sec.id, q.id, -1)}
+                                          >
+                                            <ArrowUp />
+                                          </Button>
+                                          <Button
+                                            type="button"
+                                            variant="ghost"
+                                            size="icon-xs"
+                                            aria-label="Move question down"
+                                            title="Move question down"
+                                            disabled={qIdx === sec.questions.length - 1}
+                                            onClick={() => moveQuestionBy(sec.id, q.id, 1)}
+                                          >
+                                            <ArrowDown />
+                                          </Button>
+                                        </div>
                                         <Button
+                                          type="button"
                                           variant="ghost"
                                           size="icon-xs"
                                           onClick={() => removeQuestion(secIdx, q.id)}
@@ -1348,8 +1646,27 @@ export default function SurveyPage() {
                                       {["single_choice", "multiple_choice", "ranking"].includes(q.type) && (
                                         <div className="border-t border-slate-100 bg-slate-50/30 px-3 py-3 rounded-b-xl">
                                           <div className="space-y-1.5 pl-7">
-                                            {q.options?.map((opt, optIdx) => (
-                                              <div key={optIdx} className="flex items-center gap-2">
+                                             {q.options?.map((opt, optIdx) => (
+                                              <div
+                                                key={optIdx}
+                                                draggable
+                                                onDragStart={(event) => handleDragStart(event, {
+                                                  kind: "option",
+                                                  sectionId: sec.id,
+                                                  questionId: q.id,
+                                                  index: optIdx,
+                                                })}
+                                                onDragEnd={() => setDragItem(null)}
+                                                onDragOver={(event) => event.preventDefault()}
+                                                onDrop={(event) => handleDrop(event, {
+                                                  kind: "option",
+                                                  sectionId: sec.id,
+                                                  questionId: q.id,
+                                                  index: optIdx,
+                                                })}
+                                                className="flex items-center gap-2"
+                                              >
+                                                <GripVertical className="size-3.5 cursor-grab text-slate-300" aria-label="Drag option" />
                                                 <span className="flex size-4 shrink-0 items-center justify-center rounded-full border border-slate-300 text-[9px] font-semibold text-slate-400">
                                                   {String.fromCharCode(65 + optIdx)}
                                                 </span>
@@ -1361,12 +1678,32 @@ export default function SurveyPage() {
                                                     updateOption(secIdx, qIdx, optIdx, e.target.value)
                                                   }
                                                 />
-                                                <Button
-                                                  variant="ghost"
-                                                  size="icon-xs"
-                                                  className="text-slate-300 hover:text-red-500 hover:bg-red-50"
-                                                  onClick={() => removeOption(secIdx, qIdx, optIdx)}
-                                                >
+                                                 <Button
+                                                   variant="ghost"
+                                                   size="icon-xs"
+                                                   className="text-slate-300 hover:text-red-500 hover:bg-red-50"
+                                                   aria-label={`Move option ${optIdx + 1} up`}
+                                                   disabled={optIdx === 0}
+                                                   onClick={() => moveOption(sec.id, q.id, optIdx, optIdx - 1)}
+                                                 >
+                                                   <ArrowUp />
+                                                 </Button>
+                                                 <Button
+                                                   variant="ghost"
+                                                   size="icon-xs"
+                                                   className="text-slate-300 hover:text-red-500 hover:bg-red-50"
+                                                   aria-label={`Move option ${optIdx + 1} down`}
+                                                   disabled={optIdx === (q.options?.length ?? 0) - 1}
+                                                   onClick={() => moveOption(sec.id, q.id, optIdx, optIdx + 1)}
+                                                 >
+                                                   <ArrowDown />
+                                                 </Button>
+                                                 <Button
+                                                   variant="ghost"
+                                                   size="icon-xs"
+                                                   className="text-slate-300 hover:text-red-500 hover:bg-red-50"
+                                                   onClick={() => removeOption(secIdx, qIdx, optIdx)}
+                                                 >
                                                   <Trash className="size-3" />
                                                 </Button>
                                               </div>
@@ -1389,8 +1726,27 @@ export default function SurveyPage() {
                                           {/* Rows */}
                                           <div className="space-y-1.5 pl-7">
                                             <span className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Rows</span>
-                                            {q.options?.map((opt, optIdx) => (
-                                              <div key={optIdx} className="flex items-center gap-2">
+                                             {q.options?.map((opt, optIdx) => (
+                                              <div
+                                                key={optIdx}
+                                                draggable
+                                                onDragStart={(event) => handleDragStart(event, {
+                                                  kind: "option",
+                                                  sectionId: sec.id,
+                                                  questionId: q.id,
+                                                  index: optIdx,
+                                                })}
+                                                onDragEnd={() => setDragItem(null)}
+                                                onDragOver={(event) => event.preventDefault()}
+                                                onDrop={(event) => handleDrop(event, {
+                                                  kind: "option",
+                                                  sectionId: sec.id,
+                                                  questionId: q.id,
+                                                  index: optIdx,
+                                                })}
+                                                className="flex items-center gap-2"
+                                              >
+                                                <GripVertical className="size-3.5 cursor-grab text-slate-300" aria-label="Drag row" />
                                                 <span className="text-[10px] font-semibold text-slate-400 w-4">{optIdx + 1}</span>
                                                 <Input
                                                   className="h-7 flex-1 bg-white text-xs"
@@ -1398,12 +1754,32 @@ export default function SurveyPage() {
                                                   value={opt}
                                                   onChange={(e) => updateOption(secIdx, qIdx, optIdx, e.target.value)}
                                                 />
-                                                <Button
-                                                  variant="ghost"
-                                                  size="icon-xs"
-                                                  className="text-slate-300 hover:text-red-500 hover:bg-red-50"
-                                                  onClick={() => removeOption(secIdx, qIdx, optIdx)}
-                                                >
+                                                 <Button
+                                                   variant="ghost"
+                                                   size="icon-xs"
+                                                   className="text-slate-300 hover:text-red-500 hover:bg-red-50"
+                                                   aria-label={`Move row ${optIdx + 1} up`}
+                                                   disabled={optIdx === 0}
+                                                   onClick={() => moveOption(sec.id, q.id, optIdx, optIdx - 1)}
+                                                 >
+                                                   <ArrowUp />
+                                                 </Button>
+                                                 <Button
+                                                   variant="ghost"
+                                                   size="icon-xs"
+                                                   className="text-slate-300 hover:text-red-500 hover:bg-red-50"
+                                                   aria-label={`Move row ${optIdx + 1} down`}
+                                                   disabled={optIdx === (q.options?.length ?? 0) - 1}
+                                                   onClick={() => moveOption(sec.id, q.id, optIdx, optIdx + 1)}
+                                                 >
+                                                   <ArrowDown />
+                                                 </Button>
+                                                 <Button
+                                                   variant="ghost"
+                                                   size="icon-xs"
+                                                   className="text-slate-300 hover:text-red-500 hover:bg-red-50"
+                                                   onClick={() => removeOption(secIdx, qIdx, optIdx)}
+                                                 >
                                                   <Trash className="size-3" />
                                                 </Button>
                                               </div>
@@ -1422,8 +1798,27 @@ export default function SurveyPage() {
                                           {/* Columns */}
                                           <div className="space-y-1.5 pl-7 border-t border-slate-100 pt-3">
                                             <span className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Columns</span>
-                                            {((q.config?.columns as string[]) ?? []).map((col, colIdx) => (
-                                              <div key={colIdx} className="flex items-center gap-2">
+                                             {((q.config?.columns as string[]) ?? []).map((col, colIdx) => (
+                                              <div
+                                                key={colIdx}
+                                                draggable
+                                                onDragStart={(event) => handleDragStart(event, {
+                                                  kind: "column",
+                                                  sectionId: sec.id,
+                                                  questionId: q.id,
+                                                  index: colIdx,
+                                                })}
+                                                onDragEnd={() => setDragItem(null)}
+                                                onDragOver={(event) => event.preventDefault()}
+                                                onDrop={(event) => handleDrop(event, {
+                                                  kind: "column",
+                                                  sectionId: sec.id,
+                                                  questionId: q.id,
+                                                  index: colIdx,
+                                                })}
+                                                className="flex items-center gap-2"
+                                              >
+                                                <GripVertical className="size-3.5 cursor-grab text-slate-300" aria-label="Drag column" />
                                                 <span className="text-[10px] font-semibold text-slate-400 w-4">{String.fromCharCode(65 + colIdx)}</span>
                                                 <Input
                                                   className="h-7 flex-1 bg-white text-xs"
@@ -1437,11 +1832,31 @@ export default function SurveyPage() {
                                                     })
                                                   }}
                                                 />
-                                                <Button
-                                                  variant="ghost"
-                                                  size="icon-xs"
-                                                  className="text-slate-300 hover:text-red-500 hover:bg-red-50"
-                                                  onClick={() => {
+                                                 <Button
+                                                   variant="ghost"
+                                                   size="icon-xs"
+                                                   className="text-slate-300 hover:text-red-500 hover:bg-red-50"
+                                                   aria-label={`Move column ${colIdx + 1} up`}
+                                                   disabled={colIdx === 0}
+                                                   onClick={() => moveColumn(sec.id, q.id, colIdx, colIdx - 1)}
+                                                 >
+                                                   <ArrowUp />
+                                                 </Button>
+                                                 <Button
+                                                   variant="ghost"
+                                                   size="icon-xs"
+                                                   className="text-slate-300 hover:text-red-500 hover:bg-red-50"
+                                                   aria-label={`Move column ${colIdx + 1} down`}
+                                                   disabled={colIdx === (((q.config?.columns as string[]) ?? []).length - 1)}
+                                                   onClick={() => moveColumn(sec.id, q.id, colIdx, colIdx + 1)}
+                                                 >
+                                                   <ArrowDown />
+                                                 </Button>
+                                                 <Button
+                                                   variant="ghost"
+                                                   size="icon-xs"
+                                                   className="text-slate-300 hover:text-red-500 hover:bg-red-50"
+                                                   onClick={() => {
                                                     const newCols = [...((q.config?.columns as string[]) ?? [])]
                                                     newCols.splice(colIdx, 1)
                                                     updateQuestion(secIdx, qIdx, {
