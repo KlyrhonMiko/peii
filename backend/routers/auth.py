@@ -113,12 +113,5 @@ async def change_password(
     request: Request,
 ) -> APIResponse[None]:
     await update_password(principal.access_token, payload.password)
-    event = AuditEvent(
-        "change_password",
-        "user",
-        principal.user.user_id,
-        principal.user.id,
-        ip_address=_ip_address(request),
-    )
-    await commit_with_audit(session, [event])
+    await auth_service.record_password_change(session, principal.user, _ip_address(request))
     return success_response(None, message="Password updated.")

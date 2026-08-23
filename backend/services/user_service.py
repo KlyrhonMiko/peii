@@ -10,13 +10,22 @@ from models.user import User
 from schemas.user import UserCreate, UserDelete, UserListQueryParams, UserRestore, UserUpdate
 from services.audit_service import AuditEvent, commit_with_audit
 from services.base_service import apply_updates, utc_now
-from services.supabase_auth_service import get_auth_user_by_email, invite_user
+from services.supabase_auth_service import (
+    get_auth_user_by_email,
+    invite_user,
+    send_recovery_email,
+)
+from services.supabase_auth_service import (
+    revoke_user_sessions as revoke_auth_user_sessions,
+)
 from utils.identifiers import generate_business_id
 from utils.sorting import stable_order_by
 
 
 def _apply_user_list_filters(statement, params: UserListQueryParams):
-    if not params.include_deleted:
+    if params.is_deleted is not None:
+        statement = statement.where(col(User.is_deleted) == params.is_deleted)
+    elif not params.include_deleted:
         statement = statement.where(col(User.is_deleted).is_(False))
 
     if params.is_active is not None:
@@ -246,6 +255,76 @@ async def update_user(
     )
     await session.refresh(user)
     return user
+
+
+async def resend_invitation(
+    session: AsyncSession,
+    user_id: str,
+    actor_id: UUID,
+    redirect_to: str,
+    ip_address: str | None = None,
+) -> User:
+    user = await get_user(session, user_id)
+    if not user.is_active or user.onboarding_completed_at is not None:
+        raise AppError(
+            "User is not eligible for invitation resend.",
+            status_code=status.HTTP_409_CONFLICT,
+        )
+
+    await send_recovery_email(user.email, redirect_to)
+    previous_invited_at = user.invited_at
+    user.invited_at = utc_now()
+    user.updated_at = utc_now()
+    user.performed_by = actor_id
+    session.add(user)
+    await commit_with_audit(
+        session,
+        [
+            AuditEvent(
+                action="resend_invitation",
+                resource_type="user",
+                resource_id=user.user_id,
+                performed_by=actor_id,
+                changes={
+                    "invited_at": {
+                        "before": previous_invited_at,
+                        "after": user.invited_at,
+                    }
+                },
+                ip_address=ip_address,
+            )
+        ],
+    )
+    await session.refresh(user)
+    return user
+
+
+async def revoke_user_sessions(
+    session: AsyncSession,
+    user_id: str,
+    actor_id: UUID,
+    ip_address: str | None = None,
+) -> None:
+    user = await get_user(session, user_id)
+    if user.auth_user_id is None:
+        raise AppError(
+            "User does not have an authentication account.",
+            status_code=status.HTTP_409_CONFLICT,
+        )
+
+    await revoke_auth_user_sessions(user.auth_user_id)
+    await commit_with_audit(
+        session,
+        [
+            AuditEvent(
+                action="revoke_sessions",
+                resource_type="user",
+                resource_id=user.user_id,
+                performed_by=actor_id,
+                ip_address=ip_address,
+            )
+        ],
+    )
 
 
 async def soft_delete_user(

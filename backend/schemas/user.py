@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, EmailStr
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 from schemas.common import ListQueryParams
 
@@ -72,6 +72,10 @@ class UserRead(UserBase):
                 "contact": "+1234567890",
                 "is_active": True,
                 "user_id": "USER-123456",
+                "roles": ["researcher"],
+                "invited_at": "2026-06-21T12:00:00Z",
+                "onboarding_completed_at": None,
+                "last_login_at": None,
                 "created_at": "2026-06-21T12:00:00Z",
                 "updated_at": "2026-06-21T12:30:00Z",
                 "is_deleted": False,
@@ -82,6 +86,10 @@ class UserRead(UserBase):
     )
 
     user_id: str
+    roles: list[str] = Field(default_factory=list)
+    invited_at: datetime | None = None
+    onboarding_completed_at: datetime | None = None
+    last_login_at: datetime | None = None
     created_at: datetime
     updated_at: datetime
     is_deleted: bool
@@ -99,5 +107,6 @@ class UserRestore(UserBaseSchema):
 
 class UserListQueryParams(ListQueryParams):
     is_active: bool | None = None
+    is_deleted: bool | None = None
     search: str | None = None
     sort_by: Literal["created_at", "user_id", "email", "username", "last_name"] = "created_at"

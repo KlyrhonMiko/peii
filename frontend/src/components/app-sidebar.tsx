@@ -14,7 +14,7 @@ import {
   SidebarHeader,
   SidebarFooter,
 } from "@/components/ui/sidebar"
-import { LayoutDashboard, BarChart3, Settings, FlaskConical, LogOut, ClipboardList, Cpu } from "lucide-react"
+import { LayoutDashboard, BarChart3, Settings, FlaskConical, LogOut, ClipboardList, Cpu, UsersRound } from "lucide-react"
 import { logoutAction } from "@/app/login/actions"
 import type { PortalUser } from "@/lib/auth"
 
@@ -26,14 +26,15 @@ const mainItems = [
 ]
 
 const managementItems = [
+  { title: "Users", url: "/admin/users", icon: UsersRound, permission: "users.read" },
   { title: "Settings", url: "#", icon: Settings },
 ]
 
 export function AppSidebar({ user }: { user: PortalUser }) {
   const pathname = usePathname()
 
-  const renderMenuItems = (items: typeof mainItems) =>
-    items.map((item) => {
+  const renderMenuItems = (items: Array<(typeof mainItems)[number] | (typeof managementItems)[number]>) =>
+    items.filter((item) => !("permission" in item) || user.permissions.includes(item.permission)).map((item) => {
       const isActive = pathname === item.url || pathname.startsWith(`${item.url}/`)
       return (
         <SidebarMenuItem key={item.title}>

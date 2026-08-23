@@ -53,3 +53,17 @@ async def test_invitation_sends_redirect_to_as_query_parameter(monkeypatch):
         "redirect_to": "http://localhost:3000/auth/confirm?next=/reset-password"
     }
     assert client.calls[0]["json"] == {"email": "user@example.com"}
+
+
+async def test_revoke_user_sessions_uses_supabase_admin_global_logout(monkeypatch):
+    client = FakeClient()
+    monkeypatch.setattr(supabase_auth_service.httpx, "AsyncClient", lambda **_: client)
+
+    await supabase_auth_service.revoke_user_sessions("00000000-0000-0000-0000-000000000003")
+
+    url = client.calls[0]["url"]
+    assert isinstance(url, str)
+    assert url.endswith(
+        "/auth/v1/admin/users/00000000-0000-0000-0000-000000000003/logout"
+    )
+    assert client.calls[0]["json"] == {"scope": "global"}

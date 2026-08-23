@@ -7,6 +7,8 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from core.exceptions import AppError
 from models.user import User
 from services import rbac_service
+from services.audit_service import AuditEvent, commit_with_audit
+from services.base_service import utc_now
 from services.supabase_auth_service import password_login
 
 
@@ -38,3 +40,33 @@ async def current_user_data(session: AsyncSession, user: User) -> tuple[list[str
     permissions = sorted(await rbac_service.effective_permissions(session, user.id))
     roles = await rbac_service.effective_role_names(session, user.id)
     return permissions, roles
+
+
+async def record_password_change(
+    session: AsyncSession, user: User, ip_address: str | None = None
+) -> None:
+    changes = None
+    if user.onboarding_completed_at is None:
+        user.onboarding_completed_at = utc_now()
+        user.updated_at = utc_now()
+        user.performed_by = user.id
+        session.add(user)
+        changes = {
+            "onboarding_completed_at": {
+                "before": None,
+                "after": user.onboarding_completed_at,
+            }
+        }
+    await commit_with_audit(
+        session,
+        [
+            AuditEvent(
+                "change_password",
+                "user",
+                user.user_id,
+                user.id,
+                changes=changes,
+                ip_address=ip_address,
+            )
+        ],
+    )

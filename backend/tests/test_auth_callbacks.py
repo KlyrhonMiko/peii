@@ -1,5 +1,10 @@
 import pytest
+from sqlmodel import select
 
+from core.database import get_async_session
+from core.deps import Principal, get_current_principal
+from main import app
+from models.user import User
 from routers import auth
 from services import user_service
 
@@ -56,3 +61,45 @@ async def test_invitation_uses_confirmation_callback(client, monkeypatch):
         "email": "invitee@example.com",
         "redirect_to": "http://localhost:3000/auth/confirm?next=/reset-password",
     }
+
+
+async def test_first_successful_password_change_completes_onboarding(client, monkeypatch):
+    create_response = await client.post(
+        "/api/v1/users/",
+        json={
+            "email": "onboarding@example.com",
+            "username": "onboarding",
+            "first_name": "Onboarding",
+            "last_name": "User",
+        },
+    )
+    user_id = create_response.json()["data"]["user_id"]
+
+    session_generator = app.dependency_overrides[get_async_session]()
+    session = await anext(session_generator)
+    try:
+        user = (await session.exec(select(User).where(User.user_id == user_id))).one()
+    finally:
+        await session_generator.aclose()
+
+    async def override_principal() -> Principal:
+        return Principal(user=user, permissions=frozenset(), access_token="test")
+
+    async def successful_password_update(_: str, __: str) -> None:
+        return None
+
+    app.dependency_overrides[get_current_principal] = override_principal
+    monkeypatch.setattr(auth, "update_password", successful_password_update)
+    response = await client.post(
+        "/api/v1/auth/password/change", json={"password": "a secure password"}
+    )
+
+    assert response.status_code == 200
+
+    session_generator = app.dependency_overrides[get_async_session]()
+    session = await anext(session_generator)
+    try:
+        updated_user = (await session.exec(select(User).where(User.user_id == user_id))).one()
+    finally:
+        await session_generator.aclose()
+    assert updated_user.onboarding_completed_at is not None

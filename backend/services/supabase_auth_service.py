@@ -1,4 +1,5 @@
 from typing import Any
+from uuid import UUID
 
 import httpx
 
@@ -66,12 +67,25 @@ async def get_auth_user_by_email(email: str) -> dict[str, Any] | None:
 
 async def send_recovery_email(email: str, redirect_to: str) -> None:
     async with httpx.AsyncClient(timeout=10.0) as client:
-        await client.post(
+        response = await client.post(
             _auth_url("/recover"),
             headers={**_headers(), "Content-Type": "application/json"},
             params={"redirect_to": redirect_to},
             json={"email": email},
         )
+    if response.status_code not in {200, 204}:
+        raise AppError("Unable to send recovery email.", status_code=502)
+
+
+async def revoke_user_sessions(auth_user_id: UUID | str) -> None:
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        response = await client.post(
+            _auth_url(f"/admin/users/{auth_user_id}/logout"),
+            headers={**_headers(secret=True), "Content-Type": "application/json"},
+            json={"scope": "global"},
+        )
+    if response.status_code not in {200, 204}:
+        raise AppError("Unable to revoke user sessions.", status_code=502)
 
 
 async def update_password(access_token: str, password: str) -> None:

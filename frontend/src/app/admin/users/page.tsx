@@ -1,15 +1,18 @@
-export default function UsersPage() {
-  return (
-    <div className="space-y-6">
-      <div>
-        <h2 className="text-2xl font-bold tracking-tight">User Management</h2>
-        <p className="text-muted-foreground">Manage roles and access for the PEII system.</p>
-      </div>
-      <div className="rounded-md border bg-white">
-        <div className="p-4 text-sm text-gray-500">
-          User table placeholder (e.g., list of researchers, admins, staff).
-        </div>
-      </div>
-    </div>
-  )
+import { AdminUserManagement } from "@/components/AdminUserManagement"
+import { requirePortalUser } from "@/lib/auth"
+
+export default async function UsersPage() {
+  const currentUser = await requirePortalUser("users.read")
+  const permissions = new Set(currentUser.permissions)
+
+  return <AdminUserManagement permissions={{
+    canInvite: permissions.has("users.invite"),
+    canUpdate: permissions.has("users.update"),
+    canChangeStatus: permissions.has("users.change_status"),
+    canAssignRoles: permissions.has("users.assign_roles"),
+    canReadRoles: permissions.has("roles.read"),
+    canRevokeSessions: permissions.has("users.revoke_sessions"),
+    canDelete: permissions.has("users.delete"),
+    canRestore: permissions.has("users.restore"),
+  }} />
 }

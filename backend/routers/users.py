@@ -16,7 +16,7 @@ from schemas.user import (
     UserRestore,
     UserUpdate,
 )
-from services import user_service
+from services import rbac_service, user_service
 
 router = APIRouter()
 
@@ -36,6 +36,7 @@ def get_user_list_query_params(
         default="created_at"
     ),
     is_active: bool | None = Query(default=None),
+    is_deleted: bool | None = Query(default=None),
     search: str | None = Query(default=None, min_length=1),
 ) -> UserListQueryParams:
     return UserListQueryParams(
@@ -45,11 +46,18 @@ def get_user_list_query_params(
         include_deleted=include_deleted,
         sort_by=sort_by,
         is_active=is_active,
+        is_deleted=is_deleted,
         search=search.strip() if search else None,
     )
 
 
 UserListParams = Annotated[UserListQueryParams, Depends(get_user_list_query_params)]
+
+
+async def _user_read(session: AsyncDBSession, user) -> UserRead:
+    return UserRead.model_validate(user).model_copy(
+        update={"roles": await rbac_service.effective_role_names(session, user.id)}
+    )
 
 
 @router.get(
@@ -64,7 +72,7 @@ async def list_users(
     _: Principal = Depends(require_permissions("users.read")),
 ) -> APIResponse[list[UserRead]]:
     users, total = await user_service.list_users(session, params)
-    response_users = [UserRead.model_validate(user) for user in users]
+    response_users = [await _user_read(session, user) for user in users]
     return success_response(
         response_users,
         meta=list_meta_response(
@@ -101,7 +109,9 @@ async def batch_create_users(
         _invitation_redirect(),
         ip_address=ip_address,
     )
-    return success_response([UserRead.model_validate(u) for u in users], message="Users created.")
+    return success_response(
+        [await _user_read(session, user) for user in users], message="Users created."
+    )
 
 
 @router.post(
@@ -125,7 +135,7 @@ async def create_user(
         _invitation_redirect(),
         ip_address=ip_address,
     )
-    return success_response(UserRead.model_validate(user), message="User created.")
+    return success_response(await _user_read(session, user), message="User created.")
 
 
 @router.get(
@@ -140,7 +150,49 @@ async def get_user(
     _: Principal = Depends(require_permissions("users.read")),
 ) -> APIResponse[UserRead]:
     user = await user_service.get_user(session, user_id)
-    return success_response(UserRead.model_validate(user))
+    return success_response(await _user_read(session, user))
+
+
+@router.post(
+    "/{user_id}/invitation/resend",
+    response_model=APIResponse[UserRead],
+    summary="Resend User Invitation",
+    description="Resend setup instructions to an active user who has not completed onboarding.",
+)
+async def resend_invitation(
+    user_id: str,
+    session: AsyncDBSession,
+    request: Request,
+    principal: Principal = Depends(require_permissions("users.invite")),
+) -> APIResponse[UserRead]:
+    ip_address = request.client.host if request.client else None
+    user = await user_service.resend_invitation(
+        session,
+        user_id,
+        principal.user.id,
+        _invitation_redirect(),
+        ip_address=ip_address,
+    )
+    return success_response(await _user_read(session, user), message="Invitation resent.")
+
+
+@router.post(
+    "/{user_id}/sessions/revoke",
+    response_model=APIResponse[None],
+    summary="Revoke User Sessions",
+    description="Globally revoke all active Supabase sessions for a user.",
+)
+async def revoke_sessions(
+    user_id: str,
+    session: AsyncDBSession,
+    request: Request,
+    principal: Principal = Depends(require_permissions("users.revoke_sessions")),
+) -> APIResponse[None]:
+    ip_address = request.client.host if request.client else None
+    await user_service.revoke_user_sessions(
+        session, user_id, principal.user.id, ip_address=ip_address
+    )
+    return success_response(None, message="User sessions revoked.")
 
 
 @router.patch(
@@ -162,7 +214,7 @@ async def update_user(
     user = await user_service.update_user(
         session, user_id, payload, principal.user.id, ip_address=ip_address
     )
-    return success_response(UserRead.model_validate(user), message="User updated.")
+    return success_response(await _user_read(session, user), message="User updated.")
 
 
 @router.delete(
@@ -182,7 +234,7 @@ async def delete_user(
     user = await user_service.soft_delete_user(
         session, user_id, payload, principal.user.id, ip_address=ip_address
     )
-    return success_response(UserRead.model_validate(user), message="User deleted.")
+    return success_response(await _user_read(session, user), message="User deleted.")
 
 
 @router.post(
@@ -202,4 +254,4 @@ async def restore_user(
     user = await user_service.restore_user(
         session, user_id, payload, principal.user.id, ip_address=ip_address
     )
-    return success_response(UserRead.model_validate(user), message="User restored.")
+    return success_response(await _user_read(session, user), message="User restored.")

@@ -5,15 +5,19 @@ function hasValue(value: string | undefined): value is string {
 }
 
 function matchesSurveyResource(path: string[]): boolean {
-  return path.length === 2 && hasValue(path[1])
+  return path.length === 2 && path[0] === "surveys" && hasValue(path[1])
 }
 
 function matchesSurveyChild(path: string[], child: string): boolean {
-  return path.length === 3 && hasValue(path[1]) && path[2] === child
+  return path.length === 3 && path[0] === "surveys" && hasValue(path[1]) && path[2] === child
 }
 
 function matchesSurveyChildResource(path: string[], child: string): boolean {
-  return path.length === 4 && hasValue(path[1]) && path[2] === child && hasValue(path[3])
+  return path.length === 4 && path[0] === "surveys" && hasValue(path[1]) && path[2] === child && hasValue(path[3])
+}
+
+function matchesUserResource(path: string[]): boolean {
+  return path.length === 2 && path[0] === "users" && hasValue(path[1])
 }
 
 export function isAllowedBackendRequest(method: string, path: string[]): boolean {
@@ -23,6 +27,8 @@ export function isAllowedBackendRequest(method: string, path: string[]): boolean
   switch (backendMethod) {
     case "GET":
       return (
+        (path.length === 1 && path[0] === "users") ||
+        (path.length === 2 && path[0] === "rbac" && path[1] === "roles") ||
         (path.length === 1 && path[0] === "surveys") ||
         matchesSurveyResource(path) ||
         matchesSurveyChild(path, "distributions") ||
@@ -30,6 +36,11 @@ export function isAllowedBackendRequest(method: string, path: string[]): boolean
       )
     case "POST":
       return (
+        (path.length === 1 && path[0] === "users") ||
+        (path.length === 2 && path[0] === "users" && path[1] === "batch") ||
+        (path.length === 3 && hasValue(path[1]) && path[0] === "users" && path[2] === "restore") ||
+        (path.length === 4 && hasValue(path[1]) && path[0] === "users" && path[2] === "invitation" && path[3] === "resend") ||
+        (path.length === 4 && hasValue(path[1]) && path[0] === "users" && path[2] === "sessions" && path[3] === "revoke") ||
         (path.length === 1 && path[0] === "surveys") ||
         (path.length === 2 && path[0] === "surveys" && path[1] === "with-structure") ||
         matchesSurveyChild(path, "sections") ||
@@ -38,18 +49,23 @@ export function isAllowedBackendRequest(method: string, path: string[]): boolean
       )
     case "PATCH":
       return (
+        matchesUserResource(path) ||
         matchesSurveyResource(path) ||
         matchesSurveyChildResource(path, "sections") ||
         matchesSurveyChildResource(path, "questions") ||
-        (path.length === 4 &&
+        (path.length === 4 && path[0] === "surveys" &&
           hasValue(path[1]) &&
           ((path[2] === "sections" && path[3] === "reorder") ||
             (path[2] === "questions" && path[3] === "reorder")))
       )
     case "PUT":
-      return path.length === 3 && hasValue(path[1]) && path[2] === "structure"
+      return (
+        (path.length === 3 && path[0] === "surveys" && hasValue(path[1]) && path[2] === "structure") ||
+        (path.length === 4 && path[0] === "rbac" && path[1] === "users" && hasValue(path[2]) && path[3] === "roles")
+      )
     case "DELETE":
       return (
+        matchesUserResource(path) ||
         matchesSurveyResource(path) ||
         matchesSurveyChildResource(path, "sections") ||
         matchesSurveyChildResource(path, "questions") ||
