@@ -529,7 +529,7 @@ export default function SurveyPage() {
           title: "Alumni Survey Questionnaire",
           description: "This comprehensive survey helps us understand your post-graduation journey — from employment outcomes and degree-to-career alignment to socioeconomic impact and personal growth.",
           target_cohort: "All Alumni",
-          status: "Active",
+          status: "Inactive",
           sections: ALUMNI_QUESTIONNAIRE.map((section) => ({
             client_id: createClientId(),
             title: section.title,

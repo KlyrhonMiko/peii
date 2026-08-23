@@ -1,6 +1,7 @@
 "use client"
 
 import { usePathname } from "next/navigation"
+import Link from "next/link"
 import {
   Sidebar,
   SidebarContent,
@@ -13,7 +14,9 @@ import {
   SidebarHeader,
   SidebarFooter,
 } from "@/components/ui/sidebar"
-import { LayoutDashboard, BarChart3, Settings, FlaskConical, LogOut, ClipboardList, Cpu } from "lucide-react"
+import { LayoutDashboard, BarChart3, Settings, FlaskConical, LogOut, ClipboardList, Cpu, UsersRound } from "lucide-react"
+import { logoutAction } from "@/app/login/actions"
+import type { PortalUser } from "@/lib/auth"
 
 const mainItems = [
   { title: "Dashboard", url: "/researcher/dashboard", icon: LayoutDashboard },
@@ -23,19 +26,20 @@ const mainItems = [
 ]
 
 const managementItems = [
+  { title: "Users", url: "/admin/users", icon: UsersRound, permission: "users.read" },
   { title: "Settings", url: "#", icon: Settings },
 ]
 
-export function AppSidebar() {
+export function AppSidebar({ user }: { user: PortalUser }) {
   const pathname = usePathname()
 
-  const renderMenuItems = (items: typeof mainItems) =>
-    items.map((item) => {
-      const isActive = pathname === item.url
+  const renderMenuItems = (items: Array<(typeof mainItems)[number] | (typeof managementItems)[number]>) =>
+    items.filter((item) => !("permission" in item) || user.permissions.includes(item.permission)).map((item) => {
+      const isActive = pathname === item.url || pathname.startsWith(`${item.url}/`)
       return (
         <SidebarMenuItem key={item.title}>
           <SidebarMenuButton
-            render={<a href={item.url} />}
+            render={<Link href={item.url} />}
             className={`
               group flex items-center gap-3 px-3 py-2 rounded-lg transition-all duration-200 text-[13px] font-medium
               ${isActive
@@ -89,15 +93,21 @@ export function AppSidebar() {
       </SidebarContent>
 
       <SidebarFooter className="px-4 py-4 border-t border-slate-200/60 bg-[#fafafa]">
-        <div className="flex items-center gap-3 px-3 py-2 -mx-3 rounded-xl hover:bg-slate-200/40 transition-colors cursor-pointer group">
+          <div className="flex items-center gap-3 px-3 py-2 -mx-3 rounded-xl hover:bg-slate-200/40 transition-colors group">
           <div className="w-8 h-8 rounded-md bg-white flex items-center justify-center text-slate-700 text-[11px] font-bold shrink-0 ring-1 ring-slate-200 shadow-sm">
-            RC
+            {`${user.first_name[0] ?? ""}${user.last_name[0] ?? ""}`}
           </div>
           <div className="flex-1 min-w-0">
-            <div className="text-[13px] font-semibold text-slate-900 truncate leading-none">Researcher</div>
-            <div className="text-[11px] text-slate-500 truncate leading-none mt-1">researcher@peii.gov.ph</div>
+            <div className="text-[13px] font-semibold text-slate-900 truncate leading-none">
+              {user.first_name} {user.last_name}
+            </div>
+            <div className="text-[11px] text-slate-500 truncate leading-none mt-1">{user.email}</div>
           </div>
-          <LogOut className="w-[15px] h-[15px] text-slate-400 opacity-0 group-hover:opacity-100 transition-opacity shrink-0 group-hover:text-slate-600" />
+          <form action={logoutAction}>
+            <button aria-label="Log out" className="rounded-md p-1 text-slate-400 hover:text-slate-600" type="submit">
+              <LogOut />
+            </button>
+          </form>
         </div>
       </SidebarFooter>
     </Sidebar>

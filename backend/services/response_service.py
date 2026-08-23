@@ -17,6 +17,7 @@ from models.survey_response import SurveyResponse
 from models.survey_section import SurveySection
 from schemas.survey_response import SurveyResponseListQueryParams
 from services.audit_service import AuditEvent, commit_with_audit
+from services.base_service import utc_now
 from services.distribution_service import get_distribution_by_token
 from services.question_validation import (
     get_matrix_columns,
@@ -104,8 +105,7 @@ def _validate_answer(question: SurveyQuestion, answer: object) -> None:
             raise ValueError("must contain an answer for every configured row")
         columns = get_matrix_columns(config if isinstance(config, dict) else None)
         if not all(
-            isinstance(row, str) and isinstance(value, str)
-            for row, value in answer.items()
+            isinstance(row, str) and isinstance(value, str) for row, value in answer.items()
         ):
             raise ValueError("must contain string answers for every matrix row")
         if any(value not in columns for value in answer.values()):
@@ -195,6 +195,7 @@ async def submit_response(
     session: AsyncSession,
     token: str,
     answers: dict[str, object],
+    actor_id: UUID,
     idempotency_key: UUID | None = None,
     ip_address: str | None = None,
 ) -> tuple[SurveyResponse, bool]:
@@ -239,9 +240,7 @@ async def submit_response(
             return existing, True
 
     survey_result = await session.exec(
-        select(Survey)
-        .where(col(Survey.id) == distribution.survey_id)
-        .with_for_update(read=True)
+        select(Survey).where(col(Survey.id) == distribution.survey_id).with_for_update(read=True)
     )
     survey = survey_result.first()
     if not survey or survey.is_deleted or survey.status != "Active":
@@ -257,12 +256,17 @@ async def submit_response(
         idempotency_key=idempotency_key,
         idempotency_hash=answers_hash,
         answers=answers,
+        performed_by=actor_id,
     )
     session.add(response)
     await session.exec(
         update(Survey)
         .where(col(Survey.id) == survey.id)
-        .values(responses_count=col(Survey.responses_count) + 1)
+        .values(
+            responses_count=col(Survey.responses_count) + 1,
+            performed_by=actor_id,
+            updated_at=utc_now(),
+        )
     )
 
     await commit_with_audit(
@@ -272,8 +276,18 @@ async def submit_response(
                 action="create",
                 resource_type="survey_response",
                 resource_id=str(response.id),
+                performed_by=actor_id,
+                changes={"distribution_id": str(distribution.id)},
                 ip_address=ip_address,
-            )
+            ),
+            AuditEvent(
+                action="response_submitted",
+                resource_type="survey",
+                resource_id=survey.survey_id,
+                performed_by=actor_id,
+                changes={"response_id": str(response.id)},
+                ip_address=ip_address,
+            ),
         ],
     )
     await session.refresh(response)

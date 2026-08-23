@@ -4,7 +4,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, status
 
-from core.deps import AsyncDBSession
+from core.deps import AsyncDBSession, require_permissions
 from core.exceptions import AppError
 from core.responses import list_meta_response, success_response
 from models.audit_log import AuditLog
@@ -12,7 +12,7 @@ from schemas.audit_log import AuditLogListQueryParams, AuditLogRead
 from schemas.common import APIResponse
 from services import audit_service
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_permissions("audit_logs.read"))])
 
 
 def get_audit_log_list_query_params(
@@ -49,8 +49,7 @@ AuditLogListParams = Annotated[AuditLogListQueryParams, Depends(get_audit_log_li
     response_model=APIResponse[list[AuditLogRead]],
     summary="List Audit Logs",
     description=(
-        "Query and list append-only audit trail logs with "
-        "filtering, sorting, and pagination."
+        "Query and list append-only audit trail logs with filtering, sorting, and pagination."
     ),
 )
 async def list_audit_logs(

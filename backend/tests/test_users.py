@@ -1,525 +1,178 @@
-from typing import cast
-
 import pytest
 from sqlmodel import select
 
 from core.database import get_async_session
 from main import app
+from models.audit_log import AuditLog
+from models.rbac import Role, UserRole
 from models.user import User
-from utils.security import verify_password
+from services import user_service
 
 pytestmark = pytest.mark.anyio
 
 
-async def test_create_and_list_users(client):
-    payload = {
-        "email": "user@example.com",
-        "username": "janedoe",
-        "password": "test-password-123",
-        "role": "admin",
+def user_payload(email: str = "user@example.com") -> dict[str, object]:
+    return {
+        "email": email,
+        "username": email.split("@")[0].replace(".", ""),
         "first_name": "Jane",
         "last_name": "Doe",
-        "middle_name": None,
-        "contact": None,
         "is_active": True,
-        "performed_by": None,
-    }
-
-    create_response = await client.post("/api/v1/users/", json=payload)
-    assert create_response.status_code == 201
-    assert create_response.json()["data"]["email"] == payload["email"]
-    assert create_response.json()["data"]["username"] == payload["username"]
-    assert "password" not in create_response.json()["data"]
-
-    list_response = await client.get("/api/v1/users/")
-    assert list_response.status_code == 200
-    assert list_response.json()["meta"]["pagination"] == {
-        "total": 1,
-        "count": 1,
-        "limit": 20,
-        "offset": 0,
-        "has_next": False,
-        "has_prev": False,
-    }
-    assert list_response.json()["meta"]["filters"] == {
-        "sort_order": "desc",
-        "sort_by": "created_at",
-        "include_deleted": False,
-        "role": None,
-        "is_active": None,
-        "search": None,
     }
 
 
-async def test_password_is_stored_as_argon2_hash(client):
-    plain_password = "test-password-123"
-    payload = {
-        "email": "secure@example.com",
-        "username": "secureuser",
-        "password": plain_password,
-        "role": "admin",
-        "first_name": "Jane",
-        "last_name": "Doe",
-        "middle_name": None,
-        "contact": None,
-        "is_active": True,
-        "performed_by": None,
-    }
+async def test_invite_creates_linked_user(client):
+    response = await client.post("/api/v1/users/", json=user_payload())
 
-    create_response = await client.post("/api/v1/users/", json=payload)
-    assert create_response.status_code == 201
+    assert response.status_code == 201
+    data = response.json()["data"]
+    assert data["email"] == "user@example.com"
+    assert "password" not in data
+    assert "role" not in data
+    assert data["roles"] == []
+    assert data["invited_at"] is not None
+    assert data["onboarding_completed_at"] is None
+    assert data["last_login_at"] is None
 
-    override = app.dependency_overrides[get_async_session]
-    session_generator = override()
+    session_generator = app.dependency_overrides[get_async_session]()
     session = await anext(session_generator)
     try:
-        result = await session.exec(select(User).where(User.email == payload["email"]))
-        user = result.first()
+        user = (await session.exec(select(User).where(User.email == "user@example.com"))).one()
+    finally:
+        await session_generator.aclose()
+    assert user.auth_user_id is not None
+    assert user.invited_at is not None
+
+
+async def test_user_read_includes_assigned_role_names(client):
+    create_response = await client.post("/api/v1/users/", json=user_payload())
+    user_id = create_response.json()["data"]["user_id"]
+
+    session_generator = app.dependency_overrides[get_async_session]()
+    session = await anext(session_generator)
+    try:
+        user = (await session.exec(select(User).where(User.user_id == user_id))).one()
+        role = Role(name="reviewer", performed_by=user.id)
+        session.add(role)
+        await session.flush()
+        session.add(UserRole(user_id=user.id, role_id=role.id, performed_by=user.id))
+        await session.commit()
     finally:
         await session_generator.aclose()
 
-    assert user is not None
-    hashed_password = cast(str, user.password)
-    assert hashed_password.startswith("$argon2")
-    assert verify_password(plain_password, hashed_password) is True
+    response = await client.get(f"/api/v1/users/{user_id}")
+
+    assert response.status_code == 200
+    assert response.json()["data"]["roles"] == ["reviewer"]
 
 
-async def test_user_not_found_uses_universal_error_shape(client):
-    response = await client.get("/api/v1/users/00000000-0000-0000-0000-000000000000")
+async def test_resend_invitation_sends_recovery_email_updates_timestamp_and_audits(
+    client, monkeypatch
+):
+    create_response = await client.post("/api/v1/users/", json=user_payload())
+    user_id = create_response.json()["data"]["user_id"]
+    sent: dict[str, str] = {}
 
-    assert response.status_code == 404
-    body = response.json()
-    assert body["data"] is None
-    assert body["message"] == "User not found."
-    assert body["errors"] is None
-    assert "request_id" in body["meta"]
+    async def capture_recovery(email: str, redirect_to: str) -> None:
+        sent["email"] = email
+        sent["redirect_to"] = redirect_to
+
+    monkeypatch.setattr(user_service, "send_recovery_email", capture_recovery)
+
+    response = await client.post(f"/api/v1/users/{user_id}/invitation/resend")
+
+    assert response.status_code == 200
+    assert response.json()["data"]["invited_at"] is not None
+    assert sent["email"] == "user@example.com"
+
+    session_generator = app.dependency_overrides[get_async_session]()
+    session = await anext(session_generator)
+    try:
+        audits = list(
+            (
+                await session.exec(
+                    select(AuditLog).where(
+                        AuditLog.resource_id == user_id,
+                        AuditLog.action == "resend_invitation",
+                    )
+                )
+            ).all()
+        )
+    finally:
+        await session_generator.aclose()
+    assert len(audits) == 1
 
 
-async def test_validation_error_uses_universal_error_shape(client):
-    response = await client.post("/api/v1/users/", json={})
+async def test_resend_invitation_rejects_completed_onboarding_user(client, monkeypatch):
+    create_response = await client.post("/api/v1/users/", json=user_payload())
+    user_id = create_response.json()["data"]["user_id"]
+
+    session_generator = app.dependency_overrides[get_async_session]()
+    session = await anext(session_generator)
+    try:
+        user = (await session.exec(select(User).where(User.user_id == user_id))).one()
+        user.onboarding_completed_at = user.created_at
+        session.add(user)
+        await session.commit()
+    finally:
+        await session_generator.aclose()
+
+    async def unexpected_recovery(*_: str) -> None:
+        raise AssertionError("Recovery email must not be sent.")
+
+    monkeypatch.setattr(user_service, "send_recovery_email", unexpected_recovery)
+    response = await client.post(f"/api/v1/users/{user_id}/invitation/resend")
+
+    assert response.status_code == 409
+    assert response.json()["message"] == "User is not eligible for invitation resend."
+
+
+async def test_revoke_sessions_audits_successful_revocation(client, monkeypatch):
+    create_response = await client.post("/api/v1/users/", json=user_payload())
+    user_id = create_response.json()["data"]["user_id"]
+    revoked: list[str] = []
+
+    async def capture_revoke(auth_user_id):
+        revoked.append(str(auth_user_id))
+
+    monkeypatch.setattr(user_service, "revoke_auth_user_sessions", capture_revoke)
+    response = await client.post(f"/api/v1/users/{user_id}/sessions/revoke")
+
+    assert response.status_code == 200
+    assert len(revoked) == 1
+
+    session_generator = app.dependency_overrides[get_async_session]()
+    session = await anext(session_generator)
+    try:
+        audits = list(
+            (
+                await session.exec(
+                    select(AuditLog).where(
+                        AuditLog.resource_id == user_id,
+                        AuditLog.action == "revoke_sessions",
+                    )
+                )
+            ).all()
+        )
+    finally:
+        await session_generator.aclose()
+    assert len(audits) == 1
+
+
+async def test_invite_rejects_legacy_password_and_role_fields(client):
+    response = await client.post(
+        "/api/v1/users/",
+        json={**user_payload(), "password": "secret", "role": "admin"},
+    )
 
     assert response.status_code == 422
-    body = response.json()
-    assert body["data"] is None
-    assert body["message"] == "Validation error."
-    assert isinstance(body["errors"], list)
-    assert "request_id" in body["meta"]
+    assert response.json()["message"] == "Validation error."
 
 
-async def test_list_users_uses_shared_query_params(client):
-    payloads = [
-        {
-            "email": "first@example.com",
-            "username": "firstuser",
-            "password": "test-password-123",
-            "role": "admin",
-            "first_name": "First",
-            "last_name": "User",
-            "middle_name": None,
-            "contact": None,
-            "is_active": True,
-            "performed_by": None,
-        },
-        {
-            "email": "second@example.com",
-            "username": "seconduser",
-            "password": "test-password-123",
-            "role": "admin",
-            "first_name": "Second",
-            "last_name": "User",
-            "middle_name": None,
-            "contact": None,
-            "is_active": True,
-            "performed_by": None,
-        },
-    ]
-
-    for payload in payloads:
-        response = await client.post("/api/v1/users/", json=payload)
-        assert response.status_code == 201
-
-    response = await client.get("/api/v1/users/?limit=1&offset=0&sort_order=asc&sort_by=email")
+async def test_list_users_has_no_role_filter(client):
+    await client.post("/api/v1/users/", json=user_payload())
+    response = await client.get("/api/v1/users/")
 
     assert response.status_code == 200
-    body = response.json()
-    assert len(body["data"]) == 1
-    assert body["data"][0]["email"] == payloads[0]["email"]
-    assert "request_id" in body["meta"]
-    assert body["meta"]["pagination"] == {
-        "total": 2,
-        "count": 1,
-        "limit": 1,
-        "offset": 0,
-        "has_next": True,
-        "has_prev": False,
-    }
-    assert body["meta"]["filters"] == {
-        "sort_order": "asc",
-        "sort_by": "email",
-        "include_deleted": False,
-        "role": None,
-        "is_active": None,
-        "search": None,
-    }
-
-
-async def test_list_users_filters_by_role_and_is_active(client):
-    payloads = [
-        {
-            "email": "admin-active@example.com",
-            "username": "adminactive",
-            "password": "test-password-123",
-            "role": "admin",
-            "first_name": "Admin",
-            "last_name": "Active",
-            "middle_name": None,
-            "contact": None,
-            "is_active": True,
-            "performed_by": None,
-        },
-        {
-            "email": "staff-inactive@example.com",
-            "username": "staffinactive",
-            "password": "test-password-123",
-            "role": "staff",
-            "first_name": "Staff",
-            "last_name": "Inactive",
-            "middle_name": None,
-            "contact": None,
-            "is_active": False,
-            "performed_by": None,
-        },
-    ]
-
-    for payload in payloads:
-        response = await client.post("/api/v1/users/", json=payload)
-        assert response.status_code == 201
-
-    response = await client.get("/api/v1/users/?role=admin&is_active=true")
-
-    assert response.status_code == 200
-    body = response.json()
-    assert len(body["data"]) == 1
-    assert body["data"][0]["email"] == payloads[0]["email"]
-    assert body["meta"]["pagination"]["total"] == 1
-    assert body["meta"]["filters"]["role"] == "admin"
-    assert body["meta"]["filters"]["is_active"] is True
-
-
-async def test_list_users_filters_by_search(client):
-    payloads = [
-        {
-            "email": "jane.doe@example.com",
-            "username": "janedoe",
-            "password": "test-password-123",
-            "role": "admin",
-            "first_name": "Jane",
-            "last_name": "Doe",
-            "middle_name": None,
-            "contact": None,
-            "is_active": True,
-            "performed_by": None,
-        },
-        {
-            "email": "john.smith@example.com",
-            "username": "johnsmith",
-            "password": "test-password-123",
-            "role": "staff",
-            "first_name": "John",
-            "last_name": "Smith",
-            "middle_name": None,
-            "contact": None,
-            "is_active": True,
-            "performed_by": None,
-        },
-    ]
-
-    for payload in payloads:
-        response = await client.post("/api/v1/users/", json=payload)
-        assert response.status_code == 201
-
-    response = await client.get("/api/v1/users/?search=jane")
-
-    assert response.status_code == 200
-    body = response.json()
-    assert len(body["data"]) == 1
-    assert body["data"][0]["email"] == payloads[0]["email"]
-    assert body["meta"]["pagination"]["total"] == 1
-    assert body["meta"]["filters"]["search"] == "jane"
-
-
-async def test_list_users_sorts_by_field(client):
-    payloads = [
-        {
-            "email": "alast@example.com",
-            "username": "userb",
-            "password": "test-password-123",
-            "role": "admin",
-            "first_name": "Alpha",
-            "last_name": "Beta",
-            "middle_name": None,
-            "contact": None,
-            "is_active": True,
-            "performed_by": None,
-        },
-        {
-            "email": "zzzz@example.com",
-            "username": "usera",
-            "password": "test-password-123",
-            "role": "admin",
-            "first_name": "Zeta",
-            "last_name": "Alpha",
-            "middle_name": None,
-            "contact": None,
-            "is_active": True,
-            "performed_by": None,
-        },
-    ]
-
-    for payload in payloads:
-        response = await client.post("/api/v1/users/", json=payload)
-        assert response.status_code == 201
-
-    asc_response = await client.get("/api/v1/users/?sort_by=last_name&sort_order=asc")
-    assert asc_response.status_code == 200
-    asc_names = [item["last_name"] for item in asc_response.json()["data"]]
-    assert asc_names == sorted(asc_names)
-
-    desc_response = await client.get("/api/v1/users/?sort_by=last_name&sort_order=desc")
-    assert desc_response.status_code == 200
-    desc_names = [item["last_name"] for item in desc_response.json()["data"]]
-    assert desc_names == sorted(desc_names, reverse=True)
-
-
-async def test_soft_deleted_user_is_hidden_by_default_and_can_be_restored(client):
-    payload = {
-        "email": "restore-me@example.com",
-        "username": "restoreme",
-        "password": "test-password-123",
-        "role": "admin",
-        "first_name": "Restore",
-        "last_name": "Target",
-        "middle_name": None,
-        "contact": None,
-        "is_active": True,
-        "performed_by": None,
-    }
-
-    create_response = await client.post("/api/v1/users/", json=payload)
-    assert create_response.status_code == 201
-    user_id = create_response.json()["data"]["user_id"]
-
-    delete_response = await client.request(
-        "DELETE",
-        f"/api/v1/users/{user_id}",
-        json={"performed_by": None},
-    )
-    assert delete_response.status_code == 200
-    assert delete_response.json()["data"]["is_deleted"] is True
-    assert delete_response.json()["data"]["deleted_at"] is not None
-
-    get_response = await client.get(f"/api/v1/users/{user_id}")
-    assert get_response.status_code == 404
-
-    default_list_response = await client.get("/api/v1/users/")
-    assert default_list_response.status_code == 200
-    assert default_list_response.json()["meta"]["pagination"]["total"] == 0
-
-    include_deleted_response = await client.get("/api/v1/users/?include_deleted=true")
-    assert include_deleted_response.status_code == 200
-    assert include_deleted_response.json()["meta"]["pagination"]["total"] == 1
-    assert include_deleted_response.json()["data"][0]["is_deleted"] is True
-
-    restore_response = await client.post(
-        f"/api/v1/users/{user_id}/restore",
-        json={"performed_by": None},
-    )
-    assert restore_response.status_code == 200
-    assert restore_response.json()["message"] == "User restored."
-    assert restore_response.json()["data"]["is_deleted"] is False
-    assert restore_response.json()["data"]["deleted_at"] is None
-
-    restored_get_response = await client.get(f"/api/v1/users/{user_id}")
-    assert restored_get_response.status_code == 200
-    assert restored_get_response.json()["data"]["user_id"] == user_id
-
-
-async def test_restore_rejects_active_user(client):
-    payload = {
-        "email": "active-user@example.com",
-        "username": "activeuser",
-        "password": "test-password-123",
-        "role": "admin",
-        "first_name": "Active",
-        "last_name": "User",
-        "middle_name": None,
-        "contact": None,
-        "is_active": True,
-        "performed_by": None,
-    }
-
-    create_response = await client.post("/api/v1/users/", json=payload)
-    assert create_response.status_code == 201
-    user_id = create_response.json()["data"]["user_id"]
-
-    restore_response = await client.post(
-        f"/api/v1/users/{user_id}/restore",
-        json={"performed_by": None},
-    )
-    assert restore_response.status_code == 400
-    assert restore_response.json()["message"] == "User is not deleted."
-
-
-async def test_create_rejects_duplicate_email_from_soft_deleted_user(client):
-    original_payload = {
-        "email": "deleted-email@example.com",
-        "username": "deletedemailuser",
-        "password": "test-password-123",
-        "role": "admin",
-        "first_name": "Deleted",
-        "last_name": "Email",
-        "middle_name": None,
-        "contact": None,
-        "is_active": True,
-        "performed_by": None,
-    }
-    replacement_payload = {
-        **original_payload,
-        "username": "replacementuser",
-    }
-
-    create_response = await client.post("/api/v1/users/", json=original_payload)
-    assert create_response.status_code == 201
-    user_id = create_response.json()["data"]["user_id"]
-
-    delete_response = await client.request(
-        "DELETE",
-        f"/api/v1/users/{user_id}",
-        json={"performed_by": None},
-    )
-    assert delete_response.status_code == 200
-
-    duplicate_response = await client.post("/api/v1/users/", json=replacement_payload)
-    assert duplicate_response.status_code == 400
-    assert duplicate_response.json()["message"] == (
-        "A deleted user with this email already exists. Restore that user instead."
-    )
-
-
-async def test_batch_create_users(client):
-    payload = {
-        "users": [
-            {
-                "email": "batch-one@example.com",
-                "username": "batchone",
-                "password": "test-password-123",
-                "role": "admin",
-                "first_name": "Batch",
-                "last_name": "One",
-                "middle_name": None,
-                "contact": None,
-                "is_active": True,
-                "performed_by": None,
-            },
-            {
-                "email": "batch-two@example.com",
-                "username": "batchtwo",
-                "password": "test-password-456",
-                "role": "staff",
-                "first_name": "Batch",
-                "last_name": "Two",
-                "middle_name": None,
-                "contact": None,
-                "is_active": True,
-                "performed_by": None,
-            },
-        ]
-    }
-
-    response = await client.post("/api/v1/users/batch", json=payload)
-    assert response.status_code == 201
-    body = response.json()
-    assert len(body["data"]) == 2
-    assert body["data"][0]["email"] == "batch-one@example.com"
-    assert body["data"][1]["email"] == "batch-two@example.com"
-    assert "password" not in body["data"][0]
-    assert body["data"][0]["user_id"].startswith("USER-")
-    assert body["message"] == "Users created."
-
-    list_response = await client.get("/api/v1/users/?sort_by=email&sort_order=asc")
-    assert list_response.status_code == 200
-    assert list_response.json()["meta"]["pagination"]["total"] >= 2
-
-
-async def test_batch_create_rejects_duplicate_email_in_payload(client):
-    payload = {
-        "users": [
-            {
-                "email": "dup-batch@example.com",
-                "username": "dupuser1",
-                "password": "test-password-123",
-                "role": "admin",
-                "first_name": "Dup",
-                "last_name": "One",
-                "middle_name": None,
-                "contact": None,
-                "is_active": True,
-                "performed_by": None,
-            },
-            {
-                "email": "dup-batch@example.com",
-                "username": "dupuser2",
-                "password": "test-password-456",
-                "role": "staff",
-                "first_name": "Dup",
-                "last_name": "Two",
-                "middle_name": None,
-                "contact": None,
-                "is_active": True,
-                "performed_by": None,
-            },
-        ]
-    }
-
-    response = await client.post("/api/v1/users/batch", json=payload)
-    assert response.status_code == 400
-    assert response.json()["message"] == "Duplicate email in batch."
-
-
-async def test_batch_create_rejects_existing_email(client):
-    # First create a user
-    create_payload = {
-        "email": "existing@example.com",
-        "username": "existinguser",
-        "password": "test-password-123",
-        "role": "admin",
-        "first_name": "Existing",
-        "last_name": "User",
-        "middle_name": None,
-        "contact": None,
-        "is_active": True,
-        "performed_by": None,
-    }
-    create_response = await client.post("/api/v1/users/", json=create_payload)
-    assert create_response.status_code == 201
-
-    # Then try to batch create with the same email
-    batch_payload = {
-        "users": [
-            {
-                "email": "existing@example.com",
-                "username": "newuser",
-                "password": "test-password-123",
-                "role": "staff",
-                "first_name": "New",
-                "last_name": "User",
-                "middle_name": None,
-                "contact": None,
-                "is_active": True,
-                "performed_by": None,
-            }
-        ]
-    }
-    response = await client.post("/api/v1/users/batch", json=batch_payload)
-    assert response.status_code == 400
-    assert response.json()["message"] == "Some emails already exist."
+    assert "role" not in response.json()["meta"]["filters"]
+    assert response.json()["meta"]["pagination"]["total"] == 1

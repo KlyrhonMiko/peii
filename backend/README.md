@@ -25,6 +25,28 @@ Database mode is controlled from the root `.env`:
 - `DB_MODE=supabase` uses `SUPABASE_DATABASE_URL`
 - `SQL_ECHO=false` keeps SQLAlchemy query logs off for normal development output
 
+## Supabase Auth email links
+
+The application completes recovery and invitation sessions server-side at
+`APP_ORIGIN/auth/confirm?next=/reset-password`. Configure that URL in the
+Supabase Auth redirect allowlist for every environment.
+
+Use token-hash links in the Supabase email templates so access and refresh
+tokens are never placed in the browser URL. Build the callback from `SiteURL`
+instead of appending to `RedirectTo`, because Supabase can resolve the latter to
+the bare site origin:
+
+```text
+# Recovery template
+{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=recovery&next=/reset-password
+
+# Invite template
+{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=invite&next=/reset-password
+```
+
+Do not use an implicit-flow link that includes `#access_token` or
+`#refresh_token`.
+
 ## Database migrations
 
 Run migrations from `backend/`:

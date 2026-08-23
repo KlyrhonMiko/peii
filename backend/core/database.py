@@ -9,12 +9,17 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from core.config import settings
 from models import (  # noqa: F401
     AuditLog,
+    Permission,
+    Role,
+    RolePermission,
     Survey,
     SurveyDistribution,
+    SurveyMembership,
     SurveyQuestion,
     SurveyResponse,
     SurveySection,
     User,
+    UserRole,
 )
 
 sync_connect_args = {"check_same_thread": False} if settings.is_sqlite else {}

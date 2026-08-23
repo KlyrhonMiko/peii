@@ -8,7 +8,6 @@ async def test_create_and_list_surveys(client):
         "title": "Class of 2025 Exit Survey",
         "description": "Exit survey for the graduating class of 2025.",
         "target_cohort": "Class of 2025",
-        "performed_by": None,
     }
 
     create_response = await client.post("/api/v1/surveys/", json=payload)
@@ -170,9 +169,12 @@ async def test_create_survey_with_structure_rejects_persisted_ids(client):
 
 
 async def test_get_survey_with_questions(client):
-    create_resp = await client.post("/api/v1/surveys/", json={
-        "title": "Test Survey", "performed_by": None,
-    })
+    create_resp = await client.post(
+        "/api/v1/surveys/",
+        json={
+            "title": "Test Survey",
+        },
+    )
     survey_id = create_resp.json()["data"]["survey_id"]
     survey_uuid = create_resp.json()["data"]["id"]
 
@@ -200,9 +202,12 @@ async def test_get_survey_with_questions(client):
 
 
 async def test_update_survey(client):
-    create_resp = await client.post("/api/v1/surveys/", json={
-        "title": "Old Title", "performed_by": None,
-    })
+    create_resp = await client.post(
+        "/api/v1/surveys/",
+        json={
+            "title": "Old Title",
+        },
+    )
     survey_id = create_resp.json()["data"]["survey_id"]
     survey_uuid = create_resp.json()["data"]["id"]
     section_resp = await client.post(
@@ -250,9 +255,7 @@ async def test_activation_rejects_empty_survey_without_applying_metadata(client)
 async def test_activation_rejects_section_without_questions(client):
     create_resp = await client.post("/api/v1/surveys/", json={"title": "Empty Section"})
     survey = create_resp.json()["data"]
-    await client.post(
-        f"/api/v1/surveys/{survey['id']}/sections/", json={"title": "Main"}
-    )
+    await client.post(f"/api/v1/surveys/{survey['id']}/sections/", json={"title": "Main"})
 
     response = await client.patch(
         f"/api/v1/surveys/{survey['survey_id']}", json={"status": "Active"}
@@ -263,14 +266,18 @@ async def test_activation_rejects_section_without_questions(client):
 
 
 async def test_soft_delete_and_restore_survey(client):
-    create_resp = await client.post("/api/v1/surveys/", json={
-        "title": "Deletable Survey", "performed_by": None,
-    })
+    create_resp = await client.post(
+        "/api/v1/surveys/",
+        json={
+            "title": "Deletable Survey",
+        },
+    )
     survey_id = create_resp.json()["data"]["survey_id"]
 
     delete_resp = await client.request(
-        "DELETE", f"/api/v1/surveys/{survey_id}",
-        json={"performed_by": None},
+        "DELETE",
+        f"/api/v1/surveys/{survey_id}",
+        json={},
     )
     assert delete_resp.status_code == 200
     assert delete_resp.json()["data"]["is_deleted"] is True
@@ -280,7 +287,7 @@ async def test_soft_delete_and_restore_survey(client):
 
     restore_resp = await client.post(
         f"/api/v1/surveys/{survey_id}/restore",
-        json={"performed_by": None},
+        json={},
     )
     assert restore_resp.status_code == 200
     assert restore_resp.json()["data"]["is_deleted"] is False
@@ -321,9 +328,14 @@ async def test_list_surveys_with_filters(client):
             ],
         },
     )
-    await client.post("/api/v1/surveys/", json={
-        "title": "Inactive Survey", "status": "Inactive", "target_cohort": "Class of 2025",
-    })
+    await client.post(
+        "/api/v1/surveys/",
+        json={
+            "title": "Inactive Survey",
+            "status": "Inactive",
+            "target_cohort": "Class of 2025",
+        },
+    )
 
     resp = await client.get("/api/v1/surveys/?status=Active")
     assert len(resp.json()["data"]) == 1

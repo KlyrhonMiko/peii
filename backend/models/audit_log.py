@@ -15,7 +15,7 @@ class AuditLog(SQLModel, table=True):
     action: str = Field(index=True, max_length=100)
     resource_type: str = Field(index=True, max_length=100)
     resource_id: str = Field(index=True, max_length=100)
-    performed_by: UUID | None = Field(default=None, index=True, nullable=True)
+    performed_by: UUID = Field(index=True, nullable=False)
     request_id: str | None = Field(default=None, index=True, max_length=100, nullable=True)
     changes: dict | None = Field(default=None, sa_column=Column(JSON, nullable=True))
     ip_address: str | None = Field(default=None, max_length=50, nullable=True)

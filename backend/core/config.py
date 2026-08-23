@@ -1,6 +1,7 @@
 from functools import lru_cache
 from pathlib import Path
 from typing import Literal
+from uuid import UUID
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -18,7 +19,16 @@ class Settings(BaseSettings):
     LOCAL_DATABASE_URL: str
     SUPABASE_DATABASE_URL: str
     BACKEND_CORS_ORIGINS: list[str]
+    SUPABASE_URL: str | None = None
+    SUPABASE_PUBLISHABLE_KEY: str | None = None
+    SUPABASE_SECRET_KEY: str | None = None
+    APP_ORIGIN: str | None = None
+    INITIAL_ADMIN_EMAIL: str | None = None
+    INITIAL_ADMIN_USERNAME: str | None = None
+    INITIAL_ADMIN_FIRST_NAME: str | None = None
+    INITIAL_ADMIN_LAST_NAME: str | None = None
     HF_API_TOKEN: str | None = None
+    SYSTEM_ACTOR_ID: UUID = UUID("00000000-0000-0000-0000-000000000001")
 
     model_config = SettingsConfigDict(
         env_file=str(ROOT_ENV_FILE),

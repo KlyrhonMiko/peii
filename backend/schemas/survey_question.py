@@ -8,7 +8,7 @@ from schemas.common import ListQueryParams
 
 
 class SurveyQuestionBaseSchema(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
+    model_config = ConfigDict(from_attributes=True, extra="forbid")
 
 
 class SurveyQuestionCreate(SurveyQuestionBaseSchema):
@@ -19,7 +19,6 @@ class SurveyQuestionCreate(SurveyQuestionBaseSchema):
                 "question_type": "scale",
                 "options": None,
                 "section_id": "018f4a1a-7b3b-7d0e-913a-c5f1c5c1c5c2",
-                "performed_by": "018f4a1a-7b3b-7d0e-913a-c5f1c5c1c5c2",
                 "is_required": True,
             }
         }
@@ -31,7 +30,6 @@ class SurveyQuestionCreate(SurveyQuestionBaseSchema):
     config: dict | None = None
     section_id: UUID
     is_required: bool = True
-    performed_by: UUID | None = None
 
 
 class SurveyQuestionUpdate(SurveyQuestionBaseSchema):
@@ -41,7 +39,6 @@ class SurveyQuestionUpdate(SurveyQuestionBaseSchema):
                 "question_text": "How satisfied are you with the program?",
                 "question_type": "scale",
                 "options": None,
-                "performed_by": "018f4a1a-7b3b-7d0e-913a-c5f1c5c1c5c2",
                 "is_required": True,
             }
         }
@@ -53,7 +50,6 @@ class SurveyQuestionUpdate(SurveyQuestionBaseSchema):
     config: dict | None = None
     section_id: UUID | None = None
     is_required: bool | None = None
-    performed_by: UUID | None = None
 
 
 class SurveyQuestionRead(SurveyQuestionBaseSchema):
@@ -90,7 +86,7 @@ class SurveyQuestionRead(SurveyQuestionBaseSchema):
         if isinstance(v, str):
             try:
                 return json.loads(v)
-            except (json.JSONDecodeError, TypeError):
+            except json.JSONDecodeError, TypeError:
                 return None
         return v
 
@@ -100,7 +96,7 @@ class SurveyQuestionRead(SurveyQuestionBaseSchema):
         if isinstance(v, str):
             try:
                 return json.loads(v)
-            except (json.JSONDecodeError, TypeError):
+            except json.JSONDecodeError, TypeError:
                 return None
         return v
 

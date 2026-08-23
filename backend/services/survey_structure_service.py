@@ -33,7 +33,7 @@ async def replace_structure(
     session: AsyncSession,
     survey_id: UUID,
     payload: SurveyStructureReplace,
-    performed_by: UUID | None = None,
+    performed_by: UUID,
     ip_address: str | None = None,
 ) -> Survey:
     for section_input in payload.sections:
@@ -77,9 +77,7 @@ async def replace_structure(
     )
     existing_questions = {question.id: question for question in questions_result.all()}
 
-    submitted_section_ids = {
-        section.id for section in payload.sections if section.id is not None
-    }
+    submitted_section_ids = {section.id for section in payload.sections if section.id is not None}
     unknown_section_ids = submitted_section_ids - set(existing_sections)
     if unknown_section_ids:
         raise AppError(
@@ -121,9 +119,7 @@ async def replace_structure(
             if question.section_id == section_id
         ]
         questions_to_delete = [
-            question
-            for question in section_questions
-            if question.id not in submitted_question_ids
+            question for question in section_questions if question.id not in submitted_question_ids
         ]
         if questions_to_delete and section_id not in cascade_ids:
             raise AppError(
@@ -181,12 +177,8 @@ async def replace_structure(
             )
         )
 
-    active_sections = [
-        section for section in existing_sections.values() if not section.is_deleted
-    ]
-    original_section_orders = {
-        section.id: section.order_index for section in active_sections
-    }
+    active_sections = [section for section in existing_sections.values() if not section.is_deleted]
+    original_section_orders = {section.id: section.order_index for section in active_sections}
     temporary_section_base = (
         max([section.order_index for section in active_sections] or [0])
         + len(active_sections)
@@ -243,11 +235,7 @@ async def replace_structure(
             session.add(section)
             if section_changes:
                 changed = True
-                event_action = (
-                    "reorder"
-                    if set(section_changes) == {"order_index"}
-                    else "update"
-                )
+                event_action = "reorder" if set(section_changes) == {"order_index"} else "update"
                 events.append(
                     AuditEvent(
                         action=event_action,
@@ -266,16 +254,10 @@ async def replace_structure(
         session.add(section)
 
     active_questions = [
-        question
-        for question in existing_questions.values()
-        if not question.is_deleted
+        question for question in existing_questions.values() if not question.is_deleted
     ]
-    original_question_orders = {
-        question.id: question.order_index for question in active_questions
-    }
-    original_question_sections = {
-        question.id: question.section_id for question in active_questions
-    }
+    original_question_orders = {question.id: question.order_index for question in active_questions}
+    original_question_sections = {question.id: question.section_id for question in active_questions}
     temporary_question_base = (
         max([question.order_index for question in active_questions] or [0])
         + len(active_questions)

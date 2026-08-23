@@ -249,7 +249,7 @@ export async function createSurvey(payload: {
   target_cohort?: string | null
   status?: SurveyStatus
 }): Promise<Survey> {
-  const res = await api.post<ApiSurvey>("/surveys/", { ...payload, performed_by: null })
+  const res = await api.post<ApiSurvey>("/surveys/", payload)
   return mapSurvey(res.data!)
 }
 
@@ -278,10 +278,7 @@ export async function createSurveyWithStructure(payload: {
   target_cohort?: string | null
   status?: SurveyStatus
 } & SurveyStructurePayload): Promise<Survey> {
-  const res = await api.post<ApiSurvey>("/surveys/with-structure", {
-    ...payload,
-    performed_by: null,
-  })
+  const res = await api.post<ApiSurvey>("/surveys/with-structure", payload)
   return mapSurvey(res.data!)
 }
 
@@ -294,7 +291,7 @@ export async function updateSurvey(
     target_cohort: string | null
   }>,
 ): Promise<Survey> {
-  const res = await api.patch<ApiSurvey>(`/surveys/${surveyId}`, { ...payload, performed_by: null })
+  const res = await api.patch<ApiSurvey>(`/surveys/${surveyId}`, payload)
   return mapSurvey(res.data!)
 }
 
@@ -307,7 +304,7 @@ export async function replaceSurveyStructure(
 }
 
 export async function deleteSurvey(surveyId: string): Promise<void> {
-  await api.delete(`/surveys/${surveyId}`, { performed_by: null })
+  await api.delete(`/surveys/${surveyId}`, {})
 }
 
 export async function createSection(
@@ -317,10 +314,7 @@ export async function createSection(
     description?: string | null
   },
 ): Promise<SurveySection> {
-  const res = await api.post<ApiSection>(`/surveys/${surveyUuid}/sections/`, {
-    ...payload,
-    performed_by: null,
-  })
+  const res = await api.post<ApiSection>(`/surveys/${surveyUuid}/sections/`, payload)
   return mapSection(res.data!)
 }
 
@@ -334,7 +328,7 @@ export async function updateSection(
 ): Promise<SurveySection> {
   const res = await api.patch<ApiSection>(
     `/surveys/${surveyUuid}/sections/${sectionId}`,
-    { ...payload, performed_by: null },
+    payload,
   )
   return mapSection(res.data!)
 }
@@ -343,9 +337,7 @@ export async function deleteSection(
   surveyUuid: string,
   sectionId: string,
 ): Promise<void> {
-  await api.delete(`/surveys/${surveyUuid}/sections/${sectionId}`, {
-    performed_by: null,
-  })
+  await api.delete(`/surveys/${surveyUuid}/sections/${sectionId}`, {})
 }
 
 export async function reorderSections(
@@ -370,10 +362,7 @@ export async function createQuestion(
     is_required?: boolean
   },
 ): Promise<SurveyQuestion> {
-  const res = await api.post<ApiQuestion>(`/surveys/${surveyUuid}/questions/`, {
-    ...payload,
-    performed_by: null,
-  })
+  const res = await api.post<ApiQuestion>(`/surveys/${surveyUuid}/questions/`, payload)
   return mapQuestion(res.data!)
 }
 
@@ -391,7 +380,7 @@ export async function updateQuestion(
 ): Promise<SurveyQuestion> {
   const res = await api.patch<ApiQuestion>(
     `/surveys/${surveyUuid}/questions/${questionId}`,
-    { ...payload, performed_by: null },
+    payload,
   )
   return mapQuestion(res.data!)
 }
@@ -400,9 +389,7 @@ export async function deleteQuestion(
   surveyUuid: string,
   questionId: string,
 ): Promise<void> {
-  await api.delete(`/surveys/${surveyUuid}/questions/${questionId}`, {
-    performed_by: null,
-  })
+  await api.delete(`/surveys/${surveyUuid}/questions/${questionId}`, {})
 }
 
 export async function createDistribution(
@@ -429,10 +416,7 @@ export async function revokeDistribution(
   surveyUuid: string,
   distributionId: string,
 ): Promise<void> {
-  await api.delete(
-    `/surveys/${surveyUuid}/distributions/${distributionId}`,
-    { performed_by: null },
-  )
+  await api.delete(`/surveys/${surveyUuid}/distributions/${distributionId}`, {})
 }
 
 export async function fetchResponses(

@@ -46,7 +46,6 @@ def error_response(
     }
 
 
-
 def list_meta_response(
     *,
     filters: BaseModel,

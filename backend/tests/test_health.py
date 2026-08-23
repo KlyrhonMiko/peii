@@ -18,4 +18,3 @@ async def test_root_redirect(client):
     response = await client.get("/", follow_redirects=False)
     assert response.status_code == 307
     assert response.headers["location"] == "/api/v1/docs"
-

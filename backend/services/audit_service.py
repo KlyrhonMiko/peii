@@ -24,7 +24,7 @@ class AuditEvent:
     action: str
     resource_type: str
     resource_id: str
-    performed_by: UUID | None = None
+    performed_by: UUID
     changes: dict[str, Any] | None = None
     ip_address: str | None = None
 
@@ -62,6 +62,8 @@ async def commit_with_audit(
     """Commit domain changes and their audit events as one fail-closed transaction."""
     if not events:
         raise ValueError("At least one audit event is required for a mutation.")
+    if any(event.performed_by is None for event in events):
+        raise ValueError("Every audit event requires an actor.")
 
     try:
         audits = [_audit_log_from_event(event) for event in events]
@@ -107,9 +109,7 @@ async def list_audit_logs(
     statement = select(AuditLog)
     statement = _apply_audit_list_filters(statement, params)
 
-    total_statement = _apply_audit_list_filters(
-        select(func.count()).select_from(AuditLog), params
-    )
+    total_statement = _apply_audit_list_filters(select(func.count()).select_from(AuditLog), params)
     total_result = await session.exec(total_statement)
     total = total_result.one()
 

@@ -12,7 +12,7 @@ from schemas.survey_structure import (
 
 
 class SurveyBaseSchema(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
+    model_config = ConfigDict(from_attributes=True, extra="forbid")
 
 
 SurveyStatus = Literal["Inactive", "Active", "Closed"]
@@ -32,12 +32,9 @@ class SurveyCreate(SurveyBase):
                 "title": "Class of 2025 Exit Survey",
                 "description": "Exit survey for the graduating class of 2025.",
                 "target_cohort": "Class of 2025",
-                "performed_by": "018f4a1a-7b3b-7d0e-913a-c5f1c5c1c5c2",
             }
         }
     )
-
-    performed_by: UUID | None = None
 
 
 class SurveyCreateWithStructure(SurveyCreate):
@@ -60,7 +57,6 @@ class SurveyUpdate(SurveyBaseSchema):
             "example": {
                 "title": "Class of 2025 Mid-Year Check-in",
                 "status": "Active",
-                "performed_by": "018f4a1a-7b3b-7d0e-913a-c5f1c5c1c5c2",
             }
         }
     )
@@ -69,7 +65,6 @@ class SurveyUpdate(SurveyBaseSchema):
     description: str | None = None
     status: SurveyStatus | None = None
     target_cohort: str | None = None
-    performed_by: UUID | None = None
 
 
 class SurveyRead(SurveyBase):
@@ -103,17 +98,15 @@ class SurveyRead(SurveyBase):
 
 
 class SurveyDelete(SurveyBaseSchema):
-    performed_by: UUID | None = None
+    pass
 
 
 class SurveyRestore(SurveyBaseSchema):
-    performed_by: UUID | None = None
+    pass
 
 
 class SurveyListQueryParams(ListQueryParams):
     status: SurveyStatus | None = None
     target_cohort: str | None = None
     search: str | None = None
-    sort_by: Literal[
-        "created_at", "survey_id", "title", "status", "responses_count"
-    ] = "created_at"
+    sort_by: Literal["created_at", "survey_id", "title", "status", "responses_count"] = "created_at"

@@ -55,9 +55,7 @@ def validate_structure_client_ids(
     if len(section_client_ids) != len(set(section_client_ids)):
         raise ValueError("Section client_id values must be unique.")
     question_client_ids = [
-        question.client_id
-        for section in sections
-        for question in section.questions
+        question.client_id for section in sections for question in section.questions
     ]
     if len(question_client_ids) != len(set(question_client_ids)):
         raise ValueError("Question client_id values must be unique.")
@@ -76,9 +74,7 @@ class SurveyStructureReplace(BaseModel):
         cls, value: list[SurveyStructureSection]
     ) -> list[SurveyStructureSection]:
         validate_structure_client_ids(value)
-        section_persisted_ids = [
-            section.id for section in value if section.id is not None
-        ]
+        section_persisted_ids = [section.id for section in value if section.id is not None]
         if len(section_persisted_ids) != len(set(section_persisted_ids)):
             raise ValueError("Persisted section id values must be unique.")
         question_persisted_ids = [

@@ -3,6 +3,7 @@ from uuid import UUID
 from fastapi import APIRouter, Header, Request, Response, status
 from sqlmodel import col, select
 
+from core.config import settings
 from core.deps import AsyncDBSession
 from core.exceptions import AppError
 from core.responses import success_response
@@ -79,13 +80,15 @@ async def get_public_survey(
             section_q_list.append(pq)
             all_public_questions.append(pq)
 
-        public_sections.append(PublicSurveySection(
-            id=section.id,
-            title=section.title,
-            description=section.description,
-            order_index=section.order_index,
-            questions=section_q_list,
-        ))
+        public_sections.append(
+            PublicSurveySection(
+                id=section.id,
+                title=section.title,
+                description=section.description,
+                order_index=section.order_index,
+                questions=section_q_list,
+            )
+        )
 
     public_survey = PublicSurvey(
         survey_id=survey.survey_id,
@@ -132,6 +135,7 @@ async def submit_response(
         token,
         payload.answers,
         idempotency_key=idempotency_key,
+        actor_id=settings.SYSTEM_ACTOR_ID,
         ip_address=ip_address,
     )
     if replayed:

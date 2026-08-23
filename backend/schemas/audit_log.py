@@ -28,7 +28,7 @@ class AuditLogRead(BaseModel):
     action: str
     resource_type: str
     resource_id: str
-    performed_by: UUID | None = None
+    performed_by: UUID
     request_id: str | None = None
     changes: dict | None = None
     ip_address: str | None = None

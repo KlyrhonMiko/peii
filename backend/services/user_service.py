@@ -1,3 +1,5 @@
+from uuid import UUID
+
 from fastapi import status
 from sqlalchemy import func, or_
 from sqlmodel import col, select
@@ -8,17 +10,24 @@ from models.user import User
 from schemas.user import UserCreate, UserDelete, UserListQueryParams, UserRestore, UserUpdate
 from services.audit_service import AuditEvent, commit_with_audit
 from services.base_service import apply_updates, utc_now
+from services.supabase_auth_service import (
+    get_auth_user_by_email,
+    invite_user,
+    send_recovery_email,
+)
+from services.supabase_auth_service import (
+    revoke_user_sessions as revoke_auth_user_sessions,
+)
 from utils.identifiers import generate_business_id
-from utils.security import hash_password
 from utils.sorting import stable_order_by
 
 
 def _apply_user_list_filters(statement, params: UserListQueryParams):
-    if not params.include_deleted:
+    if params.is_deleted is not None:
+        statement = statement.where(col(User.is_deleted) == params.is_deleted)
+    elif not params.include_deleted:
         statement = statement.where(col(User.is_deleted).is_(False))
 
-    if params.role is not None:
-        statement = statement.where(col(User.role) == params.role)
     if params.is_active is not None:
         statement = statement.where(col(User.is_active) == params.is_active)
     if params.search is not None:
@@ -97,7 +106,11 @@ def _raise_username_conflict(existing_user: User) -> None:
 
 
 async def batch_create_users(
-    session: AsyncSession, payloads: list[UserCreate], ip_address: str | None = None
+    session: AsyncSession,
+    payloads: list[UserCreate],
+    actor_id: UUID,
+    redirect_to: str,
+    ip_address: str | None = None,
 ) -> list[User]:
     emails = [p.email for p in payloads]
     usernames = [p.username for p in payloads]
@@ -112,24 +125,26 @@ async def batch_create_users(
     )
     existing_emails = existing_emails_result.all()
     if existing_emails:
-        raise AppError(
-            "Some emails already exist.", status_code=status.HTTP_400_BAD_REQUEST
-        )
+        raise AppError("Some emails already exist.", status_code=status.HTTP_400_BAD_REQUEST)
 
     existing_usernames_result = await session.exec(
         select(User.username).where(col(User.username).in_(usernames))
     )
     existing_usernames = existing_usernames_result.all()
     if existing_usernames:
-        raise AppError(
-            "Some usernames already exist.", status_code=status.HTTP_400_BAD_REQUEST
-        )
+        raise AppError("Some usernames already exist.", status_code=status.HTTP_400_BAD_REQUEST)
 
     users = []
     for payload in payloads:
-        user_data = payload.model_dump(exclude={"password"})
-        user_data["password"] = hash_password(payload.password)
+        auth_user = await get_auth_user_by_email(str(payload.email))
+        if auth_user is None:
+            invitation = await invite_user(str(payload.email), redirect_to)
+            auth_user = invitation.get("user", invitation)
+        user_data = payload.model_dump()
         user_data["user_id"] = generate_business_id("USER")
+        user_data["auth_user_id"] = UUID(auth_user["id"])
+        user_data["performed_by"] = actor_id
+        user_data["invited_at"] = utc_now()
         user = User.model_validate(user_data)
         session.add(user)
         users.append(user)
@@ -141,7 +156,7 @@ async def batch_create_users(
                 action="create",
                 resource_type="user",
                 resource_id=user.user_id,
-                performed_by=user.performed_by,
+                performed_by=actor_id,
                 ip_address=ip_address,
             )
         )
@@ -152,7 +167,11 @@ async def batch_create_users(
 
 
 async def create_user(
-    session: AsyncSession, payload: UserCreate, ip_address: str | None = None
+    session: AsyncSession,
+    payload: UserCreate,
+    actor_id: UUID,
+    redirect_to: str,
+    ip_address: str | None = None,
 ) -> User:
     existing_user_result = await session.exec(select(User).where(col(User.email) == payload.email))
     existing_user = existing_user_result.first()
@@ -166,9 +185,15 @@ async def create_user(
     if existing_username:
         _raise_username_conflict(existing_username)
 
-    user_data = payload.model_dump(exclude={"password"})
-    user_data["password"] = hash_password(payload.password)
+    auth_user = await get_auth_user_by_email(str(payload.email))
+    if auth_user is None:
+        invitation = await invite_user(str(payload.email), redirect_to)
+        auth_user = invitation.get("user", invitation)
+    user_data = payload.model_dump()
     user_data["user_id"] = generate_business_id("USER")
+    user_data["auth_user_id"] = UUID(auth_user["id"])
+    user_data["performed_by"] = actor_id
+    user_data["invited_at"] = utc_now()
     user = User.model_validate(user_data)
     session.add(user)
     await commit_with_audit(
@@ -178,7 +203,7 @@ async def create_user(
                 action="create",
                 resource_type="user",
                 resource_id=user.user_id,
-                performed_by=user.performed_by,
+                performed_by=actor_id,
                 ip_address=ip_address,
             )
         ],
@@ -188,7 +213,11 @@ async def create_user(
 
 
 async def update_user(
-    session: AsyncSession, user_id: str, payload: UserUpdate, ip_address: str | None = None
+    session: AsyncSession,
+    user_id: str,
+    payload: UserUpdate,
+    actor_id: UUID,
+    ip_address: str | None = None,
 ) -> User:
     user = await get_user(session, user_id)
     updates = payload.model_dump(exclude_unset=True)
@@ -196,22 +225,9 @@ async def update_user(
     # Compute changes for auditing
     changes = {}
     for key, val in updates.items():
-        if key == "password":
-            changes[key] = {"before": "[REDACTED]", "after": "[REDACTED]"}
-            continue
-        if key == "performed_by":
-            continue
         old_val = getattr(user, key)
         if old_val != val:
             changes[key] = {"before": old_val, "after": val}
-
-    if "email" in updates and updates["email"] != user.email:
-        existing_user_result = await session.exec(
-            select(User).where(col(User.email) == updates["email"])
-        )
-        existing_user = existing_user_result.first()
-        if existing_user and existing_user.id != user.id:
-            _raise_email_conflict(existing_user)
 
     if "username" in updates and updates["username"] != user.username:
         existing_user_result = await session.exec(
@@ -221,10 +237,8 @@ async def update_user(
         if existing_user and existing_user.id != user.id:
             _raise_username_conflict(existing_user)
 
-    if "password" in updates:
-        updates["password"] = hash_password(updates["password"])
-
     apply_updates(user, updates)
+    user.performed_by = actor_id
     session.add(user)
     await commit_with_audit(
         session,
@@ -233,7 +247,7 @@ async def update_user(
                 action="update",
                 resource_type="user",
                 resource_id=user.user_id,
-                performed_by=payload.performed_by,
+                performed_by=actor_id,
                 changes=changes if changes else None,
                 ip_address=ip_address,
             )
@@ -243,13 +257,87 @@ async def update_user(
     return user
 
 
+async def resend_invitation(
+    session: AsyncSession,
+    user_id: str,
+    actor_id: UUID,
+    redirect_to: str,
+    ip_address: str | None = None,
+) -> User:
+    user = await get_user(session, user_id)
+    if not user.is_active or user.onboarding_completed_at is not None:
+        raise AppError(
+            "User is not eligible for invitation resend.",
+            status_code=status.HTTP_409_CONFLICT,
+        )
+
+    await send_recovery_email(user.email, redirect_to)
+    previous_invited_at = user.invited_at
+    user.invited_at = utc_now()
+    user.updated_at = utc_now()
+    user.performed_by = actor_id
+    session.add(user)
+    await commit_with_audit(
+        session,
+        [
+            AuditEvent(
+                action="resend_invitation",
+                resource_type="user",
+                resource_id=user.user_id,
+                performed_by=actor_id,
+                changes={
+                    "invited_at": {
+                        "before": previous_invited_at,
+                        "after": user.invited_at,
+                    }
+                },
+                ip_address=ip_address,
+            )
+        ],
+    )
+    await session.refresh(user)
+    return user
+
+
+async def revoke_user_sessions(
+    session: AsyncSession,
+    user_id: str,
+    actor_id: UUID,
+    ip_address: str | None = None,
+) -> None:
+    user = await get_user(session, user_id)
+    if user.auth_user_id is None:
+        raise AppError(
+            "User does not have an authentication account.",
+            status_code=status.HTTP_409_CONFLICT,
+        )
+
+    await revoke_auth_user_sessions(user.auth_user_id)
+    await commit_with_audit(
+        session,
+        [
+            AuditEvent(
+                action="revoke_sessions",
+                resource_type="user",
+                resource_id=user.user_id,
+                performed_by=actor_id,
+                ip_address=ip_address,
+            )
+        ],
+    )
+
+
 async def soft_delete_user(
-    session: AsyncSession, user_id: str, payload: UserDelete, ip_address: str | None = None
+    session: AsyncSession,
+    user_id: str,
+    payload: UserDelete,
+    actor_id: UUID,
+    ip_address: str | None = None,
 ) -> User:
     user = await get_user(session, user_id)
     user.is_deleted = True
     user.deleted_at = utc_now()
-    user.performed_by = payload.performed_by
+    user.performed_by = actor_id
     user.updated_at = utc_now()
     session.add(user)
     await commit_with_audit(
@@ -259,7 +347,7 @@ async def soft_delete_user(
                 action="delete",
                 resource_type="user",
                 resource_id=user.user_id,
-                performed_by=payload.performed_by,
+                performed_by=actor_id,
                 ip_address=ip_address,
             )
         ],
@@ -269,7 +357,11 @@ async def soft_delete_user(
 
 
 async def restore_user(
-    session: AsyncSession, user_id: str, payload: UserRestore, ip_address: str | None = None
+    session: AsyncSession,
+    user_id: str,
+    payload: UserRestore,
+    actor_id: UUID,
+    ip_address: str | None = None,
 ) -> User:
     user = await get_user(session, user_id, include_deleted=True)
     if not user.is_deleted:
@@ -277,7 +369,7 @@ async def restore_user(
 
     user.is_deleted = False
     user.deleted_at = None
-    user.performed_by = payload.performed_by
+    user.performed_by = actor_id
     user.updated_at = utc_now()
     session.add(user)
     await commit_with_audit(
@@ -287,7 +379,7 @@ async def restore_user(
                 action="restore",
                 resource_type="user",
                 resource_id=user.user_id,
-                performed_by=payload.performed_by,
+                performed_by=actor_id,
                 ip_address=ip_address,
             )
         ],

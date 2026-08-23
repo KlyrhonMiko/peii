@@ -34,7 +34,7 @@ export default function Home() {
           >
             Documentation
           </Button>
-          <Link href="/researcher/dashboard">
+          <Link href="/login?returnTo=/researcher/dashboard">
             <Button className="h-9 px-5 text-[14px] font-semibold bg-slate-900 text-white hover:bg-slate-800 rounded-lg shadow-sm transition-all">
               Login
             </Button>
@@ -70,7 +70,7 @@ export default function Home() {
               transition={{ duration: 0.5, delay: 0.2, ease: "easeOut" }}
               className="flex flex-col sm:flex-row gap-4 mt-12 w-full sm:w-auto"
             >
-              <Link href="/researcher/dashboard" className="w-full sm:w-auto">
+              <Link href="/login?returnTo=/researcher/dashboard" className="w-full sm:w-auto">
                 <Button
                   size="lg"
                   className="w-full sm:w-auto h-14 px-8 text-[15px] bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm transition-all rounded-xl font-semibold group"

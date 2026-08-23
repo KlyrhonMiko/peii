@@ -29,9 +29,7 @@ async def _validate_survey_exists(session: AsyncSession, survey_id: UUID) -> Sur
     return survey
 
 
-async def list_sections(
-    session: AsyncSession, survey_id: UUID
-) -> list[SurveySection]:
+async def list_sections(session: AsyncSession, survey_id: UUID) -> list[SurveySection]:
     await _validate_survey_exists(session, survey_id)
     result = await session.exec(
         select(SurveySection)
@@ -44,9 +42,7 @@ async def list_sections(
     return list(result.all())
 
 
-async def get_section(
-    session: AsyncSession, survey_id: UUID, section_id: UUID
-) -> SurveySection:
+async def get_section(session: AsyncSession, survey_id: UUID, section_id: UUID) -> SurveySection:
     await _validate_survey_exists(session, survey_id)
     result = await session.exec(
         select(SurveySection).where(
@@ -81,6 +77,7 @@ async def create_section(
     session: AsyncSession,
     survey_id: UUID,
     payload: SurveySectionCreate,
+    actor_id: UUID,
     ip_address: str | None = None,
 ) -> SurveySection:
     survey = await get_survey_for_structure_edit(session, survey_id)
@@ -96,11 +93,11 @@ async def create_section(
         title=payload.title,
         description=payload.description,
         order_index=(current_max if current_max is not None else -1) + 1,
-        performed_by=payload.performed_by,
+        performed_by=actor_id,
     )
     session.add(section)
     events = await revoke_for_structure_change(
-        session, survey, performed_by=payload.performed_by, ip_address=ip_address
+        session, survey, performed_by=actor_id, ip_address=ip_address
     )
     await commit_with_audit(
         session,
@@ -109,7 +106,7 @@ async def create_section(
                 action="create",
                 resource_type="survey_section",
                 resource_id=str(section.id),
-                performed_by=payload.performed_by,
+                performed_by=actor_id,
                 ip_address=ip_address,
             ),
             *events,
@@ -124,6 +121,7 @@ async def update_section(
     survey_id: UUID,
     section_id: UUID,
     payload: SurveySectionUpdate,
+    actor_id: UUID,
     ip_address: str | None = None,
 ) -> SurveySection:
     survey = await get_survey_for_structure_edit(session, survey_id)
@@ -142,15 +140,16 @@ async def update_section(
     changes = {
         key: {"before": getattr(section, key), "after": value}
         for key, value in updates.items()
-        if key != "performed_by" and getattr(section, key) != value
+        if getattr(section, key) != value
     }
     if not changes:
         return section
 
     apply_updates(section, updates)
+    section.performed_by = actor_id
     session.add(section)
     revoke_events = await revoke_for_structure_change(
-        session, survey, performed_by=payload.performed_by, ip_address=ip_address
+        session, survey, performed_by=actor_id, ip_address=ip_address
     )
     await commit_with_audit(
         session,
@@ -159,7 +158,7 @@ async def update_section(
                 action="update",
                 resource_type="survey_section",
                 resource_id=str(section.id),
-                performed_by=payload.performed_by,
+                performed_by=actor_id,
                 changes=changes,
                 ip_address=ip_address,
             ),
@@ -174,7 +173,7 @@ async def delete_section(
     session: AsyncSession,
     survey_id: UUID,
     section_id: UUID,
-    performed_by: UUID | None = None,
+    actor_id: UUID,
     cascade_questions: bool = False,
     ip_address: str | None = None,
 ) -> SurveySection:
@@ -207,7 +206,7 @@ async def delete_section(
     now = utc_now()
     section.is_deleted = True
     section.deleted_at = now
-    section.performed_by = performed_by
+    section.performed_by = actor_id
     section.updated_at = now
     session.add(section)
     events = [
@@ -215,14 +214,14 @@ async def delete_section(
             action="delete",
             resource_type="survey_section",
             resource_id=str(section.id),
-            performed_by=performed_by,
+            performed_by=actor_id,
             ip_address=ip_address,
         )
     ]
     for question in questions:
         question.is_deleted = True
         question.deleted_at = now
-        question.performed_by = performed_by
+        question.performed_by = actor_id
         question.updated_at = now
         session.add(question)
         events.append(
@@ -230,14 +229,14 @@ async def delete_section(
                 action="delete",
                 resource_type="survey_question",
                 resource_id=str(question.id),
-                performed_by=performed_by,
+                performed_by=actor_id,
                 changes={"reason": "section_cascade"},
                 ip_address=ip_address,
             )
         )
     events.extend(
         await revoke_for_structure_change(
-            session, survey, performed_by=performed_by, ip_address=ip_address
+            session, survey, performed_by=actor_id, ip_address=ip_address
         )
     )
     await commit_with_audit(session, events)
@@ -249,7 +248,7 @@ async def reorder_sections(
     session: AsyncSession,
     survey_id: UUID,
     section_ids: list[UUID],
-    performed_by: UUID | None = None,
+    actor_id: UUID,
     ip_address: str | None = None,
 ) -> list[SurveySection]:
     survey = await get_survey_for_structure_edit(session, survey_id)
@@ -271,7 +270,7 @@ async def reorder_sections(
             action="reorder",
             resource_type="survey_section",
             resource_id=str(section_id),
-            performed_by=performed_by,
+            performed_by=actor_id,
             changes={
                 "order_index": {
                     "before": sections_by_id[section_id].order_index,
@@ -286,6 +285,7 @@ async def reorder_sections(
     if not changes:
         return sorted(sections_by_id.values(), key=lambda s: (s.order_index, s.id))
 
+    changed_section_ids = {event.resource_id for event in changes}
     sections = [sections_by_id[section_id] for section_id in section_ids]
     temporary_base = max(section.order_index for section in sections) + len(sections) + 1
     for index, section in enumerate(sections):
@@ -294,10 +294,12 @@ async def reorder_sections(
     await session.flush()
     for index, section in enumerate(sections):
         section.order_index = index
+        if str(section.id) in changed_section_ids:
+            section.performed_by = actor_id
         session.add(section)
 
     revoke_events = await revoke_for_structure_change(
-        session, survey, performed_by=performed_by, ip_address=ip_address
+        session, survey, performed_by=actor_id, ip_address=ip_address
     )
     await commit_with_audit(session, [*changes, *revoke_events])
     for section in sections:

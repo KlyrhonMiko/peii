@@ -40,7 +40,7 @@ def _deserialize_options(options_str: str | None) -> list[str] | None:
         return None
     try:
         return json.loads(options_str)
-    except (json.JSONDecodeError, TypeError):
+    except json.JSONDecodeError, TypeError:
         return None
 
 
@@ -53,13 +53,11 @@ def _deserialize_config(config_str: str | None) -> dict | None:
         return None
     try:
         return json.loads(config_str)
-    except (json.JSONDecodeError, TypeError):
+    except json.JSONDecodeError, TypeError:
         return None
 
 
-async def list_questions(
-    session: AsyncSession, survey_id: UUID
-) -> list[SurveyQuestion]:
+async def list_questions(session: AsyncSession, survey_id: UUID) -> list[SurveyQuestion]:
     await _validate_survey_exists(session, survey_id)
     result = await session.exec(
         select(SurveyQuestion)
@@ -90,6 +88,7 @@ async def create_question(
     session: AsyncSession,
     survey_id: UUID,
     payload: SurveyQuestionCreate,
+    actor_id: UUID,
     ip_address: str | None = None,
 ) -> SurveyQuestion:
     survey = await get_survey_for_structure_edit(session, survey_id)
@@ -128,11 +127,11 @@ async def create_question(
         config=_serialize_config(payload.config),
         order_index=(current_max if current_max is not None else -1) + 1,
         is_required=payload.is_required,
-        performed_by=payload.performed_by,
+        performed_by=actor_id,
     )
     session.add(question)
     revoke_events = await revoke_for_structure_change(
-        session, survey, performed_by=payload.performed_by, ip_address=ip_address
+        session, survey, performed_by=actor_id, ip_address=ip_address
     )
     await commit_with_audit(
         session,
@@ -141,7 +140,7 @@ async def create_question(
                 action="create",
                 resource_type="survey_question",
                 resource_id=str(question.id),
-                performed_by=payload.performed_by,
+                performed_by=actor_id,
                 ip_address=ip_address,
             ),
             *revoke_events,
@@ -156,6 +155,7 @@ async def update_question(
     survey_id: UUID,
     question_id: UUID,
     payload: SurveyQuestionUpdate,
+    actor_id: UUID,
     ip_address: str | None = None,
 ) -> SurveyQuestion:
     survey = await get_survey_for_structure_edit(session, survey_id)
@@ -200,9 +200,7 @@ async def update_question(
                 )
             )
             current_max = max_order_result.one()
-            normalized_updates["order_index"] = (
-                current_max if current_max is not None else -1
-            ) + 1
+            normalized_updates["order_index"] = (current_max if current_max is not None else -1) + 1
     if normalized_updates.get("question_type") is None and "question_type" in normalized_updates:
         raise AppError("question_type cannot be null.", status_code=status.HTTP_400_BAD_REQUEST)
     if "options" in normalized_updates:
@@ -221,8 +219,6 @@ async def update_question(
 
     changes: dict[str, dict[str, object]] = {}
     for key, value in normalized_updates.items():
-        if key == "performed_by":
-            continue
         old_value = getattr(question, key)
         if key == "options":
             old_value = _deserialize_options(old_value)
@@ -236,9 +232,10 @@ async def update_question(
         return question
 
     apply_updates(question, normalized_updates)
+    question.performed_by = actor_id
     session.add(question)
     revoke_events = await revoke_for_structure_change(
-        session, survey, performed_by=payload.performed_by, ip_address=ip_address
+        session, survey, performed_by=actor_id, ip_address=ip_address
     )
     await commit_with_audit(
         session,
@@ -247,7 +244,7 @@ async def update_question(
                 action="update",
                 resource_type="survey_question",
                 resource_id=str(question.id),
-                performed_by=payload.performed_by,
+                performed_by=actor_id,
                 changes=changes,
                 ip_address=ip_address,
             ),
@@ -262,7 +259,7 @@ async def delete_question(
     session: AsyncSession,
     survey_id: UUID,
     question_id: UUID,
-    performed_by: UUID | None = None,
+    actor_id: UUID,
     ip_address: str | None = None,
 ) -> SurveyQuestion:
     survey = await get_survey_for_structure_edit(session, survey_id)
@@ -280,11 +277,11 @@ async def delete_question(
     now = utc_now()
     question.is_deleted = True
     question.deleted_at = now
-    question.performed_by = performed_by
+    question.performed_by = actor_id
     question.updated_at = now
     session.add(question)
     revoke_events = await revoke_for_structure_change(
-        session, survey, performed_by=performed_by, ip_address=ip_address
+        session, survey, performed_by=actor_id, ip_address=ip_address
     )
     await commit_with_audit(
         session,
@@ -293,7 +290,7 @@ async def delete_question(
                 action="delete",
                 resource_type="survey_question",
                 resource_id=str(question.id),
-                performed_by=performed_by,
+                performed_by=actor_id,
                 ip_address=ip_address,
             ),
             *revoke_events,
@@ -307,8 +304,8 @@ async def reorder_questions(
     session: AsyncSession,
     survey_id: UUID,
     question_ids: list[UUID],
+    actor_id: UUID,
     section_id: UUID | None = None,
-    performed_by: UUID | None = None,
     ip_address: str | None = None,
 ) -> list[SurveyQuestion]:
     survey = await get_survey_for_structure_edit(session, survey_id)
@@ -347,9 +344,7 @@ async def reorder_questions(
         col(SurveyQuestion.is_deleted).is_(False),
     )
     if section_id is not None:
-        existing_statement = existing_statement.where(
-            col(SurveyQuestion.section_id) == section_id
-        )
+        existing_statement = existing_statement.where(col(SurveyQuestion.section_id) == section_id)
     existing_result = await session.exec(existing_statement)
     questions_by_id = {question.id: question for question in existing_result.all()}
     if len(question_ids) != len(questions_by_id) or set(question_ids) != set(questions_by_id):
@@ -363,7 +358,7 @@ async def reorder_questions(
             action="reorder",
             resource_type="survey_question",
             resource_id=str(question_id),
-            performed_by=performed_by,
+            performed_by=actor_id,
             changes={
                 "order_index": {
                     "before": questions_by_id[question_id].order_index,
@@ -378,6 +373,7 @@ async def reorder_questions(
     if not changes:
         return sorted(questions_by_id.values(), key=lambda q: (q.order_index, q.id))
 
+    changed_question_ids = {event.resource_id for event in changes}
     questions = [questions_by_id[question_id] for question_id in question_ids]
     temporary_base = max(question.order_index for question in questions) + len(questions) + 1
     for index, question in enumerate(questions):
@@ -386,10 +382,12 @@ async def reorder_questions(
     await session.flush()
     for index, question in enumerate(questions):
         question.order_index = index
+        if str(question.id) in changed_question_ids:
+            question.performed_by = actor_id
         session.add(question)
 
     revoke_events = await revoke_for_structure_change(
-        session, survey, performed_by=performed_by, ip_address=ip_address
+        session, survey, performed_by=actor_id, ip_address=ip_address
     )
     await commit_with_audit(session, [*changes, *revoke_events])
     for question in questions:

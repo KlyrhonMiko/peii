@@ -30,6 +30,7 @@ Run frontend commands from `frontend/`:
 - `npm install` installs dependencies.
 - `npm run dev` starts the local Next.js dev server.
 - `npm run lint` runs `eslint . --max-warnings=0`; warnings fail the command.
+- `npm test` runs the focused Vitest test suite.
 - `npm run build` runs the production Next.js build.
 - `npm run start` serves a production build.
 

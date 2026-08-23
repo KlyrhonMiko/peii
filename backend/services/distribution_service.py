@@ -69,9 +69,7 @@ async def _get_survey(
     return result.first()
 
 
-async def _validate_survey_for_distribution(
-    session: AsyncSession, survey_id: UUID
-) -> Survey:
+async def _validate_survey_for_distribution(session: AsyncSession, survey_id: UUID) -> Survey:
     survey = await _get_survey(session, survey_id, for_update=True)
     if not survey:
         raise AppError("Survey not found.", status_code=status.HTTP_404_NOT_FOUND)
@@ -108,7 +106,7 @@ async def create_distribution(
     session: AsyncSession,
     survey_id: UUID,
     payload: SurveyDistributionCreate,
-    performed_by: UUID | None = None,
+    performed_by: UUID,
     ip_address: str | None = None,
 ) -> SurveyDistribution:
     await _validate_survey_for_distribution(session, survey_id)
@@ -158,7 +156,7 @@ async def revoke_distribution(
     session: AsyncSession,
     survey_id: UUID,
     distribution_id: UUID,
-    performed_by: UUID | None = None,
+    performed_by: UUID,
     ip_address: str | None = None,
 ) -> tuple[SurveyDistribution, SurveyStatus | str]:
     result = await session.exec(
@@ -207,7 +205,7 @@ async def rotate_distribution(
     survey_id: UUID,
     distribution_id: UUID,
     payload: SurveyDistributionCreate,
-    performed_by: UUID | None = None,
+    performed_by: UUID,
     ip_address: str | None = None,
 ) -> tuple[SurveyDistribution, SurveyStatus | str]:
     survey = await _validate_survey_for_distribution(session, survey_id)
@@ -296,7 +294,7 @@ async def get_distribution_by_token(
 async def revoke_for_structure_change(
     session: AsyncSession,
     survey: Survey,
-    performed_by: UUID | None = None,
+    performed_by: UUID,
     ip_address: str | None = None,
 ) -> list[AuditEvent]:
     result = await session.exec(

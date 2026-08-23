@@ -1,7 +1,10 @@
 import ast
 from pathlib import Path
+from typing import cast
+from uuid import UUID
 
 import pytest
+from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
 from sqlmodel import SQLModel, select
@@ -53,6 +56,7 @@ async def test_commit_with_audit_rolls_back_when_audit_staging_fails(monkeypatch
                         action="create",
                         resource_type="user",
                         resource_id=user.user_id,
+                        performed_by=user.id,
                     )
                 ],
             )
@@ -61,6 +65,83 @@ async def test_commit_with_audit_rolls_back_when_audit_staging_fails(monkeypatch
         assert (await session.exec(select(AuditLog))).all() == []
 
     await engine.dispose()
+
+
+def test_audit_event_requires_an_actor():
+    with pytest.raises(TypeError):
+        AuditEvent(  # type: ignore[call-arg]
+            action="create", resource_type="user", resource_id="USER-1"
+        )
+
+
+async def test_audited_commit_rejects_a_missing_actor():
+    engine = create_async_engine(
+        "sqlite+aiosqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    async with engine.begin() as connection:
+        await connection.run_sync(SQLModel.metadata.create_all)
+
+    session_factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    async with session_factory() as session:
+        event = AuditEvent("create", "user", "USER-1", cast(UUID, None))
+        with pytest.raises(ValueError, match="requires an actor"):
+            await commit_with_audit(session, [event])
+
+    await engine.dispose()
+
+
+def test_production_audit_events_always_pass_an_actor():
+    backend_dir = Path(__file__).resolve().parents[1]
+    paths = [
+        *backend_dir.joinpath("services").glob("*.py"),
+        *backend_dir.joinpath("routers").glob("*.py"),
+        *backend_dir.joinpath("scripts").glob("*.py"),
+    ]
+
+    for path in paths:
+        tree = ast.parse(path.read_text(), filename=str(path))
+        for node in ast.walk(tree):
+            if not (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Name)
+                and node.func.id == "AuditEvent"
+            ):
+                continue
+            has_actor = len(node.args) >= 4 or any(
+                keyword.arg == "performed_by" for keyword in node.keywords
+            )
+            assert has_actor, f"Actor missing from AuditEvent in {path}:{node.lineno}"
+
+
+def test_section_and_question_write_schemas_do_not_accept_actor_fields():
+    from schemas.survey import SurveyCreate
+    from schemas.survey_question import SurveyQuestionCreate, SurveyQuestionUpdate
+    from schemas.survey_section import SurveySectionCreate, SurveySectionDelete, SurveySectionUpdate
+
+    schemas = (
+        SurveySectionCreate,
+        SurveySectionUpdate,
+        SurveySectionDelete,
+        SurveyQuestionCreate,
+        SurveyQuestionUpdate,
+    )
+    assert all("performed_by" not in schema.model_fields for schema in schemas)
+
+    with pytest.raises(ValidationError):
+        SurveyCreate.model_validate({"title": "Survey", "performed_by": "actor"})
+    with pytest.raises(ValidationError):
+        SurveySectionCreate.model_validate({"title": "Section", "performed_by": "actor"})
+    with pytest.raises(ValidationError):
+        SurveyQuestionCreate.model_validate(
+            {
+                "question_text": "Question",
+                "question_type": "text",
+                "section_id": "018f4a1a-7b3b-7d0e-913a-c5f1c5c1c5c2",
+                "performed_by": "actor",
+            }
+        )
 
 
 def test_mutation_modules_do_not_commit_outside_audit_service():
