@@ -1,0 +1,66 @@
+"use server"
+
+import { redirect } from "next/navigation"
+
+import { createSupabaseServerClient } from "@/lib/supabase/server"
+
+function safeReturnTo(value: FormDataEntryValue | null) {
+  if (typeof value !== "string" || !value.startsWith("/") || value.startsWith("//")) {
+    return "/researcher/dashboard"
+  }
+  return value
+}
+
+export async function loginAction(formData: FormData) {
+  const identifier = formData.get("identifier")
+  const password = formData.get("password")
+  if (typeof identifier !== "string" || typeof password !== "string") {
+    redirect("/login?error=invalid")
+  }
+
+  const backendUrl = process.env.BACKEND_INTERNAL_URL
+  if (!backendUrl) {
+    throw new Error("BACKEND_INTERNAL_URL is not configured")
+  }
+  const response = await fetch(`${backendUrl}/auth/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ identifier, password }),
+    cache: "no-store",
+  })
+  if (!response.ok) {
+    redirect("/login?error=invalid")
+  }
+  const body: unknown = await response.json()
+  if (!isSessionEnvelope(body)) {
+    throw new Error("Backend returned an invalid authentication response")
+  }
+
+  const supabase = await createSupabaseServerClient()
+  const { error } = await supabase.auth.setSession(body.data)
+  if (error) {
+    redirect("/login?error=invalid")
+  }
+  redirect(safeReturnTo(formData.get("returnTo")))
+}
+
+export async function logoutAction() {
+  const supabase = await createSupabaseServerClient()
+  await supabase.auth.signOut()
+  redirect("/login")
+}
+
+function isSessionEnvelope(
+  value: unknown,
+): value is { data: { access_token: string; refresh_token: string } } {
+  if (typeof value !== "object" || value === null || !("data" in value)) return false
+  const data = value.data
+  return (
+    typeof data === "object" &&
+    data !== null &&
+    "access_token" in data &&
+    "refresh_token" in data &&
+    typeof data.access_token === "string" &&
+    typeof data.refresh_token === "string"
+  )
+}

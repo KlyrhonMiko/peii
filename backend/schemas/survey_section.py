@@ -6,7 +6,7 @@ from schemas.survey_question import SurveyQuestionRead
 
 
 class SurveySectionBaseSchema(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
+    model_config = ConfigDict(from_attributes=True, extra="forbid")
 
 
 class SurveySectionCreate(SurveySectionBaseSchema):
@@ -15,14 +15,12 @@ class SurveySectionCreate(SurveySectionBaseSchema):
             "example": {
                 "title": "Employment Outcomes",
                 "description": "Questions about your current employment situation.",
-                "performed_by": "018f4a1a-7b3b-7d0e-913a-c5f1c5c1c5c2",
             }
         }
     )
 
     title: str
     description: str | None = None
-    performed_by: UUID | None = None
 
 
 class SurveySectionUpdate(SurveySectionBaseSchema):
@@ -31,19 +29,16 @@ class SurveySectionUpdate(SurveySectionBaseSchema):
             "example": {
                 "title": "Employment & Career Outcomes",
                 "description": "Updated description.",
-                "performed_by": "018f4a1a-7b3b-7d0e-913a-c5f1c5c1c5c2",
             }
         }
     )
 
     title: str | None = None
     description: str | None = None
-    performed_by: UUID | None = None
 
 
 class SurveySectionDelete(SurveySectionBaseSchema):
     cascade_questions: bool = False
-    performed_by: UUID | None = None
 
 
 class SurveySectionRead(SurveySectionBaseSchema):

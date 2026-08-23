@@ -5,13 +5,9 @@ EXPIRY = "2099-01-01T00:00:00+00:00"
 
 
 async def _create_active_survey(client):
-    resp = await client.post(
-        "/api/v1/surveys/", json={"title": "Distributable Survey"}
-    )
+    resp = await client.post("/api/v1/surveys/", json={"title": "Distributable Survey"})
     survey = resp.json()["data"]
-    section = await client.post(
-        f"/api/v1/surveys/{survey['id']}/sections/", json={"title": "Main"}
-    )
+    section = await client.post(f"/api/v1/surveys/{survey['id']}/sections/", json={"title": "Main"})
     await client.post(
         f"/api/v1/surveys/{survey['id']}/questions/",
         json={
@@ -80,15 +76,11 @@ async def test_distribution_requires_timezone_aware_future_expiry(client):
 
 
 async def test_distribution_suspends_and_reactivates_with_survey_status(client):
-    survey_response = await client.post(
-        "/api/v1/surveys/", json={"title": "Lifecycle Survey"}
-    )
+    survey_response = await client.post("/api/v1/surveys/", json={"title": "Lifecycle Survey"})
     survey = survey_response.json()["data"]
     survey_uuid = survey["id"]
     survey_business_id = survey["survey_id"]
-    section = await client.post(
-        f"/api/v1/surveys/{survey_uuid}/sections/", json={"title": "Main"}
-    )
+    section = await client.post(f"/api/v1/surveys/{survey_uuid}/sections/", json={"title": "Main"})
     await client.post(
         f"/api/v1/surveys/{survey_uuid}/questions/",
         json={

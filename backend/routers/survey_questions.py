@@ -1,8 +1,8 @@
 from uuid import UUID
 
-from fastapi import APIRouter, Request, status
+from fastapi import APIRouter, Depends, Request, status
 
-from core.deps import AsyncDBSession
+from core.deps import AsyncDBSession, Principal, require_permissions
 from core.responses import success_response
 from schemas.common import APIResponse
 from schemas.survey_question import (
@@ -11,7 +11,7 @@ from schemas.survey_question import (
     SurveyQuestionReorder,
     SurveyQuestionUpdate,
 )
-from services import survey_question_service
+from services import survey_question_service, survey_service
 
 router = APIRouter()
 
@@ -25,7 +25,9 @@ router = APIRouter()
 async def list_questions(
     survey_id: UUID,
     session: AsyncDBSession,
+    principal: Principal = Depends(require_permissions("surveys.read")),
 ) -> APIResponse[list[SurveyQuestionRead]]:
+    await survey_service.authorize_survey(session, survey_id, principal.user, principal.permissions)
     questions = await survey_question_service.list_questions(session, survey_id)
     response_questions = [SurveyQuestionRead.model_validate(q) for q in questions]
     return success_response(response_questions)
@@ -43,10 +45,18 @@ async def create_question(
     payload: SurveyQuestionCreate,
     session: AsyncDBSession,
     request: Request,
+    principal: Principal = Depends(require_permissions("survey_structure.manage")),
 ) -> APIResponse[SurveyQuestionRead]:
+    await survey_service.authorize_survey(
+        session, survey_id, principal.user, principal.permissions, write=True
+    )
     ip_address = request.client.host if request.client else None
     question = await survey_question_service.create_question(
-        session, survey_id, payload, ip_address=ip_address
+        session,
+        survey_id,
+        payload,
+        actor_id=principal.user.id,
+        ip_address=ip_address,
     )
     return success_response(
         SurveyQuestionRead.model_validate(question),
@@ -65,13 +75,18 @@ async def reorder_questions(
     payload: SurveyQuestionReorder,
     session: AsyncDBSession,
     request: Request,
+    principal: Principal = Depends(require_permissions("survey_structure.manage")),
 ) -> APIResponse[list[SurveyQuestionRead]]:
+    await survey_service.authorize_survey(
+        session, survey_id, principal.user, principal.permissions, write=True
+    )
     ip_address = request.client.host if request.client else None
     questions = await survey_question_service.reorder_questions(
         session,
         survey_id,
         payload.question_ids,
         section_id=payload.section_id,
+        actor_id=principal.user.id,
         ip_address=ip_address,
     )
     return success_response(
@@ -92,10 +107,19 @@ async def update_question(
     payload: SurveyQuestionUpdate,
     session: AsyncDBSession,
     request: Request,
+    principal: Principal = Depends(require_permissions("survey_structure.manage")),
 ) -> APIResponse[SurveyQuestionRead]:
+    await survey_service.authorize_survey(
+        session, survey_id, principal.user, principal.permissions, write=True
+    )
     ip_address = request.client.host if request.client else None
     question = await survey_question_service.update_question(
-        session, survey_id, question_id, payload, ip_address=ip_address
+        session,
+        survey_id,
+        question_id,
+        payload,
+        actor_id=principal.user.id,
+        ip_address=ip_address,
     )
     return success_response(
         SurveyQuestionRead.model_validate(question),
@@ -114,10 +138,14 @@ async def delete_question(
     question_id: UUID,
     session: AsyncDBSession,
     request: Request,
+    principal: Principal = Depends(require_permissions("survey_structure.manage")),
 ) -> APIResponse[SurveyQuestionRead]:
+    await survey_service.authorize_survey(
+        session, survey_id, principal.user, principal.permissions, write=True
+    )
     ip_address = request.client.host if request.client else None
     question = await survey_question_service.delete_question(
-        session, survey_id, question_id, ip_address=ip_address
+        session, survey_id, question_id, actor_id=principal.user.id, ip_address=ip_address
     )
     return success_response(
         SurveyQuestionRead.model_validate(question),

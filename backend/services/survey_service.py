@@ -8,9 +8,11 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from core.exceptions import AppError
 from models.survey import Survey
+from models.survey_membership import SurveyMembership
 from models.survey_question import SurveyQuestion
 from models.survey_response import SurveyResponse
 from models.survey_section import SurveySection
+from models.user import User
 from schemas.survey import (
     SurveyCreate,
     SurveyCreateWithStructure,
@@ -22,6 +24,7 @@ from schemas.survey import (
 from services.audit_service import AuditEvent, commit_with_audit
 from services.base_service import apply_updates, utc_now
 from services.question_validation import validate_question_definition
+from services.rbac_service import assert_survey_access
 from utils.identifiers import generate_business_id
 from utils.sorting import stable_order_by
 
@@ -48,14 +51,27 @@ def _apply_survey_list_filters(statement, params: SurveyListQueryParams):
 
 
 async def list_surveys(
-    session: AsyncSession, params: SurveyListQueryParams
+    session: AsyncSession,
+    params: SurveyListQueryParams,
+    user: User,
+    permissions: frozenset[str],
 ) -> tuple[list[Survey], int]:
     statement = select(Survey)
+    total_statement = select(func.count()).select_from(Survey)
+    if "surveys.access_all" not in permissions:
+        accessible_ids = select(SurveyMembership.survey_id).where(
+            col(SurveyMembership.user_id) == user.id,
+            col(SurveyMembership.is_deleted).is_(False),
+        )
+        access_filter = or_(
+            col(Survey.owner_id) == user.id,
+            col(Survey.id).in_(accessible_ids),
+        )
+        statement = statement.where(access_filter)
+        total_statement = total_statement.where(access_filter)
     statement = _apply_survey_list_filters(statement, params)
 
-    total_statement = _apply_survey_list_filters(
-        select(func.count()).select_from(Survey), params
-    )
+    total_statement = _apply_survey_list_filters(total_statement, params)
     total_result = await session.exec(total_statement)
     total = total_result.one()
 
@@ -79,6 +95,27 @@ async def list_surveys(
     return rows, total
 
 
+async def authorize_survey(
+    session: AsyncSession,
+    survey_id: UUID | str,
+    user: User,
+    permissions: frozenset[str],
+    *,
+    write: bool = False,
+    owner_only: bool = False,
+    include_deleted: bool = False,
+) -> Survey:
+    survey = (
+        await get_survey_by_uuid(session, survey_id)
+        if isinstance(survey_id, UUID)
+        else await get_survey(session, survey_id, include_deleted=include_deleted)
+    )
+    access_level = await assert_survey_access(session, user, set(permissions), survey, write=write)
+    if owner_only and access_level != "owner":
+        raise AppError("Survey not found.", status_code=status.HTTP_404_NOT_FOUND)
+    return survey
+
+
 async def get_survey(
     session: AsyncSession,
     survey_id: str,
@@ -95,9 +132,7 @@ async def get_survey(
     return survey
 
 
-def _activation_readiness_error(
-    errors: list[dict[str, str]], status_code: int
-) -> AppError:
+def _activation_readiness_error(errors: list[dict[str, str]], status_code: int) -> AppError:
     return AppError(
         "Survey is not ready to be activated.",
         status_code=status_code,
@@ -185,9 +220,7 @@ async def get_survey_by_uuid(session: AsyncSession, survey_id: UUID) -> Survey:
     return survey
 
 
-async def get_survey_for_structure_edit(
-    session: AsyncSession, survey_id: UUID
-) -> Survey:
+async def get_survey_for_structure_edit(session: AsyncSession, survey_id: UUID) -> Survey:
     result = await session.exec(
         select(Survey)
         .where(col(Survey.id) == survey_id, col(Survey.is_deleted).is_(False))
@@ -203,9 +236,9 @@ async def get_survey_for_structure_edit(
         )
 
     response_count_result = await session.exec(
-        select(func.count()).select_from(SurveyResponse).where(
-            col(SurveyResponse.survey_id) == survey_id
-        )
+        select(func.count())
+        .select_from(SurveyResponse)
+        .where(col(SurveyResponse.survey_id) == survey_id)
     )
     if response_count_result.one() > 0:
         raise AppError(
@@ -270,7 +303,10 @@ async def get_survey_with_sections(
 
 
 async def create_survey(
-    session: AsyncSession, payload: SurveyCreate, ip_address: str | None = None
+    session: AsyncSession,
+    payload: SurveyCreate,
+    actor_id: UUID,
+    ip_address: str | None = None,
 ) -> Survey:
     if payload.status == "Active":
         raise _activation_readiness_error(
@@ -282,10 +318,11 @@ async def create_survey(
             ],
             status.HTTP_422_UNPROCESSABLE_CONTENT,
         )
-    survey_data = payload.model_dump(exclude={"performed_by"})
+    survey_data = payload.model_dump()
     survey_data["survey_id"] = generate_business_id("SURV")
+    survey_data["owner_id"] = actor_id
     survey = Survey.model_validate(survey_data)
-    survey.performed_by = payload.performed_by
+    survey.performed_by = actor_id
     session.add(survey)
     await commit_with_audit(
         session,
@@ -294,7 +331,7 @@ async def create_survey(
                 action="create",
                 resource_type="survey",
                 resource_id=survey.survey_id,
-                performed_by=survey.performed_by,
+                performed_by=actor_id,
                 ip_address=ip_address,
             ),
         ],
@@ -306,6 +343,7 @@ async def create_survey(
 async def create_survey_with_structure(
     session: AsyncSession,
     payload: SurveyCreateWithStructure,
+    actor_id: UUID,
     ip_address: str | None = None,
 ) -> Survey:
     if payload.status == "Active":
@@ -330,11 +368,14 @@ async def create_survey_with_structure(
                     status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 ) from exc
 
-    survey_data = payload.model_dump(exclude={"performed_by", "sections"})
+    survey_data = payload.model_dump(exclude={"sections"})
     survey_data["survey_id"] = generate_business_id("SURV")
+    survey_data["owner_id"] = actor_id
     survey = Survey.model_validate(survey_data)
-    survey.performed_by = payload.performed_by
+    survey.performed_by = actor_id
     session.add(survey)
+    # PostgreSQL enforces the section/question ownership foreign keys immediately.
+    await session.flush()
 
     events = [
         AuditEvent(
@@ -351,15 +392,16 @@ async def create_survey_with_structure(
             title=section_input.title,
             description=section_input.description,
             order_index=section_index,
-            performed_by=payload.performed_by,
+            performed_by=actor_id,
         )
         session.add(section)
+        await session.flush()
         events.append(
             AuditEvent(
                 action="create",
                 resource_type="survey_section",
                 resource_id=str(section.id),
-                performed_by=payload.performed_by,
+                performed_by=actor_id,
                 ip_address=ip_address,
             )
         )
@@ -375,7 +417,7 @@ async def create_survey_with_structure(
                 else None,
                 order_index=question_index,
                 is_required=question_input.is_required,
-                performed_by=payload.performed_by,
+                performed_by=actor_id,
             )
             session.add(question)
             events.append(
@@ -383,7 +425,7 @@ async def create_survey_with_structure(
                     action="create",
                     resource_type="survey_question",
                     resource_id=str(question.id),
-                    performed_by=payload.performed_by,
+                    performed_by=actor_id,
                     ip_address=ip_address,
                 )
             )
@@ -397,6 +439,7 @@ async def update_survey(
     session: AsyncSession,
     survey_id: str,
     payload: SurveyUpdate,
+    actor_id: UUID,
     ip_address: str | None = None,
 ) -> Survey:
     survey = await get_survey(session, survey_id, for_update=True)
@@ -411,13 +454,12 @@ async def update_survey(
 
     changes = {}
     for key, val in updates.items():
-        if key == "performed_by":
-            continue
         old_val = getattr(survey, key)
         if old_val != val:
             changes[key] = {"before": old_val, "after": val}
 
     apply_updates(survey, updates)
+    survey.performed_by = actor_id
     session.add(survey)
     await commit_with_audit(
         session,
@@ -426,7 +468,7 @@ async def update_survey(
                 action="update",
                 resource_type="survey",
                 resource_id=survey.survey_id,
-                performed_by=payload.performed_by,
+                performed_by=actor_id,
                 changes=changes if changes else None,
                 ip_address=ip_address,
             )
@@ -440,12 +482,13 @@ async def soft_delete_survey(
     session: AsyncSession,
     survey_id: str,
     payload: SurveyDelete,
+    actor_id: UUID,
     ip_address: str | None = None,
 ) -> Survey:
     survey = await get_survey(session, survey_id)
     survey.is_deleted = True
     survey.deleted_at = utc_now()
-    survey.performed_by = payload.performed_by
+    survey.performed_by = actor_id
     survey.updated_at = utc_now()
     session.add(survey)
     await commit_with_audit(
@@ -455,7 +498,7 @@ async def soft_delete_survey(
                 action="delete",
                 resource_type="survey",
                 resource_id=survey.survey_id,
-                performed_by=payload.performed_by,
+                performed_by=actor_id,
                 ip_address=ip_address,
             )
         ],
@@ -468,6 +511,7 @@ async def restore_survey(
     session: AsyncSession,
     survey_id: str,
     payload: SurveyRestore,
+    actor_id: UUID,
     ip_address: str | None = None,
 ) -> Survey:
     survey = await get_survey(
@@ -487,7 +531,7 @@ async def restore_survey(
 
     survey.is_deleted = False
     survey.deleted_at = None
-    survey.performed_by = payload.performed_by
+    survey.performed_by = actor_id
     survey.updated_at = utc_now()
     session.add(survey)
     await commit_with_audit(
@@ -497,7 +541,7 @@ async def restore_survey(
                 action="restore",
                 resource_type="survey",
                 resource_id=survey.survey_id,
-                performed_by=payload.performed_by,
+                performed_by=actor_id,
                 ip_address=ip_address,
             )
         ],
@@ -517,5 +561,5 @@ def _serialize_options(options_str: str | None) -> list[str] | None:
         return None
     try:
         return json.loads(options_str)
-    except (json.JSONDecodeError, TypeError):
+    except json.JSONDecodeError, TypeError:
         return None

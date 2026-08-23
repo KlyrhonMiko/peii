@@ -1,0 +1,88 @@
+from typing import Any
+
+import httpx
+
+from core.config import settings
+from core.exceptions import AppError
+
+
+def _required(value: str | None, name: str) -> str:
+    if value is None:
+        raise AppError(f"{name} is not configured.", status_code=503)
+    return value
+
+
+def _headers(secret: bool = False) -> dict[str, str]:
+    key = _required(
+        settings.SUPABASE_SECRET_KEY if secret else settings.SUPABASE_PUBLISHABLE_KEY,
+        "Supabase authentication",
+    )
+    return {"apikey": key, "Authorization": f"Bearer {key}"}
+
+
+def _auth_url(path: str) -> str:
+    return f"{_required(settings.SUPABASE_URL, 'Supabase authentication')}/auth/v1{path}"
+
+
+async def password_login(email: str, password: str) -> dict[str, Any]:
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        response = await client.post(
+            _auth_url("/token?grant_type=password"),
+            headers=_headers(),
+            json={"email": email, "password": password},
+        )
+    if response.status_code != 200:
+        raise AppError("Invalid credentials.", status_code=401)
+    return response.json()
+
+
+async def invite_user(email: str, redirect_to: str) -> dict[str, Any]:
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        response = await client.post(
+            _auth_url("/invite"),
+            headers={**_headers(secret=True), "Content-Type": "application/json"},
+            params={"redirect_to": redirect_to},
+            json={"email": email},
+        )
+    if response.status_code not in {200, 201}:
+        raise AppError("Unable to send invitation.", status_code=502)
+    return response.json()
+
+
+async def get_auth_user_by_email(email: str) -> dict[str, Any] | None:
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        response = await client.get(
+            _auth_url("/admin/users?page=1&per_page=1000"),
+            headers=_headers(secret=True),
+        )
+    if response.status_code != 200:
+        raise AppError("Unable to read Supabase users.", status_code=502)
+    users = response.json().get("users", [])
+    return next(
+        (user for user in users if user.get("email", "").lower() == email.lower()),
+        None,
+    )
+
+
+async def send_recovery_email(email: str, redirect_to: str) -> None:
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        await client.post(
+            _auth_url("/recover"),
+            headers={**_headers(), "Content-Type": "application/json"},
+            params={"redirect_to": redirect_to},
+            json={"email": email},
+        )
+
+
+async def update_password(access_token: str, password: str) -> None:
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        response = await client.put(
+            _auth_url("/user"),
+            headers={
+                "apikey": _required(settings.SUPABASE_PUBLISHABLE_KEY, "Supabase authentication"),
+                "Authorization": f"Bearer {access_token}",
+            },
+            json={"password": password},
+        )
+    if response.status_code != 200:
+        raise AppError("Unable to update password.", status_code=502)

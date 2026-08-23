@@ -1,5 +1,3 @@
-from uuid import uuid4
-
 import pytest
 
 pytestmark = pytest.mark.anyio
@@ -10,14 +8,11 @@ async def test_user_mutations_create_audit_logs(client):
     payload = {
         "email": "audit-test@example.com",
         "username": "audittestuser",
-        "password": "test-password-123",
-        "role": "staff",
         "first_name": "Audit",
         "last_name": "Tester",
         "middle_name": None,
         "contact": None,
         "is_active": True,
-        "performed_by": None,
     }
 
     create_response = await client.post("/api/v1/users/", json=payload)
@@ -64,11 +59,10 @@ async def test_user_mutations_create_audit_logs(client):
     }
 
     # 3. Soft delete the user
-    performed_by_uuid = str(uuid4())
     delete_response = await client.request(
         "DELETE",
         f"/api/v1/users/{user_id}",
-        json={"performed_by": performed_by_uuid},
+        json={},
     )
     assert delete_response.status_code == 200
 
@@ -80,12 +74,12 @@ async def test_user_mutations_create_audit_logs(client):
     data = audit_list_response.json()["data"]
     assert len(data) == 1
     assert data[0]["action"] == "delete"
-    assert data[0]["performed_by"] == performed_by_uuid
+    assert data[0]["performed_by"] == "00000000-0000-0000-0000-000000000001"
 
     # 4. Restore the user
     restore_response = await client.post(
         f"/api/v1/users/{user_id}/restore",
-        json={"performed_by": performed_by_uuid},
+        json={},
     )
     assert restore_response.status_code == 200
 
@@ -97,7 +91,7 @@ async def test_user_mutations_create_audit_logs(client):
     data = audit_list_response.json()["data"]
     assert len(data) == 1
     assert data[0]["action"] == "restore"
-    assert data[0]["performed_by"] == performed_by_uuid
+    assert data[0]["performed_by"] == "00000000-0000-0000-0000-000000000001"
 
 
 async def test_get_nonexistent_audit_log(client):
@@ -178,14 +172,10 @@ async def test_all_mutation_families_create_audits(client):
     )
     assert len(await _audits_for(client, "survey_question", first_question_id, "reorder")) == 1
     assert len(await _audits_for(client, "survey_question", second_question_id, "reorder")) == 1
-    await client.request(
-        "DELETE", f"/api/v1/surveys/{survey_uuid}/questions/{first_question_id}"
-    )
+    await client.request("DELETE", f"/api/v1/surveys/{survey_uuid}/questions/{first_question_id}")
     assert len(await _audits_for(client, "survey_question", first_question_id, "delete")) == 1
     assert (
-        await client.patch(
-            f"/api/v1/surveys/{survey_id}", json={"status": "Active"}
-        )
+        await client.patch(f"/api/v1/surveys/{survey_id}", json={"status": "Active"})
     ).status_code == 200
 
     distribution = await client.post(
@@ -209,14 +199,11 @@ async def test_all_mutation_families_create_audits(client):
     response_id = response.json()["data"]["id"]
     response_audits = await _audits_for(client, "survey_response", response_id, "create")
     assert len(response_audits) == 1
-    assert response_audits[0]["changes"] is None
+    assert response_audits[0]["changes"] == {"distribution_id": distribution_id}
+    assert response_audits[0]["performed_by"] == "00000000-0000-0000-0000-000000000001"
 
-    await client.request(
-        "DELETE", f"/api/v1/surveys/{survey_uuid}/distributions/{distribution_id}"
-    )
-    await client.request(
-        "DELETE", f"/api/v1/surveys/{survey_uuid}/distributions/{distribution_id}"
-    )
+    await client.request("DELETE", f"/api/v1/surveys/{survey_uuid}/distributions/{distribution_id}")
+    await client.request("DELETE", f"/api/v1/surveys/{survey_uuid}/distributions/{distribution_id}")
     revoke_audits = await _audits_for(client, "survey_distribution", distribution_id, "revoke")
     assert len(revoke_audits) == 1
     assert "token" not in (revoke_audits[0]["changes"] or {})
@@ -230,16 +217,12 @@ async def test_batch_user_mutation_creates_one_audit_per_user(client):
                 {
                     "email": "audit-batch-one@example.com",
                     "username": "audit-batch-one",
-                    "password": "test-password-123",
-                    "role": "staff",
                     "first_name": "Batch",
                     "last_name": "One",
                 },
                 {
                     "email": "audit-batch-two@example.com",
                     "username": "audit-batch-two",
-                    "password": "test-password-456",
-                    "role": "staff",
                     "first_name": "Batch",
                     "last_name": "Two",
                 },

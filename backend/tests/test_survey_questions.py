@@ -4,9 +4,12 @@ pytestmark = pytest.mark.anyio
 
 
 async def _create_survey(client, title="Test Survey"):
-    resp = await client.post("/api/v1/surveys/", json={
-        "title": title, "performed_by": None,
-    })
+    resp = await client.post(
+        "/api/v1/surveys/",
+        json={
+            "title": title,
+        },
+    )
     survey_uuid = resp.json()["data"]["id"]
 
     sec_resp = await client.post(
@@ -21,21 +24,27 @@ async def _create_survey(client, title="Test Survey"):
 async def test_create_and_list_questions(client):
     survey_uuid, section_id = await _create_survey(client, "Question Survey")
 
-    q1 = await client.post(f"/api/v1/surveys/{survey_uuid}/questions/", json={
-        "question_text": "Rate your experience?",
-        "question_type": "scale",
-        "options": None,
-        "section_id": section_id,
-    })
+    q1 = await client.post(
+        f"/api/v1/surveys/{survey_uuid}/questions/",
+        json={
+            "question_text": "Rate your experience?",
+            "question_type": "scale",
+            "options": None,
+            "section_id": section_id,
+        },
+    )
     assert q1.status_code == 201
     assert q1.json()["data"]["order_index"] == 0
 
-    q2 = await client.post(f"/api/v1/surveys/{survey_uuid}/questions/", json={
-        "question_text": "Any comments?",
-        "question_type": "text",
-        "options": None,
-        "section_id": section_id,
-    })
+    q2 = await client.post(
+        f"/api/v1/surveys/{survey_uuid}/questions/",
+        json={
+            "question_text": "Any comments?",
+            "question_type": "text",
+            "options": None,
+            "section_id": section_id,
+        },
+    )
     assert q2.status_code == 201
     assert q2.json()["data"]["order_index"] == 1
 
@@ -46,12 +55,15 @@ async def test_create_and_list_questions(client):
 
 async def test_create_multiple_choice_question(client):
     survey_uuid, section_id = await _create_survey(client, "MCQ Survey")
-    resp = await client.post(f"/api/v1/surveys/{survey_uuid}/questions/", json={
-        "question_text": "Employment status?",
-        "question_type": "single_choice",
-        "options": ["Full-Time", "Part-Time", "Unemployed"],
-        "section_id": section_id,
-    })
+    resp = await client.post(
+        f"/api/v1/surveys/{survey_uuid}/questions/",
+        json={
+            "question_text": "Employment status?",
+            "question_type": "single_choice",
+            "options": ["Full-Time", "Part-Time", "Unemployed"],
+            "section_id": section_id,
+        },
+    )
     assert resp.status_code == 201
     data = resp.json()["data"]
     assert data["options"] == ["Full-Time", "Part-Time", "Unemployed"]
@@ -60,17 +72,23 @@ async def test_create_multiple_choice_question(client):
 async def test_question_definition_rejects_invalid_options(client):
     survey_uuid, section_id = await _create_survey(client, "Invalid Question Survey")
 
-    missing_options = await client.post(f"/api/v1/surveys/{survey_uuid}/questions/", json={
-        "question_text": "Missing options",
-        "question_type": "multiple_choice",
-        "section_id": section_id,
-    })
-    duplicate_options = await client.post(f"/api/v1/surveys/{survey_uuid}/questions/", json={
-        "question_text": "Duplicate options",
-        "question_type": "single_choice",
-        "options": ["A", "A"],
-        "section_id": section_id,
-    })
+    missing_options = await client.post(
+        f"/api/v1/surveys/{survey_uuid}/questions/",
+        json={
+            "question_text": "Missing options",
+            "question_type": "multiple_choice",
+            "section_id": section_id,
+        },
+    )
+    duplicate_options = await client.post(
+        f"/api/v1/surveys/{survey_uuid}/questions/",
+        json={
+            "question_text": "Duplicate options",
+            "question_type": "single_choice",
+            "options": ["A", "A"],
+            "section_id": section_id,
+        },
+    )
 
     assert missing_options.status_code == 422
     assert duplicate_options.status_code == 422
@@ -78,11 +96,14 @@ async def test_question_definition_rejects_invalid_options(client):
 
 async def test_update_question(client):
     survey_uuid, section_id = await _create_survey(client, "Update Survey")
-    q_resp = await client.post(f"/api/v1/surveys/{survey_uuid}/questions/", json={
-        "question_text": "Old text?",
-        "question_type": "text",
-        "section_id": section_id,
-    })
+    q_resp = await client.post(
+        f"/api/v1/surveys/{survey_uuid}/questions/",
+        json={
+            "question_text": "Old text?",
+            "question_type": "text",
+            "section_id": section_id,
+        },
+    )
     q_id = q_resp.json()["data"]["id"]
 
     update_resp = await client.patch(
@@ -95,15 +116,19 @@ async def test_update_question(client):
 
 async def test_delete_question(client):
     survey_uuid, section_id = await _create_survey(client, "Delete Survey")
-    q_resp = await client.post(f"/api/v1/surveys/{survey_uuid}/questions/", json={
-        "question_text": "Delete me?",
-        "question_type": "text",
-        "section_id": section_id,
-    })
+    q_resp = await client.post(
+        f"/api/v1/surveys/{survey_uuid}/questions/",
+        json={
+            "question_text": "Delete me?",
+            "question_type": "text",
+            "section_id": section_id,
+        },
+    )
     q_id = q_resp.json()["data"]["id"]
 
     del_resp = await client.request(
-        "DELETE", f"/api/v1/surveys/{survey_uuid}/questions/{q_id}",
+        "DELETE",
+        f"/api/v1/surveys/{survey_uuid}/questions/{q_id}",
     )
     assert del_resp.status_code == 200
     assert del_resp.json()["data"]["is_deleted"] is True
@@ -114,14 +139,22 @@ async def test_delete_question(client):
 
 async def test_reorder_questions(client):
     survey_uuid, section_id = await _create_survey(client, "Reorder Survey")
-    q1 = await client.post(f"/api/v1/surveys/{survey_uuid}/questions/", json={
-        "question_text": "First", "question_type": "text",
-        "section_id": section_id,
-    })
-    q2 = await client.post(f"/api/v1/surveys/{survey_uuid}/questions/", json={
-        "question_text": "Second", "question_type": "text",
-        "section_id": section_id,
-    })
+    q1 = await client.post(
+        f"/api/v1/surveys/{survey_uuid}/questions/",
+        json={
+            "question_text": "First",
+            "question_type": "text",
+            "section_id": section_id,
+        },
+    )
+    q2 = await client.post(
+        f"/api/v1/surveys/{survey_uuid}/questions/",
+        json={
+            "question_text": "Second",
+            "question_type": "text",
+            "section_id": section_id,
+        },
+    )
 
     reorder_resp = await client.patch(
         f"/api/v1/surveys/{survey_uuid}/questions/reorder",

@@ -383,6 +383,7 @@ async def _seed(session: AsyncSession) -> SurveyModel:
         description=description,
         status="Active",
         target_cohort="All Alumni",
+        performed_by=settings.SYSTEM_ACTOR_ID,
     )
     session.add(survey)
     sections = []
@@ -392,6 +393,7 @@ async def _seed(session: AsyncSession) -> SurveyModel:
             title=sec_spec["title"],
             description=sec_spec["description"],
             order_index=sec_idx,
+            performed_by=settings.SYSTEM_ACTOR_ID,
         )
         session.add(section)
         sections.append((section, sec_spec["questions"]))
@@ -411,17 +413,24 @@ async def _seed(session: AsyncSession) -> SurveyModel:
                 options=options_str,
                 config=config_str,
                 order_index=q_idx,
+                performed_by=settings.SYSTEM_ACTOR_ID,
             )
             session.add(question)
             questions_to_audit.append(question)
 
     events = [
-        AuditEvent(action="create", resource_type="survey", resource_id=survey.survey_id),
+        AuditEvent(
+            action="create",
+            resource_type="survey",
+            resource_id=survey.survey_id,
+            performed_by=settings.SYSTEM_ACTOR_ID,
+        ),
         *[
             AuditEvent(
                 action="create",
                 resource_type="survey_section",
                 resource_id=str(section.id),
+                performed_by=settings.SYSTEM_ACTOR_ID,
             )
             for section, _ in sections
         ],
@@ -430,6 +439,7 @@ async def _seed(session: AsyncSession) -> SurveyModel:
                 action="create",
                 resource_type="survey_question",
                 resource_id=str(question.id),
+                performed_by=settings.SYSTEM_ACTOR_ID,
             )
             for question in questions_to_audit
         ],

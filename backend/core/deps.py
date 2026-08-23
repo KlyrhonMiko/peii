@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Annotated, Literal
 from uuid import UUID
@@ -6,12 +7,45 @@ from fastapi import Depends, Query
 from sqlmodel import Session
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from core.auth import AuthClaims, verify_bearer_token
 from core.database import get_async_session, get_session
+from core.exceptions import AppError
+from models.user import User
 from schemas.common import AuditQueryParams, ListQueryParams
+from services import auth_service
 
 DBSession = Annotated[Session, Depends(get_session)]
 AsyncDBSession = Annotated[AsyncSession, Depends(get_async_session)]
 
+
+@dataclass(frozen=True)
+class Principal:
+    user: User
+    permissions: frozenset[str]
+    access_token: str
+
+
+async def get_current_principal(
+    session: AsyncDBSession,
+    claims: Annotated[AuthClaims, Depends(verify_bearer_token)],
+) -> Principal:
+    user = await auth_service.get_user_by_auth_subject(session, claims.subject)
+    permissions = await auth_service.rbac_service.effective_permissions(session, user.id)
+    return Principal(
+        user=user, permissions=frozenset(permissions), access_token=claims.access_token
+    )
+
+
+CurrentPrincipal = Annotated[Principal, Depends(get_current_principal)]
+
+
+def require_permissions(*required: str):
+    async def dependency(principal: CurrentPrincipal) -> Principal:
+        if not set(required).issubset(principal.permissions):
+            raise AppError("You do not have permission to perform this action.", status_code=403)
+        return principal
+
+    return dependency
 
 
 def get_list_query_params(

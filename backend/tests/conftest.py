@@ -4,6 +4,7 @@ import sys
 import threading
 from collections.abc import AsyncGenerator, AsyncIterator, Iterator
 from pathlib import Path
+from uuid import UUID, uuid5
 
 import httpx
 import pytest
@@ -20,7 +21,11 @@ sys.path.insert(0, str(ROOT_DIR))
 load_dotenv(PROJECT_ROOT / ".env", override=True)
 
 from core.database import get_async_session, get_session  # noqa: E402
+from core.deps import Principal, get_current_principal  # noqa: E402
 from main import app  # noqa: E402
+from models.user import User  # noqa: E402
+from services import user_service  # noqa: E402
+from services.rbac_service import PERMISSIONS  # noqa: E402
 
 
 @pytest.fixture
@@ -99,3 +104,43 @@ async def client() -> AsyncIterator[httpx.AsyncClient]:
     server.should_exit = True
     server_thread.join(timeout=5)
     app.dependency_overrides.clear()
+
+
+@pytest.fixture
+def principal() -> Principal:
+    user = User(
+        id=UUID("00000000-0000-0000-0000-000000000001"),
+        user_id="USER-TESTADMIN",
+        auth_user_id=UUID("00000000-0000-0000-0000-000000000002"),
+        email="admin@example.com",
+        username="admin",
+        first_name="Test",
+        last_name="Admin",
+    )
+    return Principal(user=user, permissions=frozenset(PERMISSIONS), access_token="test")
+
+
+@pytest.fixture(autouse=True)
+def authenticated_principal(request: pytest.FixtureRequest, principal: Principal):
+    if "client" not in request.fixturenames:
+        yield
+        return
+    request.getfixturevalue("client")
+
+    async def override_current_principal() -> Principal:
+        return principal
+
+    app.dependency_overrides[get_current_principal] = override_current_principal
+    yield
+
+
+@pytest.fixture(autouse=True)
+def mock_supabase_user_provisioning(monkeypatch: pytest.MonkeyPatch):
+    async def get_auth_user_by_email(email: str) -> dict[str, str] | None:
+        return None
+
+    async def invite_user(email: str, redirect_to: str) -> dict[str, dict[str, str]]:
+        return {"user": {"id": str(uuid5(UUID("00000000-0000-0000-0000-000000000000"), email))}}
+
+    monkeypatch.setattr(user_service, "get_auth_user_by_email", get_auth_user_by_email)
+    monkeypatch.setattr(user_service, "invite_user", invite_user)

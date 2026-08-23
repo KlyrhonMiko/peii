@@ -26,9 +26,7 @@ class SurveyResponse(BaseModel, table=True):
     )
 
     survey_id: UUID = Field(foreign_key="surveys.id", index=True, nullable=False)
-    distribution_id: UUID | None = Field(
-        default=None, index=True, nullable=True
-    )
+    distribution_id: UUID | None = Field(default=None, index=True, nullable=True)
     idempotency_key: UUID | None = Field(default=None, index=True, nullable=True)
     idempotency_hash: str | None = Field(default=None, max_length=64, nullable=True)
     answers: dict[str, object] = Field(

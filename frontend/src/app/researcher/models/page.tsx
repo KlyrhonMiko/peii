@@ -1,5 +1,7 @@
 import { Cpu, Server, Activity } from "lucide-react"
 
+import { createSupabaseServerClient } from "@/lib/supabase/server"
+
 export const dynamic = "force-dynamic"
 
 interface ModelInfo {
@@ -10,9 +12,16 @@ interface ModelInfo {
 }
 
 async function getModels(): Promise<ModelInfo[]> {
-  const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api/v1"
+  const backendUrl = process.env.BACKEND_INTERNAL_URL
+  if (!backendUrl) throw new Error("BACKEND_INTERNAL_URL is not configured")
+  const supabase = await createSupabaseServerClient()
+  const { data } = await supabase.auth.getSession()
+  if (!data.session?.access_token) return []
   try {
-    const res = await fetch(`${API_BASE}/ml/models`, { cache: 'no-store' })
+    const res = await fetch(`${backendUrl}/ml/models`, {
+      headers: { Authorization: `Bearer ${data.session.access_token}` },
+      cache: "no-store",
+    })
     if (!res.ok) {
       throw new Error("Failed to fetch models")
     }

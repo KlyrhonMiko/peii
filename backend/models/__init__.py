@@ -1,6 +1,8 @@
 from models.audit_log import AuditLog
+from models.rbac import Permission, Role, RolePermission, UserRole
 from models.survey import Survey
 from models.survey_distribution import SurveyDistribution
+from models.survey_membership import SurveyMembership
 from models.survey_question import SurveyQuestion
 from models.survey_response import SurveyResponse
 from models.survey_section import SurveySection
@@ -14,4 +16,9 @@ __all__ = [
     "SurveyDistribution",
     "SurveyResponse",
     "SurveySection",
+    "Permission",
+    "Role",
+    "RolePermission",
+    "UserRole",
+    "SurveyMembership",
 ]

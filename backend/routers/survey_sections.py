@@ -1,8 +1,8 @@
 from uuid import UUID
 
-from fastapi import APIRouter, Request, status
+from fastapi import APIRouter, Depends, Request, status
 
-from core.deps import AsyncDBSession
+from core.deps import AsyncDBSession, Principal, require_permissions
 from core.responses import success_response
 from schemas.common import APIResponse
 from schemas.survey_question import SurveyQuestionRead
@@ -13,7 +13,7 @@ from schemas.survey_section import (
     SurveySectionReorder,
     SurveySectionUpdate,
 )
-from services import survey_section_service
+from services import survey_section_service, survey_service
 
 router = APIRouter()
 
@@ -27,7 +27,9 @@ router = APIRouter()
 async def list_sections(
     survey_id: UUID,
     session: AsyncDBSession,
+    principal: Principal = Depends(require_permissions("surveys.read")),
 ) -> APIResponse[list[SurveySectionRead]]:
+    await survey_service.authorize_survey(session, survey_id, principal.user, principal.permissions)
     sections = await survey_section_service.list_sections(session, survey_id)
     response_sections = [SurveySectionRead.model_validate(s) for s in sections]
     return success_response(response_sections)
@@ -45,10 +47,18 @@ async def create_section(
     payload: SurveySectionCreate,
     session: AsyncDBSession,
     request: Request,
+    principal: Principal = Depends(require_permissions("survey_structure.manage")),
 ) -> APIResponse[SurveySectionRead]:
+    await survey_service.authorize_survey(
+        session, survey_id, principal.user, principal.permissions, write=True
+    )
     ip_address = request.client.host if request.client else None
     section = await survey_section_service.create_section(
-        session, survey_id, payload, ip_address=ip_address
+        session,
+        survey_id,
+        payload,
+        actor_id=principal.user.id,
+        ip_address=ip_address,
     )
     return success_response(
         SurveySectionRead.model_validate(section),
@@ -67,12 +77,17 @@ async def reorder_sections(
     payload: SurveySectionReorder,
     session: AsyncDBSession,
     request: Request,
+    principal: Principal = Depends(require_permissions("survey_structure.manage")),
 ) -> APIResponse[list[SurveySectionRead]]:
+    await survey_service.authorize_survey(
+        session, survey_id, principal.user, principal.permissions, write=True
+    )
     ip_address = request.client.host if request.client else None
     sections = await survey_section_service.reorder_sections(
         session,
         survey_id,
         payload.section_ids,
+        actor_id=principal.user.id,
         ip_address=ip_address,
     )
     return success_response(
@@ -91,7 +106,9 @@ async def get_section(
     survey_id: UUID,
     section_id: UUID,
     session: AsyncDBSession,
+    principal: Principal = Depends(require_permissions("surveys.read")),
 ) -> APIResponse[dict]:
+    await survey_service.authorize_survey(session, survey_id, principal.user, principal.permissions)
     section, questions = await survey_section_service.get_section_with_questions(
         session, survey_id, section_id
     )
@@ -114,10 +131,19 @@ async def update_section(
     payload: SurveySectionUpdate,
     session: AsyncDBSession,
     request: Request,
+    principal: Principal = Depends(require_permissions("survey_structure.manage")),
 ) -> APIResponse[SurveySectionRead]:
+    await survey_service.authorize_survey(
+        session, survey_id, principal.user, principal.permissions, write=True
+    )
     ip_address = request.client.host if request.client else None
     section = await survey_section_service.update_section(
-        session, survey_id, section_id, payload, ip_address=ip_address
+        session,
+        survey_id,
+        section_id,
+        payload,
+        actor_id=principal.user.id,
+        ip_address=ip_address,
     )
     return success_response(
         SurveySectionRead.model_validate(section),
@@ -137,13 +163,17 @@ async def delete_section(
     session: AsyncDBSession,
     request: Request,
     payload: SurveySectionDelete | None = None,
+    principal: Principal = Depends(require_permissions("survey_structure.manage")),
 ) -> APIResponse[SurveySectionRead]:
+    await survey_service.authorize_survey(
+        session, survey_id, principal.user, principal.permissions, write=True
+    )
     ip_address = request.client.host if request.client else None
     section = await survey_section_service.delete_section(
         session,
         survey_id,
         section_id,
-        performed_by=payload.performed_by if payload else None,
+        actor_id=principal.user.id,
         cascade_questions=payload.cascade_questions if payload else False,
         ip_address=ip_address,
     )

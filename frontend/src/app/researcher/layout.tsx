@@ -1,15 +1,19 @@
 import { AppSidebar } from "@/components/app-sidebar"
 import { SidebarProvider } from "@/components/ui/sidebar"
 import { NavBar } from "@/components/nav-bar"
+import { requirePortalUser } from "@/lib/auth"
 
-export default function ResearcherLayout({
+export const dynamic = "force-dynamic"
+
+export default async function ResearcherLayout({
   children,
 }: {
   children: React.ReactNode
 }) {
+  const user = await requirePortalUser("portal.access")
   return (
     <SidebarProvider>
-      <AppSidebar />
+      <AppSidebar user={user} />
       <main className="flex-1 overflow-auto bg-[#fafafa] min-h-screen flex flex-col">
         <NavBar
           breadcrumbs={[

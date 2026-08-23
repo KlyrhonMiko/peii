@@ -12,8 +12,10 @@ def _validate_string_options(options: object, *, required: bool = True) -> list[
         if required:
             raise ValueError("options must contain at least one value")
         return []
-    if not isinstance(options, list) or not options or not all(
-        isinstance(option, str) and option.strip() for option in options
+    if (
+        not isinstance(options, list)
+        or not options
+        or not all(isinstance(option, str) and option.strip() for option in options)
     ):
         raise ValueError("options must be a non-empty list of non-blank strings")
     if len(options) != len(set(options)):

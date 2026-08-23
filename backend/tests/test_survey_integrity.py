@@ -23,9 +23,7 @@ async def _create_survey_with_section(client, title: str) -> tuple[str, str, str
 
 
 async def _activate(client, survey_id: str) -> None:
-    response = await client.patch(
-        f"/api/v1/surveys/{survey_id}", json={"status": "Active"}
-    )
+    response = await client.patch(f"/api/v1/surveys/{survey_id}", json={"status": "Active"})
     assert response.status_code == 200
 
 
@@ -36,6 +34,7 @@ async def _create_legacy_active_survey(client, title: str) -> tuple[str, str]:
     try:
         survey = Survey(
             survey_id=f"SURV-{uuid4().hex[:8]}",
+            owner_id=UUID("00000000-0000-0000-0000-000000000001"),
             title=title,
             status="Active",
         )
@@ -65,9 +64,9 @@ async def test_question_cannot_use_a_section_from_another_survey(client):
     assert response.status_code == 400
     assert response.json()["data"] is None
     assert (await client.get(f"/api/v1/surveys/{survey_a}/questions/")).json()["data"] == []
-    assert (
-        await client.get(f"/api/v1/surveys/{survey_b_business_id}")
-    ).json()["data"]["questions"] == []
+    assert (await client.get(f"/api/v1/surveys/{survey_b_business_id}")).json()["data"][
+        "questions"
+    ] == []
 
 
 async def test_section_delete_requires_explicit_cascade(client):
@@ -130,7 +129,7 @@ async def test_structure_replace_rejects_a_stale_updated_at_precondition(client)
                         }
                     ],
                 }
-            ]
+            ],
         },
     )
     assert response.status_code == 200
@@ -188,9 +187,7 @@ async def test_individual_structure_change_invalidates_structure_precondition(cl
 
 async def test_structure_can_reorder_sections_while_inactive(client):
     survey_uuid, survey_business_id, _ = await _create_survey_with_section(client, "Section Swap")
-    second = await client.post(
-        f"/api/v1/surveys/{survey_uuid}/sections/", json={"title": "Second"}
-    )
+    second = await client.post(f"/api/v1/surveys/{survey_uuid}/sections/", json={"title": "Second"})
     initial = (await client.get(f"/api/v1/surveys/{survey_business_id}")).json()["data"]
     first_section, second_section = initial["sections"]
     swapped = await client.put(
@@ -210,7 +207,7 @@ async def test_structure_can_reorder_sections_while_inactive(client):
                     "title": "Main",
                     "questions": [],
                 },
-            ]
+            ],
         },
     )
     assert swapped.status_code == 200
@@ -371,14 +368,10 @@ async def test_legacy_invalid_active_survey_cannot_be_distributed_or_submitted(c
 async def test_restore_rejects_legacy_invalid_active_survey(client):
     _, survey_business_id = await _create_legacy_active_survey(client, "Deleted Legacy Survey")
 
-    deleted = await client.request(
-        "DELETE", f"/api/v1/surveys/{survey_business_id}", json={}
-    )
+    deleted = await client.request("DELETE", f"/api/v1/surveys/{survey_business_id}", json={})
     assert deleted.status_code == 200
 
-    restored = await client.post(
-        f"/api/v1/surveys/{survey_business_id}/restore", json={}
-    )
+    restored = await client.post(f"/api/v1/surveys/{survey_business_id}/restore", json={})
     assert restored.status_code == 409
     body = restored.json()
     assert body["message"] == "Survey is not ready to be activated."
@@ -388,9 +381,7 @@ async def test_restore_rejects_legacy_invalid_active_survey(client):
     session_generator = override()
     session = await anext(session_generator)
     try:
-        result = await session.exec(
-            select(Survey).where(Survey.survey_id == survey_business_id)
-        )
+        result = await session.exec(select(Survey).where(Survey.survey_id == survey_business_id))
         assert result.one().is_deleted is True
     finally:
         await session_generator.aclose()

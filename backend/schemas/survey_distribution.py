@@ -9,9 +9,7 @@ DistributionStatus = Literal["active", "suspended", "expired", "revoked"]
 
 class SurveyDistributionCreate(BaseModel):
     model_config = ConfigDict(
-        json_schema_extra={
-            "example": {"expires_at": "2027-01-01T00:00:00+00:00"}
-        }
+        json_schema_extra={"example": {"expires_at": "2027-01-01T00:00:00+00:00"}}
     )
 
     expires_at: datetime
@@ -35,7 +33,6 @@ class SurveyDistributionRead(SurveyDistributionBaseSchema):
             "example": {
                 "id": "018f4a1a-7b3b-7d0e-913a-c5f1c5c1c5c2",
                 "survey_id": "018f4a1a-7b3b-7d0e-913a-c5f1c5c1c5c3",
-                "token": "abc123def456ghi789jkl012mno345pqr",
                 "status": "active",
                 "is_active": True,
                 "expires_at": "2027-01-01T00:00:00Z",
@@ -47,9 +44,12 @@ class SurveyDistributionRead(SurveyDistributionBaseSchema):
 
     id: UUID
     survey_id: UUID
-    token: str
     status: DistributionStatus
     is_active: bool
     expires_at: datetime | None
     revoked_at: datetime | None
     created_at: datetime
+
+
+class SurveyDistributionSecretRead(SurveyDistributionRead):
+    token: str

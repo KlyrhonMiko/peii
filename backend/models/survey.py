@@ -1,3 +1,5 @@
+from uuid import UUID
+
 from sqlalchemy import CheckConstraint
 from sqlmodel import Field
 
@@ -14,6 +16,7 @@ class Survey(BaseModel, table=True):
     )
 
     survey_id: str = Field(unique=True, index=True, max_length=20)
+    owner_id: UUID = Field(foreign_key="users.id", index=True)
     title: str = Field(max_length=255)
     description: str | None = Field(default=None, max_length=3000)
     status: str = Field(default="Inactive", max_length=20, index=True)

@@ -6,10 +6,12 @@ IDEMPOTENCY_KEY = "018f4a1a-7b3b-7d0e-913a-c5f1c5c1c5c2"
 
 
 async def _create_active_survey_with_questions(client):
-    resp = await client.post("/api/v1/surveys/", json={
-        "title": "Response Survey",
-        "performed_by": None,
-    })
+    resp = await client.post(
+        "/api/v1/surveys/",
+        json={
+            "title": "Response Survey",
+        },
+    )
     survey_uuid = resp.json()["data"]["id"]
 
     # Create a default section first
@@ -19,12 +21,15 @@ async def _create_active_survey_with_questions(client):
     )
     section_id = sec_resp.json()["data"]["id"]
 
-    question_response = await client.post(f"/api/v1/surveys/{survey_uuid}/questions/", json={
-        "question_text": "Employment status?",
-        "question_type": "single_choice",
-        "options": ["Full-Time", "Part-Time"],
-        "section_id": section_id,
-    })
+    question_response = await client.post(
+        f"/api/v1/surveys/{survey_uuid}/questions/",
+        json={
+            "question_text": "Employment status?",
+            "question_type": "single_choice",
+            "options": ["Full-Time", "Part-Time"],
+            "section_id": section_id,
+        },
+    )
 
     status_response = await client.patch(
         f"/api/v1/surveys/{resp.json()['data']['survey_id']}",
@@ -175,9 +180,7 @@ async def test_response_validates_each_answer_type(client):
     for question_type, question in question_specs:
         question["section_id"] = section_id
         question["is_required"] = False
-        response = await client.post(
-            f"/api/v1/surveys/{survey_uuid}/questions/", json=question
-        )
+        response = await client.post(f"/api/v1/surveys/{survey_uuid}/questions/", json=question)
         assert response.status_code == 201
         questions[question_type] = response.json()["data"]["id"]
 
@@ -272,9 +275,7 @@ async def test_revoked_token_rejects_read_and_submit(client):
     survey_uuid, token, question_id = await _create_active_survey_with_questions(client)
     distribution = await client.get(f"/api/v1/surveys/{survey_uuid}/distributions/")
     distribution_id = distribution.json()["data"][0]["id"]
-    await client.request(
-        "DELETE", f"/api/v1/surveys/{survey_uuid}/distributions/{distribution_id}"
-    )
+    await client.request("DELETE", f"/api/v1/surveys/{survey_uuid}/distributions/{distribution_id}")
 
     get_response = await client.get(f"/api/v1/survey/{token}")
     post_response = await client.post(
