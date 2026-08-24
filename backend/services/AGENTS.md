@@ -33,9 +33,10 @@ checks, persistence transforms, transaction boundaries, and domain errors.
   1. Load or check existing rows.
   2. Validate uniqueness or domain conflicts.
   3. Generate backend-owned fields such as human-readable business ids.
-  4. Transform sensitive fields such as passwords.
+  4. Transform or delegate sensitive values through the owning external system.
   5. Apply updates.
-  6. `session.add(...)`, `session.commit()`, and `session.refresh(...)`.
+  6. Add/flush rows, then commit the mutation and audit events through
+     `commit_with_audit(...)`.
 - Use `services.base_service.apply_updates()` for generic update application when it fits.
 - Do not silently swallow integrity errors. Prefer preflight conflict checks for expected
   user-facing conflicts, while global handlers remain a fallback.
@@ -52,17 +53,21 @@ checks, persistence transforms, transaction boundaries, and domain errors.
   UI expose them.
 
 ## Password And Sensitive Data
-- Hash password input with `utils.security.hash_password()` before storing it.
-- The current `User.password` model field stores an Argon2 hash despite the column name.
-- Do not return password data from services for API use; routers should convert to read
-  schemas that exclude it.
+- Supabase Auth owns passwords. Login and password-change services forward credentials to
+  Supabase and do not persist them in the local user table.
+- Never return, log, audit, or include credentials/tokens in change dictionaries.
+- `utils.security` remains a reusable Argon2 primitive but is not used for current user
+  persistence.
 
 ## Async & Auditing Rules
-- All service operations must be asynchronous (`async def`) and accept `sqlmodel.ext.asyncio.session.AsyncSession` instead of a sync session.
+- Database and network service operations should be asynchronous and use `AsyncSession`.
+  Pure and CPU-facing helpers may remain synchronous; the ML catalog is a current example.
 - Every mutating operation (create, update, soft-delete, restore, reorder, revoke, or compound write) must commit through `commit_with_audit` from `services.audit_service`.
 - Do not call `session.commit()` directly from resource services. Domain rows and audit rows must be committed in the same transaction; audit failures must roll back the mutation.
 - Service operations that mutate data must accept an optional `ip_address: str | None = None` parameter and pass it to the audit logger.
 - On updates, calculate a before/after diff (excluding sensitive values and system metadata) and supply it as a `changes` dictionary to `AuditEvent`.
+- Most expected service failures use `AppError`. `ml_service.py` currently raises FastAPI
+  `HTTPException`, so its errors do not use the shared application envelope.
 
 ## Soft Delete
 - Treat soft delete as state mutation on the row: `is_deleted`, `deleted_at`,

@@ -39,8 +39,9 @@ or shared FastAPI infrastructure.
   services or routers.
 - `verify_password()` should return `False` for mismatches without leaking the underlying
   Argon2 exception.
-- Do not add authentication/session policy here until a real auth layer exists. Reusable
-  primitives can live here; route enforcement belongs in dependencies and routers.
+- Authentication/session policy belongs in `core/auth.py`, shared dependencies, and
+  services/routers. `security.py` remains a generic primitive and is not the current user
+  password store.
 
 ## Sorting Helper Rules
 - Keep `stable_order_by()` generic. Services choose the allowed primary column and pass it in.

@@ -6,15 +6,20 @@ This guide covers `src/components/`, which contains product-level reusable UI.
 Follow `ui/AGENTS.md` when editing primitive building blocks under `src/components/ui/`.
 
 ## Current Responsibilities
-- `app-sidebar.tsx` contains shared portal navigation.
-- `ClientCohortTrendChart.tsx` and `ClientFeatureImportanceChart.tsx` isolate
-  client-only dynamic chart imports.
+- `app-sidebar.tsx` and `nav-bar.tsx` contain shared portal navigation.
+- `AdminUserManagement.tsx` and `AdminRoleManagement.tsx` contain live permission-aware
+  administration workflows.
+- `DashboardFilters.tsx`, `ProgramFilter.tsx`, and `SurveySelect.tsx` provide product
+  filtering and selection controls.
+- `ClientCohortTrendChart.tsx`, `ClientPEIIDimensionsChart.tsx`, and
+  `ClientSentimentDivergenceChart.tsx` isolate client-only dynamic chart imports.
 - `ClientSurveyForm.tsx` renders the public survey intake with section-per-page navigation.
-- `CohortTrendChart.tsx` contains the Recharts line chart.
-- `FeatureImportanceChart.tsx` contains the Recharts bar chart.
+- `CohortTrendChart.tsx` contains a filter-aware Recharts bar chart;
+  `PEIIDimensionsChart.tsx` and `SentimentDivergenceChart.tsx` contain analytics charts.
 
 ## Component Rules
-- Use `PascalCase` filenames and exported component names for product components.
+- Prefer `PascalCase` filenames and exported component names for new product components.
+  Existing shell files `app-sidebar.tsx` and `nav-bar.tsx` are established exceptions.
 - Keep components typed. Do not introduce `any`.
 - Use `import type` for type-only imports.
 - Product components may compose `src/components/ui/` primitives, but should not recreate

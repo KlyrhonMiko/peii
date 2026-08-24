@@ -6,13 +6,14 @@ SQLModel metadata changes into database schema changes.
 
 ## Command Surface
 - Run Alembic commands from `backend/`.
-- Apply migrations with `alembic upgrade head`.
-- Generate migrations with `alembic revision --autogenerate -m "describe change"`.
+- Apply migrations with `./.venv/bin/alembic upgrade head`.
+- Generate migrations with
+  `./.venv/bin/alembic revision --autogenerate -m "describe change"`.
 - Use the repo-local virtualenv dependencies; do not assume system Alembic is configured.
 
 ## Autogenerate-First Rule
 - For any `models/` change that alters table shape, generate a migration with
-  `alembic revision --autogenerate ...` before hand-editing a new revision.
+  `./.venv/bin/alembic revision --autogenerate ...` before hand-editing a new revision.
 - Review the generated operations against the intended model diff.
 - Make manual edits only after review, and keep them narrow: data backfills, safe
   nullability transitions, naming fixes, or dialect-specific adjustments.
@@ -39,6 +40,7 @@ SQLModel metadata changes into database schema changes.
 ## Validation
 - Inspect generated migration files before committing.
 - Run backend Ruff after migration edits.
-- When possible, run `alembic upgrade head` against the intended local database mode.
+- When possible, run `./.venv/bin/alembic upgrade head` against the intended local
+  database mode.
 - Keep model, schema, service/router behavior, tests, and migrations aligned in the same
   feature change.
