@@ -21,7 +21,7 @@ import type { PortalUser } from "@/lib/auth"
 const mainItems = [
   { title: "Dashboard", url: "/researcher/dashboard", icon: LayoutDashboard },
   { title: "Analytics", url: "/researcher/analytics", icon: BarChart3 },
-  { title: "Surveys", url: "/researcher/survey", icon: ClipboardList },
+  { title: "Surveys", url: "/researcher/survey", icon: ClipboardList, permission: "surveys.read" },
   { title: "Models", url: "/researcher/models", icon: Cpu },
 ]
 

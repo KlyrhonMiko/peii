@@ -1,7 +1,11 @@
+import csv
 import hashlib
+import io
 import json
 import math
+from collections import Counter
 from datetime import date
+from typing import cast
 from uuid import UUID
 
 from fastapi import status
@@ -13,17 +17,26 @@ from core.exceptions import AppError
 from models.question_type import QuestionType
 from models.survey import Survey
 from models.survey_question import SurveyQuestion
-from models.survey_response import SurveyResponse
+from models.survey_response import ResponseErasureReceipt, SurveyResponse
 from models.survey_section import SurveySection
-from schemas.survey_response import SurveyResponseListQueryParams
+from schemas.survey_response import (
+    AggregateCell,
+    AggregateQuestionType,
+    EraseAllResponses,
+    EraseSelectedResponses,
+    ResponseErasureResult,
+    SurveyResponseAggregate,
+    SurveyResponseListQueryParams,
+)
 from services.audit_service import AuditEvent, commit_with_audit
 from services.base_service import utc_now
-from services.distribution_service import get_distribution_by_token
+from services.distribution_service import get_distribution_and_survey_by_token
 from services.question_validation import (
     get_matrix_columns,
     get_scale_bounds,
     validate_question_definition,
 )
+from services.survey_service import resolve_survey
 from utils.sorting import stable_order_by
 
 
@@ -212,11 +225,13 @@ async def submit_response(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
         )
 
-    distribution = await get_distribution_by_token(
+    # Resolve the token reference without a lock, then acquire the survey's
+    # exclusive lock before locking and revalidating its distribution.
+    distribution, survey = await get_distribution_and_survey_by_token(
         session,
         token,
         for_update=True,
-        shared_lock=True,
+        shared_lock=False,
     )
 
     answers_hash = None
@@ -239,11 +254,7 @@ async def submit_response(
                 )
             return existing, True
 
-    survey_result = await session.exec(
-        select(Survey).where(col(Survey.id) == distribution.survey_id).with_for_update(read=True)
-    )
-    survey = survey_result.first()
-    if not survey or survey.is_deleted or survey.status != "Active":
+    if survey.is_deleted or survey.status != "Active":
         raise AppError(
             "Survey not found or no longer active.", status_code=status.HTTP_404_NOT_FOUND
         )
@@ -308,12 +319,18 @@ async def list_responses(
     if survey_result.first() is None:
         raise AppError("Survey not found.", status_code=status.HTTP_404_NOT_FOUND)
 
-    statement = select(SurveyResponse).where(col(SurveyResponse.survey_id) == survey_id)
+    statement = select(SurveyResponse).where(
+        col(SurveyResponse.survey_id) == survey_id,
+        col(SurveyResponse.is_deleted).is_(False),
+    )
 
     total_statement = (
         select(func.count())
         .select_from(SurveyResponse)
-        .where(col(SurveyResponse.survey_id) == survey_id)
+        .where(
+            col(SurveyResponse.survey_id) == survey_id,
+            col(SurveyResponse.is_deleted).is_(False),
+        )
     )
     total_result = await session.exec(total_statement)
     total = total_result.one()
@@ -332,3 +349,381 @@ async def list_responses(
     result = await session.exec(statement)
     rows = list(result.all())
     return rows, total
+
+
+_AGGREGATE_TYPES = {
+    QuestionType.SINGLE_CHOICE,
+    QuestionType.BOOLEAN,
+    QuestionType.MULTIPLE_CHOICE,
+    QuestionType.SCALE,
+    QuestionType.RANKING,
+    QuestionType.MATRIX,
+}
+
+
+async def _load_aggregate_questions(
+    session: AsyncSession, survey_id: UUID
+) -> list[SurveyQuestion]:
+    result = await session.exec(
+        select(SurveyQuestion)
+        .join(SurveySection, col(SurveySection.id) == SurveyQuestion.section_id)
+        .where(
+            col(SurveyQuestion.survey_id) == survey_id,
+            col(SurveySection.survey_id) == survey_id,
+            col(SurveySection.is_deleted).is_(False),
+            col(SurveyQuestion.is_deleted).is_(False),
+        )
+        .order_by(
+            col(SurveySection.order_index),
+            col(SurveySection.id),
+            col(SurveyQuestion.order_index),
+            col(SurveyQuestion.id),
+        )
+    )
+    return list(result.all())
+
+
+def _aggregate_question(
+    question: SurveyQuestion, responses: list[SurveyResponse]
+) -> SurveyResponseAggregate | None:
+    question_type = QuestionType(question.question_type)
+    if question_type not in _AGGREGATE_TYPES:
+        return None
+
+    options = _load_json(question.options, "options")
+    config = _load_json(question.config, "config")
+    normalized_options = options if isinstance(options, list) else []
+    normalized_config = config if isinstance(config, dict) else {}
+    answers = [response.answers.get(str(question.id)) for response in responses]
+    answers = [answer for answer in answers if not _is_blank_answer(answer)]
+    total = len(answers)
+
+    if question_type in {
+        QuestionType.SINGLE_CHOICE,
+        QuestionType.BOOLEAN,
+        QuestionType.MULTIPLE_CHOICE,
+    }:
+        if question_type == QuestionType.MULTIPLE_CHOICE:
+            counts: Counter[object] = Counter(
+                item for answer in answers if isinstance(answer, list) for item in answer
+            )
+        else:
+            counts = Counter(answers)
+        cells = [
+            {"value": option, "count": counts.get(option, 0)}
+            for option in (
+                normalized_options
+                if question_type != QuestionType.BOOLEAN
+                else [False, True]
+            )
+        ]
+    elif question_type == QuestionType.SCALE:
+        minimum, maximum = get_scale_bounds(
+            normalized_options
+            if all(isinstance(item, str) for item in normalized_options)
+            else None,
+            normalized_config,
+        )
+        counts = Counter(answers)
+        cells = [
+            {"value": value, "count": counts.get(value, 0)}
+            for value in range(minimum, maximum + 1)
+        ]
+    elif question_type == QuestionType.RANKING:
+        counts = Counter(
+            (value, rank)
+            for answer in answers
+            if isinstance(answer, list)
+            for rank, value in enumerate(answer, start=1)
+        )
+        cells = [
+            {"value": value, "rank": rank, "count": counts.get((value, rank), 0)}
+            for rank in range(1, len(normalized_options) + 1)
+            for value in normalized_options
+        ]
+    else:
+        columns = get_matrix_columns(normalized_config)
+        counts = Counter(
+            (row, value)
+            for answer in answers
+            if isinstance(answer, dict)
+            for row, value in answer.items()
+        )
+        cells = [
+            {"row": row, "value": value, "count": counts.get((row, value), 0)}
+            for row in normalized_options
+            for value in columns
+        ]
+
+    if total < 5 or any(0 < cell["count"] < 5 for cell in cells):
+        return None
+    return SurveyResponseAggregate(
+        question_id=question.id,
+        question_text=question.question_text,
+        question_type=cast(AggregateQuestionType, question_type.value),
+        total=total,
+        cells=[AggregateCell.model_validate(cell) for cell in cells],
+    )
+
+
+async def aggregate_responses(
+    session: AsyncSession, survey_id: UUID
+) -> list[SurveyResponseAggregate]:
+    await resolve_survey(session, survey_id)
+    responses_result = await session.exec(
+        select(SurveyResponse)
+        .where(
+            col(SurveyResponse.survey_id) == survey_id,
+            col(SurveyResponse.is_deleted).is_(False),
+        )
+        .order_by(col(SurveyResponse.id))
+    )
+    responses = list(responses_result.all())
+    aggregates: list[SurveyResponseAggregate] = []
+    for question in await _load_aggregate_questions(session, survey_id):
+        aggregate = _aggregate_question(question, responses)
+        if aggregate is not None:
+            aggregates.append(aggregate)
+    return aggregates
+
+
+def _safe_csv_text(value: object) -> str:
+    text = str(value).replace("\x00", "\ufffd")
+    formula_candidate = text.lstrip()
+    if formula_candidate.startswith(("=", "+", "-", "@")) or text.lstrip(" ").startswith(
+        ("\t", "\r", "\n")
+    ):
+        return "'" + text
+    return text
+
+
+async def export_responses(
+    session: AsyncSession,
+    survey_id: UUID,
+    actor_id: UUID,
+    ip_address: str | None = None,
+) -> str:
+    survey = await resolve_survey(session, survey_id)
+    responses_result = await session.exec(
+        select(SurveyResponse)
+        .where(
+            col(SurveyResponse.survey_id) == survey_id,
+            col(SurveyResponse.is_deleted).is_(False),
+        )
+        .order_by(col(SurveyResponse.id))
+        .limit(10001)
+    )
+    responses = list(responses_result.all())
+    if len(responses) > 10000:
+        raise AppError(
+            "Response export is limited to 10,000 responses.",
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+        )
+    all_questions_result = await session.exec(
+        select(SurveyQuestion)
+        .join(SurveySection, col(SurveySection.id) == SurveyQuestion.section_id)
+        .where(
+            col(SurveyQuestion.survey_id) == survey_id,
+            col(SurveySection.survey_id) == survey_id,
+            col(SurveySection.is_deleted).is_(False),
+            col(SurveyQuestion.is_deleted).is_(False),
+        )
+        .order_by(
+            col(SurveySection.order_index),
+            col(SurveySection.id),
+            col(SurveyQuestion.order_index),
+            col(SurveyQuestion.id),
+        )
+    )
+    questions = list(all_questions_result.all())
+
+    output = io.StringIO(newline="")
+    writer = csv.writer(output, lineterminator="\n")
+    answer_row_count = 0
+    writer.writerow(
+        [
+            "response_id",
+            "submitted_at",
+            "question_id",
+            "question_text",
+            "question_type",
+            "answer_json",
+        ]
+    )
+    for response in responses:
+        for question in questions:
+            question_id = str(question.id)
+            if question_id not in response.answers:
+                continue
+            answer_row_count += 1
+            answer_json = json.dumps(
+                response.answers[question_id],
+                sort_keys=True,
+                separators=(",", ":"),
+                ensure_ascii=False,
+                allow_nan=False,
+            )
+            writer.writerow(
+                [
+                    _safe_csv_text(response.id),
+                    _safe_csv_text(response.created_at.isoformat()),
+                    _safe_csv_text(question.id),
+                    _safe_csv_text(question.question_text),
+                    _safe_csv_text(question.question_type),
+                    _safe_csv_text(answer_json),
+                ]
+            )
+
+    await commit_with_audit(
+        session,
+        [
+            AuditEvent(
+                action="export",
+                resource_type="survey_response",
+                resource_id=survey.survey_id,
+                performed_by=actor_id,
+                changes={
+                    "response_count": len(responses),
+                    "answer_row_count": answer_row_count,
+                },
+                ip_address=ip_address,
+            )
+        ],
+    )
+    return output.getvalue()
+
+
+def _erasure_request_hash(
+    payload: EraseSelectedResponses | EraseAllResponses,
+) -> str:
+    data = payload.model_dump(mode="json")
+    if isinstance(payload, EraseSelectedResponses):
+        data["response_ids"] = sorted(data["response_ids"])
+    return hashlib.sha256(
+        json.dumps(data, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+
+
+async def erase_responses(
+    session: AsyncSession,
+    survey_id: UUID,
+    payload: EraseSelectedResponses | EraseAllResponses,
+    idempotency_key: UUID,
+    actor_id: UUID,
+    ip_address: str | None = None,
+) -> ResponseErasureResult:
+    survey = await resolve_survey(
+        session, survey_id, include_deleted=True, for_update=True
+    )
+    request_hash = _erasure_request_hash(payload)
+    receipt_result = await session.exec(
+        select(ResponseErasureReceipt).where(
+            col(ResponseErasureReceipt.survey_id) == survey_id,
+            col(ResponseErasureReceipt.idempotency_key) == idempotency_key,
+        )
+    )
+    receipt = receipt_result.first()
+    if receipt is not None:
+        if receipt.request_hash != request_hash:
+            raise AppError(
+                "Idempotency-Key was already used with a different erasure request.",
+                status_code=status.HTTP_409_CONFLICT,
+            )
+        return ResponseErasureResult.model_validate(
+            {
+                "scope": receipt.scope,
+                "requested_count": receipt.requested_count,
+                "erased_count": receipt.erased_count,
+            }
+        )
+
+    if isinstance(payload, EraseAllResponses) and not survey.is_deleted:
+        raise AppError(
+            "All responses can only be erased after the survey is archived.",
+            status_code=status.HTTP_409_CONFLICT,
+        )
+
+    response_statement = select(SurveyResponse).where(
+        col(SurveyResponse.survey_id) == survey_id
+    )
+    if isinstance(payload, EraseSelectedResponses):
+        response_statement = response_statement.where(
+            col(SurveyResponse.id).in_(payload.response_ids)
+        )
+    response_statement = response_statement.order_by(col(SurveyResponse.id)).with_for_update()
+    responses_result = await session.exec(response_statement)
+    responses = list(responses_result.all())
+
+    if isinstance(payload, EraseSelectedResponses):
+        if len(responses) != len(payload.response_ids):
+            raise AppError(
+                "One or more selected responses do not belong to this survey.",
+                status_code=status.HTTP_404_NOT_FOUND,
+            )
+        if any(response.is_deleted for response in responses):
+            raise AppError(
+                "One or more selected responses have already been erased.",
+                status_code=status.HTTP_409_CONFLICT,
+            )
+        requested_count = len(payload.response_ids)
+    else:
+        requested_count = payload.expected_response_count
+        live_count = sum(not response.is_deleted for response in responses)
+        if requested_count != live_count or survey.responses_count != requested_count:
+            raise AppError(
+                "The expected response count does not match the archived survey.",
+                status_code=status.HTTP_409_CONFLICT,
+            )
+
+    now = utc_now()
+    erased_count = 0
+    for response in responses:
+        if response.is_deleted:
+            continue
+        response.answers = {}
+        response.distribution_id = None
+        response.idempotency_key = None
+        response.idempotency_hash = None
+        response.is_deleted = True
+        response.deleted_at = now
+        response.updated_at = now
+        response.performed_by = actor_id
+        session.add(response)
+        erased_count += 1
+
+    survey.responses_count = max(0, survey.responses_count - erased_count)
+    survey.updated_at = now
+    survey.performed_by = actor_id
+    session.add(survey)
+    receipt = ResponseErasureReceipt(
+        survey_id=survey_id,
+        idempotency_key=idempotency_key,
+        request_hash=request_hash,
+        scope=payload.scope,
+        requested_count=requested_count,
+        erased_count=erased_count,
+        performed_by=actor_id,
+    )
+    session.add(receipt)
+    await commit_with_audit(
+        session,
+        [
+            AuditEvent(
+                action="erase",
+                resource_type="survey_response_batch",
+                resource_id=str(survey_id),
+                performed_by=actor_id,
+                changes={
+                    "scope": payload.scope,
+                    "requested_count": requested_count,
+                    "erased_count": erased_count,
+                },
+                ip_address=ip_address,
+            )
+        ],
+    )
+    return ResponseErasureResult(
+        scope=payload.scope,
+        requested_count=requested_count,
+        erased_count=erased_count,
+    )

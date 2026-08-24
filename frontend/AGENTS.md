@@ -32,7 +32,8 @@ Run frontend commands from `frontend/`:
 - `npm install` installs dependencies.
 - `npm run dev` starts the local Next.js dev server.
 - `npm run lint` runs `eslint . --max-warnings=0`; warnings fail the command.
-- `npm test` runs the focused Vitest test suite.
+- `npm test` runs the focused Vitest test suite in `jsdom`, with the shared Testing Library
+  cleanup setup from `src/test/setup.ts`.
 - `npm run build` runs the production Next.js build.
 - `npm run start` serves a production build.
 
@@ -133,6 +134,8 @@ before assuming it is not active.
 ## Authentication And API Paths
 - `src/proxy.ts` refreshes Supabase claims and cookies; route layouts/pages enforce access
   with `requirePortalUser()`.
+- Authentication alone does not grant shared-survey access; researcher pages request explicit
+  capabilities and the backend remains the authorization boundary.
 - Authenticated browser CRUD uses the allowlisted same-origin `/api/backend` proxy, which
   forwards the Supabase bearer token and checks unsafe request origins.
 - Server-side auth and model requests use `BACKEND_INTERNAL_URL`.

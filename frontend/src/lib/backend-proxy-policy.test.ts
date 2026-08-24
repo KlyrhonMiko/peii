@@ -44,4 +44,21 @@ describe("isAllowedBackendRequest", () => {
     expect(isAllowedBackendRequest("POST", ["surveys", "survey-id", "responses"])).toBe(false)
     expect(isAllowedBackendRequest("GET", ["surveys", ""])).toBe(false)
   })
+
+  it("allows only the exact response aggregate, export, and erase actions", () => {
+    expect(isAllowedBackendRequest("GET", ["surveys", "survey-id", "responses", "aggregates"])).toBe(true)
+    expect(isAllowedBackendRequest("GET", ["surveys", "survey-id", "responses", "export"])).toBe(true)
+    expect(isAllowedBackendRequest("POST", ["surveys", "survey-id", "responses", "erase"])).toBe(true)
+
+    expect(isAllowedBackendRequest("GET", ["surveys", "survey-id", "responses", "aggregate"])).toBe(false)
+    expect(isAllowedBackendRequest("GET", ["surveys", "survey-id", "responses", "exports"])).toBe(false)
+    expect(isAllowedBackendRequest("POST", ["surveys", "survey-id", "responses", "erase", "again"])).toBe(false)
+  })
+
+  it("rejects survey membership and ownership routes", () => {
+    for (const method of ["GET", "POST", "PATCH", "PUT", "DELETE"]) {
+      expect(isAllowedBackendRequest(method, ["surveys", "survey-id", "members"])).toBe(false)
+      expect(isAllowedBackendRequest(method, ["surveys", "survey-id", "owner"])).toBe(false)
+    }
+  })
 })

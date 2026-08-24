@@ -69,6 +69,17 @@ checks, persistence transforms, transaction boundaries, and domain errors.
 - Most expected service failures use `AppError`. `ml_service.py` currently raises FastAPI
   `HTTPException`, so its errors do not use the shared application envelope.
 
+## Survey Concurrency And Privacy
+- Mutations that can touch a survey lifecycle acquire locks in one order: survey first,
+  distributions ordered by UUID, then responses ordered by UUID. Resolve public token
+  references without a lock, then acquire the parent survey lock before a distribution lock.
+- Keep survey access global and capability-based; do not introduce ownership or membership
+  checks into service queries. Raw reads, exports, aggregates, and erasure remain distinct
+  operations.
+- Aggregate responses use conservative `k=5` suppression for supported question types. Response
+  erasure clears answer/linkage data, stores minimal tombstone/receipt state, and requires a
+  UUID idempotency key; all-scope erasure is valid only after archive.
+
 ## Soft Delete
 - Treat soft delete as state mutation on the row: `is_deleted`, `deleted_at`,
   `performed_by`, and `updated_at`.

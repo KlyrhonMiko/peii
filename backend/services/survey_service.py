@@ -79,16 +79,24 @@ async def list_surveys(
     return rows, total
 
 
-async def authorize_survey(
+async def resolve_survey(
     session: AsyncSession,
     survey_id: UUID | str,
     *,
     include_deleted: bool = False,
+    for_update: bool = False,
 ) -> Survey:
     survey = (
-        await get_survey_by_uuid(session, survey_id)
+        await get_survey_by_uuid(
+            session,
+            survey_id,
+            include_deleted=include_deleted,
+            for_update=for_update,
+        )
         if isinstance(survey_id, UUID)
-        else await get_survey(session, survey_id, include_deleted=include_deleted)
+        else await get_survey(
+            session, survey_id, include_deleted=include_deleted, for_update=for_update
+        )
     )
     return survey
 
@@ -184,13 +192,19 @@ async def ensure_survey_ready_for_activation(
         raise _activation_readiness_error(errors, status_code)
 
 
-async def get_survey_by_uuid(session: AsyncSession, survey_id: UUID) -> Survey:
-    result = await session.exec(
-        select(Survey).where(
-            col(Survey.id) == survey_id,
-            col(Survey.is_deleted).is_(False),
-        )
-    )
+async def get_survey_by_uuid(
+    session: AsyncSession,
+    survey_id: UUID,
+    *,
+    include_deleted: bool = False,
+    for_update: bool = False,
+) -> Survey:
+    statement = select(Survey).where(col(Survey.id) == survey_id)
+    if not include_deleted:
+        statement = statement.where(col(Survey.is_deleted).is_(False))
+    if for_update:
+        statement = statement.with_for_update()
+    result = await session.exec(statement)
     survey = result.first()
     if not survey:
         raise AppError("Survey not found.", status_code=status.HTTP_404_NOT_FOUND)
@@ -474,7 +488,7 @@ async def soft_delete_survey(
         session,
         [
             AuditEvent(
-                action="delete",
+                action="archive",
                 resource_type="survey",
                 resource_id=survey.survey_id,
                 performed_by=actor_id,

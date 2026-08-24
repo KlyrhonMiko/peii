@@ -5,7 +5,15 @@ import { isAllowedBackendRequest } from "@/lib/backend-proxy-policy"
 import { applicationOrigin } from "@/lib/safe-redirect"
 
 const FORWARDED_HEADERS = ["content-type", "idempotency-key", "x-request-id"]
-const RESPONSE_HEADERS = ["content-type", "x-request-id"]
+const RESPONSE_HEADERS = [
+  "content-type",
+  "content-disposition",
+  "cache-control",
+  "pragma",
+  "x-content-type-options",
+  "referrer-policy",
+  "x-request-id",
+]
 const UNSAFE_METHODS = new Set(["DELETE", "PATCH", "POST", "PUT"])
 
 function requiresTrailingSlash(path: string[]): boolean {

@@ -16,6 +16,10 @@ function matchesSurveyChildResource(path: string[], child: string): boolean {
   return path.length === 4 && path[0] === "surveys" && hasValue(path[1]) && path[2] === child && hasValue(path[3])
 }
 
+function matchesSurveyResponseAction(path: string[], action: string): boolean {
+  return path.length === 4 && path[0] === "surveys" && hasValue(path[1]) && path[2] === "responses" && path[3] === action
+}
+
 function matchesUserResource(path: string[]): boolean {
   return path.length === 2 && path[0] === "users" && hasValue(path[1])
 }
@@ -33,7 +37,9 @@ export function isAllowedBackendRequest(method: string, path: string[]): boolean
         (path.length === 1 && path[0] === "surveys") ||
         matchesSurveyResource(path) ||
         matchesSurveyChild(path, "distributions") ||
-        matchesSurveyChild(path, "responses")
+        matchesSurveyChild(path, "responses") ||
+        matchesSurveyResponseAction(path, "aggregates") ||
+        matchesSurveyResponseAction(path, "export")
       )
     case "POST":
       return (
@@ -49,8 +55,9 @@ export function isAllowedBackendRequest(method: string, path: string[]): boolean
         matchesSurveyChild(path, "questions") ||
         matchesSurveyChild(path, "distributions") ||
         (path.length === 3 && path[0] === "surveys" && hasValue(path[1]) && path[2] === "restore") ||
-        (path.length === 5 && path[0] === "surveys" && hasValue(path[1]) &&
-          path[2] === "distributions" && hasValue(path[3]) && path[4] === "rotate")
+         (path.length === 5 && path[0] === "surveys" && hasValue(path[1]) &&
+           path[2] === "distributions" && hasValue(path[3]) && path[4] === "rotate")
+         || matchesSurveyResponseAction(path, "erase")
       )
     case "PATCH":
       return (

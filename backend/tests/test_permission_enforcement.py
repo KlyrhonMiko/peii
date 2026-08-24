@@ -2,8 +2,24 @@ import pytest
 
 from core.deps import Principal, get_current_principal
 from main import app
+from services.rbac_service import DEFAULT_ROLES, SHARED_SURVEY_CAPABILITIES
 
 pytestmark = pytest.mark.anyio
+
+
+def test_shared_survey_default_role_capabilities_are_exact():
+    assert SHARED_SURVEY_CAPABILITIES <= DEFAULT_ROLES["admin"]
+    assert DEFAULT_ROLES["researcher"] & SHARED_SURVEY_CAPABILITIES == (
+        SHARED_SURVEY_CAPABILITIES - {"survey_responses.erase"}
+    )
+    assert DEFAULT_ROLES["staff"] & SHARED_SURVEY_CAPABILITIES == {
+        "surveys.read",
+        "survey_responses.read_aggregates",
+    }
+    assert {"portal.access", "ml.models.read", "ml.sentiment.run"} <= DEFAULT_ROLES[
+        "researcher"
+    ]
+    assert {"portal.access", "ml.models.read"} <= DEFAULT_ROLES["staff"]
 
 
 def override_principal(principal: Principal) -> None:

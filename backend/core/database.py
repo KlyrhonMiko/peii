@@ -10,6 +10,7 @@ from core.config import settings
 from models import (  # noqa: F401
     AuditLog,
     Permission,
+    ResponseErasureReceipt,
     Role,
     RolePermission,
     Survey,

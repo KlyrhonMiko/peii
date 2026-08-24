@@ -147,7 +147,10 @@ async def list_distributions(
             col(SurveyDistribution.survey_id) == survey_id,
             col(SurveyDistribution.is_deleted).is_(False),
         )
-        .order_by(col(SurveyDistribution.created_at).desc())
+        .order_by(
+            col(SurveyDistribution.created_at).desc(),
+            col(SurveyDistribution.id).desc(),
+        )
     )
     return list(result.all()), survey.status
 
@@ -159,6 +162,11 @@ async def revoke_distribution(
     performed_by: UUID,
     ip_address: str | None = None,
 ) -> tuple[SurveyDistribution, SurveyStatus | str]:
+    # Mutations always acquire the parent survey lock before a distribution lock.
+    survey = await _get_survey(session, survey_id, include_deleted=True, for_update=True)
+    if survey is None:
+        raise AppError("Survey not found.", status_code=status.HTTP_404_NOT_FOUND)
+    survey_status: SurveyStatus | str = survey.status
     result = await session.exec(
         select(SurveyDistribution)
         .where(
@@ -171,9 +179,6 @@ async def revoke_distribution(
     distribution = result.first()
     if not distribution:
         raise AppError("Distribution not found.", status_code=status.HTTP_404_NOT_FOUND)
-
-    survey = await _get_survey(session, survey_id, include_deleted=True)
-    survey_status: SurveyStatus | str = survey.status if survey else "Closed"
     if distribution.revoked_at is None:
         before_status = get_distribution_status(distribution, survey_status)
         distribution.revoked_at = utc_now()
@@ -267,26 +272,61 @@ async def get_distribution_by_token(
     for_update: bool = False,
     shared_lock: bool = False,
 ) -> SurveyDistribution:
-    statement = select(SurveyDistribution).where(
-        col(SurveyDistribution.token) == token,
-        col(SurveyDistribution.is_deleted).is_(False),
-    )
-    if for_update:
-        statement = statement.with_for_update(read=shared_lock)
-    result = await session.exec(statement)
-    distribution = result.first()
-    if not distribution:
-        raise _public_token_error()
-
-    survey = await _get_survey(
+    distribution, _survey = await get_distribution_and_survey_by_token(
         session,
-        distribution.survey_id,
+        token,
         for_update=for_update,
         shared_lock=shared_lock,
     )
-    if not survey or not _is_active(distribution, survey.status):
+    return distribution
+
+
+async def get_distribution_and_survey_by_token(
+    session: AsyncSession,
+    token: str,
+    *,
+    for_update: bool = False,
+    shared_lock: bool = False,
+) -> tuple[SurveyDistribution, Survey]:
+    # Resolve the token reference without a lock.  For a mutation, the survey is
+    # then locked before the distribution, establishing survey -> distribution
+    # ordering even when multiple distributions share a survey.
+    token_reference = await get_distribution_token_reference(session, token)
+
+    survey = await _get_survey(
+        session,
+        token_reference.survey_id,
+        for_update=for_update,
+        shared_lock=shared_lock,
+    )
+    distribution_statement = select(SurveyDistribution).where(
+        col(SurveyDistribution.id) == token_reference.id,
+        col(SurveyDistribution.survey_id) == token_reference.survey_id,
+        col(SurveyDistribution.is_deleted).is_(False),
+    )
+    if for_update:
+        distribution_statement = distribution_statement.with_for_update(read=shared_lock)
+    distribution_result = await session.exec(distribution_statement)
+    distribution = distribution_result.first()
+    if not survey or not distribution or not _is_active(distribution, survey.status):
         raise _public_token_error()
     if await get_survey_readiness_errors(session, survey.id):
+        raise _public_token_error()
+    return distribution, survey
+
+
+async def get_distribution_token_reference(
+    session: AsyncSession, token: str
+) -> SurveyDistribution:
+    """Look up a token owner without acquiring a row lock."""
+    result = await session.exec(
+        select(SurveyDistribution).where(
+            col(SurveyDistribution.token) == token,
+            col(SurveyDistribution.is_deleted).is_(False),
+        )
+    )
+    distribution = result.first()
+    if not distribution:
         raise _public_token_error()
     return distribution
 
@@ -304,6 +344,7 @@ async def revoke_for_structure_change(
             col(SurveyDistribution.is_deleted).is_(False),
             col(SurveyDistribution.revoked_at).is_(None),
         )
+        .order_by(col(SurveyDistribution.id))
         .with_for_update()
     )
     distributions = list(result.all())
@@ -343,6 +384,7 @@ async def revoke_for_survey_archive(
             col(SurveyDistribution.is_deleted).is_(False),
             col(SurveyDistribution.revoked_at).is_(None),
         )
+        .order_by(col(SurveyDistribution.id))
         .with_for_update()
     )
     now = utc_now()

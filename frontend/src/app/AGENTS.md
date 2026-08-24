@@ -47,8 +47,8 @@ Follow the route-area guide when editing a nested route:
 - Keep server routes from importing Recharts directly.
 - Keep client component props narrow and serializable.
 - Start independent async work in parallel when adding data loading.
-- `researcher/survey/page.tsx` is a large current exception to the composition rule; do not
-  use it as the model for new route architecture.
+- `researcher/survey/page.tsx` composes the extracted `SurveyManagement` client component and
+  passes its capability set; keep route data/loading and interactive product UI separated.
 
 ## State And Effects
 - Avoid mount-only `setState` effects when render-time derivation or CSS is enough.

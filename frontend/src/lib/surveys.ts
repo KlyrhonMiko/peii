@@ -157,6 +157,41 @@ export interface ApiSurveyResponse {
   created_at: string
 }
 
+export interface AggregateCell {
+  value: string | number | boolean
+  count: number
+  rank: number | null
+  row: string | null
+}
+
+export interface SurveyResponseAggregate {
+  question_id: string
+  question_text: string
+  question_type: "single_choice" | "boolean" | "multiple_choice" | "scale" | "ranking" | "matrix"
+  total: number
+  cells: AggregateCell[]
+}
+
+export interface EraseSelectedResponsesPayload {
+  scope: "selected"
+  response_ids: string[]
+  confirmation: "ERASE_SELECTED_RESPONSES"
+}
+
+export interface EraseAllResponsesPayload {
+  scope: "all"
+  expected_response_count: number
+  confirmation: "ERASE_ALL_RESPONSES"
+}
+
+export type EraseResponsesPayload = EraseSelectedResponsesPayload | EraseAllResponsesPayload
+
+export interface ResponseErasureResult {
+  scope: "selected" | "all"
+  requested_count: number
+  erased_count: number
+}
+
 export interface ApiPagination {
   total: number
   count: number
@@ -432,7 +467,7 @@ export async function deleteQuestion(
 
 export async function createDistribution(
   surveyUuid: string,
-  expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+  expiresAt: string,
 ): Promise<DistributionSecret> {
   const res = await api.post<ApiDistributionSecret>(
     `/surveys/${surveyUuid}/distributions/`,
@@ -460,7 +495,7 @@ export async function revokeDistribution(
 export async function rotateDistribution(
   surveyUuid: string,
   distributionId: string,
-  expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+  expiresAt: string,
 ): Promise<DistributionSecret> {
   const res = await api.post<ApiDistributionSecret>(
     `/surveys/${surveyUuid}/distributions/${distributionId}/rotate`,
@@ -503,6 +538,53 @@ export async function fetchResponses(
       has_prev: false,
     },
   }
+}
+
+export async function fetchResponseAggregates(
+  surveyUuid: string,
+): Promise<SurveyResponseAggregate[]> {
+  const res = await api.get<SurveyResponseAggregate[]>(
+    `/surveys/${surveyUuid}/responses/aggregates`,
+  )
+  return res.data ?? []
+}
+
+function exportFilename(contentDisposition: string | null, surveyUuid: string): string {
+  const encodedName = contentDisposition?.match(/filename\*=UTF-8''([^;]+)/i)?.[1]
+  if (encodedName) {
+    try {
+      return decodeURIComponent(encodedName)
+    } catch {
+      return encodedName
+    }
+  }
+  const plainName = contentDisposition?.match(/filename="?([^";]+)"?/i)?.[1]
+  return plainName ?? `survey-${surveyUuid}-responses.csv`
+}
+
+export async function exportResponses(surveyUuid: string): Promise<void> {
+  const response = await api.raw.get(`/surveys/${surveyUuid}/responses/export`)
+  const blob = await response.blob()
+  const url = URL.createObjectURL(blob)
+  const anchor = document.createElement("a")
+  anchor.href = url
+  anchor.download = exportFilename(response.headers.get("content-disposition"), surveyUuid)
+  anchor.click()
+  window.setTimeout(() => URL.revokeObjectURL(url), 0)
+}
+
+export async function eraseResponses(
+  surveyUuid: string,
+  payload: EraseResponsesPayload,
+  idempotencyKey: string,
+): Promise<ResponseErasureResult> {
+  const res = await api.post<ResponseErasureResult>(
+    `/surveys/${surveyUuid}/responses/erase`,
+    payload,
+    { headers: { "Idempotency-Key": idempotencyKey } },
+  )
+  if (!res.data) throw new Error("Backend did not return the erasure result")
+  return res.data
 }
 
 export async function reorderQuestions(

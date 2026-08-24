@@ -43,14 +43,11 @@ managed PostgreSQL, Supabase Auth, and managed Redis for distributed rate limiti
 Alembic exactly once as a release job before promoting API replicas; do not let each API
 replica migrate independently. Docker deployment is out of scope.
 
-See [production decisions](docs/production-decisions.md) and
-[privacy and retention](docs/privacy-and-retention.md) for the required host, privacy,
-retention, recovery, and release policies. Provider, region, domain, and consent/rate-limit
-implementation details must be completed before public launch.
-
-See [implementation history](docs/implementation-history.md) for the completed Phase 0
-lifecycle/distribution work, the superseded collaboration iteration, and the current shared
-researcher workspace design.
+See [production decisions](docs/production-decisions.md),
+[privacy and retention](docs/privacy-and-retention.md), and the
+[deployment roadmap](docs/deployment-roadmap.md) for the required host, privacy, retention,
+recovery, release, and Phase 1A rollout policies. Provider, region, domain, consent, and
+rate-limit implementation details must be completed before public launch.
 
 ## Local Development
 
@@ -103,6 +100,14 @@ Run backend checks from `backend/`:
 ./.venv/bin/ruff check .
 ./.venv/bin/mypy .
 env DEBUG=false ./.venv/bin/pytest -q
+```
+
+The normal backend suite skips PostgreSQL integration tests when `TEST_DATABASE_URL` is
+absent. Run those tests against an isolated PostgreSQL database with:
+
+```bash
+TEST_DATABASE_URL=postgresql+psycopg2://user:password@localhost:5432/peii_test \
+  env DEBUG=false ./.venv/bin/pytest -q -m integration --require-postgres
 ```
 
 See `frontend/AGENTS.md`, `backend/AGENTS.md`, and the nested `AGENTS.md` files for local
