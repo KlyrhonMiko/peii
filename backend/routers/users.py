@@ -22,8 +22,6 @@ router = APIRouter()
 
 
 def _invitation_redirect() -> str:
-    if settings.APP_ORIGIN is None:
-        raise AppError("Application origin is not configured.", status_code=503)
     return f"{settings.APP_ORIGIN}/auth/confirm?next=/reset-password"
 
 

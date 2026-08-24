@@ -34,6 +34,9 @@ Run frontend commands from `frontend/`:
 - `npm run build` runs the production Next.js build.
 - `npm run start` serves a production build.
 
+Frontend commands load runtime configuration exclusively from the repository-root `.env`.
+Required values must be present there; do not add frontend-local environment files or code defaults.
+
 The repo-level `.pre-commit-config.yaml` runs frontend lint and build on
 `pre-commit`, and frontend build again on `pre-push`.
 

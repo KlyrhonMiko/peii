@@ -10,7 +10,7 @@ const mocks = vi.hoisted(() => {
 
 vi.mock("@/lib/supabase/server", () => ({ createSupabaseServerClient: mocks.createSupabaseServerClient }))
 
-import { GET, POST } from "./route"
+import { GET, PATCH, POST } from "./route"
 
 const context = (path: string[]) => ({ params: Promise.resolve({ path }) })
 
@@ -19,6 +19,61 @@ describe("backend BFF", () => {
     vi.unstubAllEnvs()
     vi.unstubAllGlobals()
     vi.clearAllMocks()
+  })
+
+  it("rejects unsafe requests without the trusted origin", async () => {
+    vi.stubEnv("BACKEND_INTERNAL_URL", "http://backend:8000/api/v1")
+    vi.stubEnv("APP_ORIGIN", "http://localhost:3000")
+    const fetchMock = vi.fn()
+    vi.stubGlobal("fetch", fetchMock)
+
+    const response = await PATCH(
+      new NextRequest("http://localhost:3000/api/backend/users/USER-123", { method: "PATCH" }),
+      context(["users", "USER-123"]),
+    )
+
+    expect(response.status).toBe(403)
+    expect(mocks.createSupabaseServerClient).not.toHaveBeenCalled()
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it("rejects unsafe requests from another origin", async () => {
+    vi.stubEnv("BACKEND_INTERNAL_URL", "http://backend:8000/api/v1")
+    vi.stubEnv("APP_ORIGIN", "http://localhost:3000")
+    const fetchMock = vi.fn()
+    vi.stubGlobal("fetch", fetchMock)
+
+    const response = await PATCH(
+      new NextRequest("http://localhost:3000/api/backend/users/USER-123", {
+        method: "PATCH",
+        headers: { origin: "https://evil.example" },
+      }),
+      context(["users", "USER-123"]),
+    )
+
+    expect(response.status).toBe(403)
+    expect(mocks.createSupabaseServerClient).not.toHaveBeenCalled()
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it("forwards unsafe requests from the trusted origin", async () => {
+    vi.stubEnv("BACKEND_INTERNAL_URL", "http://backend:8000/api/v1")
+    vi.stubEnv("APP_ORIGIN", "http://localhost:3000")
+    mocks.getClaims.mockResolvedValue({ data: { claims: { sub: "user-id" } } })
+    mocks.getSession.mockResolvedValue({ data: { session: { access_token: "access-token" } } })
+    const fetchMock = vi.fn(async () => new Response('{"data":null}'))
+    vi.stubGlobal("fetch", fetchMock)
+
+    const response = await PATCH(
+      new NextRequest("http://localhost:3000/api/backend/users/USER-123", {
+        method: "PATCH",
+        headers: { origin: "http://localhost:3000" },
+      }),
+      context(["users", "USER-123"]),
+    )
+
+    expect(response.status).toBe(200)
+    expect(fetchMock).toHaveBeenCalledOnce()
   })
 
   it("rejects auth routes before creating a session or calling the backend", async () => {

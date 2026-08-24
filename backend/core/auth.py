@@ -1,4 +1,6 @@
+import asyncio
 from dataclasses import dataclass
+from functools import lru_cache
 from uuid import UUID
 
 import jwt
@@ -15,9 +17,8 @@ class AuthClaims:
     access_token: str
 
 
+@lru_cache(maxsize=1)
 def _jwks_client() -> PyJWKClient:
-    if settings.SUPABASE_URL is None:
-        raise AppError("Supabase authentication is not configured.", status_code=503)
     return PyJWKClient(f"{settings.SUPABASE_URL}/auth/v1/.well-known/jwks.json")
 
 
@@ -26,7 +27,7 @@ async def verify_bearer_token(authorization: str | None = Header(default=None)) 
         raise AppError("Authentication required.", status_code=401)
     access_token = authorization.removeprefix("Bearer ").strip()
     try:
-        signing_key = _jwks_client().get_signing_key_from_jwt(access_token)
+        signing_key = await asyncio.to_thread(_jwks_client().get_signing_key_from_jwt, access_token)
         claims = jwt.decode(
             access_token,
             signing_key.key,

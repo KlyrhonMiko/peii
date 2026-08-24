@@ -20,18 +20,12 @@ from services.supabase_auth_service import (  # noqa: E402
 from utils.identifiers import generate_business_id  # noqa: E402
 
 
-def _required(value: str | None, name: str) -> str:
-    if value is None:
-        raise RuntimeError(f"{name} must be set in .env.")
-    return value
-
-
 async def main() -> None:
-    email = _required(settings.INITIAL_ADMIN_EMAIL, "INITIAL_ADMIN_EMAIL").lower()
-    username = _required(settings.INITIAL_ADMIN_USERNAME, "INITIAL_ADMIN_USERNAME").lower()
-    first_name = _required(settings.INITIAL_ADMIN_FIRST_NAME, "INITIAL_ADMIN_FIRST_NAME")
-    last_name = _required(settings.INITIAL_ADMIN_LAST_NAME, "INITIAL_ADMIN_LAST_NAME")
-    app_origin = _required(settings.APP_ORIGIN, "APP_ORIGIN")
+    email = settings.INITIAL_ADMIN_EMAIL.lower()
+    username = settings.INITIAL_ADMIN_USERNAME.lower()
+    first_name = settings.INITIAL_ADMIN_FIRST_NAME
+    last_name = settings.INITIAL_ADMIN_LAST_NAME
+    app_origin = settings.APP_ORIGIN
 
     async with async_session_factory() as session:
         await ensure_permission_catalog(session)

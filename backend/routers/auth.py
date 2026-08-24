@@ -4,7 +4,6 @@ from fastapi import APIRouter, Request
 
 from core.config import settings
 from core.deps import AsyncDBSession, CurrentPrincipal
-from core.exceptions import AppError
 from core.responses import success_response
 from schemas.auth import (
     AuthSession,
@@ -16,7 +15,7 @@ from schemas.auth import (
 from schemas.common import APIResponse
 from services import auth_service
 from services.audit_service import AuditEvent, commit_with_audit
-from services.supabase_auth_service import send_recovery_email, update_password
+from services.supabase_auth_service import logout_user_session, send_recovery_email, update_password
 
 router = APIRouter()
 
@@ -75,6 +74,7 @@ async def me(session: AsyncDBSession, principal: CurrentPrincipal) -> APIRespons
 async def logout(
     session: AsyncDBSession, principal: CurrentPrincipal, request: Request
 ) -> APIResponse[None]:
+    await logout_user_session(principal.access_token)
     event = AuditEvent(
         "logout",
         "user",
@@ -93,8 +93,6 @@ async def logout(
     description="Request a recovery email without revealing account existence.",
 )
 async def recover_password(payload: PasswordRecoveryRequest) -> APIResponse[None]:
-    if settings.APP_ORIGIN is None:
-        raise AppError("Application origin is not configured.", status_code=503)
     redirect_to = f"{settings.APP_ORIGIN}/auth/confirm?next=/reset-password"
     await send_recovery_email(payload.email, redirect_to)
     return success_response(None, message="If the account exists, a recovery email has been sent.")

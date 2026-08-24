@@ -2,14 +2,8 @@
 
 import { redirect } from "next/navigation"
 
+import { safeInternalPath } from "@/lib/safe-redirect"
 import { createSupabaseServerClient } from "@/lib/supabase/server"
-
-function safeReturnTo(value: FormDataEntryValue | null) {
-  if (typeof value !== "string" || !value.startsWith("/") || value.startsWith("//")) {
-    return "/researcher/dashboard"
-  }
-  return value
-}
 
 export async function loginAction(formData: FormData) {
   const identifier = formData.get("identifier")
@@ -41,11 +35,22 @@ export async function loginAction(formData: FormData) {
   if (error) {
     redirect("/login?error=invalid")
   }
-  redirect(safeReturnTo(formData.get("returnTo")))
+  redirect(safeInternalPath(formData.get("returnTo")))
 }
 
 export async function logoutAction() {
   const supabase = await createSupabaseServerClient()
+  const { data } = await supabase.auth.getSession()
+  if (data.session) {
+    const backendUrl = process.env.BACKEND_INTERNAL_URL
+    if (!backendUrl) throw new Error("BACKEND_INTERNAL_URL is not configured")
+    const response = await fetch(`${backendUrl}/auth/logout`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${data.session.access_token}` },
+      cache: "no-store",
+    })
+    if (!response.ok) throw new Error("Backend logout failed")
+  }
   await supabase.auth.signOut()
   redirect("/login")
 }

@@ -32,7 +32,7 @@ Read this file first, then the guide closest to the files you are changing.
   `pre-commit`; pytest also runs on `pre-push`.
 
 ### Runtime Configuration
-- `core/config.py` loads the repo-root `.env` with Pydantic settings. No default fallbacks exist for settings (except optional ones); missing config will fail-fast at startup.
+- `core/config.py` loads the repo-root `.env` with Pydantic settings. No default fallbacks exist; missing configuration fails fast at startup.
 - Keep `.env.example` aligned whenever backend config keys, modes, or expected formats change.
 - Database selection is environment-driven:
   - `DB_MODE=local` uses `LOCAL_DATABASE_URL`.

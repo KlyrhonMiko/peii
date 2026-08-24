@@ -2,9 +2,11 @@ import { NextResponse, type NextRequest } from "next/server"
 
 import { createSupabaseServerClient } from "@/lib/supabase/server"
 import { isAllowedBackendRequest } from "@/lib/backend-proxy-policy"
+import { applicationOrigin } from "@/lib/safe-redirect"
 
 const FORWARDED_HEADERS = ["content-type", "idempotency-key", "x-request-id"]
 const RESPONSE_HEADERS = ["content-type", "x-request-id"]
+const UNSAFE_METHODS = new Set(["DELETE", "PATCH", "POST", "PUT"])
 
 async function proxy(request: NextRequest, context: { params: Promise<{ path: string[] }> }) {
   const backendUrl = process.env.BACKEND_INTERNAL_URL
@@ -12,6 +14,9 @@ async function proxy(request: NextRequest, context: { params: Promise<{ path: st
   const { path } = await context.params
   if (!isAllowedBackendRequest(request.method, path)) {
     return NextResponse.json({ message: "Not found." }, { status: 404 })
+  }
+  if (UNSAFE_METHODS.has(request.method) && request.headers.get("origin") !== applicationOrigin()) {
+    return NextResponse.json({ message: "Invalid request origin." }, { status: 403 })
   }
   const supabase = await createSupabaseServerClient()
   const { data: claims } = await supabase.auth.getClaims()
