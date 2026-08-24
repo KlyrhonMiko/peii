@@ -36,6 +36,22 @@ Database URLs depend on where the backend runs:
 Keep `SUPABASE_SECRET_KEY` server-only. `NEXT_PUBLIC_API_URL` is intentionally exposed to
 the browser for public survey and development sentiment requests.
 
+## Production
+
+The approved deployment topology uses a managed Next.js host, managed Python web service,
+managed PostgreSQL, Supabase Auth, and managed Redis for distributed rate limiting. Run
+Alembic exactly once as a release job before promoting API replicas; do not let each API
+replica migrate independently. Docker deployment is out of scope.
+
+See [production decisions](docs/production-decisions.md) and
+[privacy and retention](docs/privacy-and-retention.md) for the required host, privacy,
+retention, recovery, and release policies. Provider, region, domain, and consent/rate-limit
+implementation details must be completed before public launch.
+
+See [implementation history](docs/implementation-history.md) for the completed Phase 0
+lifecycle/distribution work, the superseded collaboration iteration, and the current shared
+researcher workspace design.
+
 ## Local Development
 
 Start the backend from `backend/`:

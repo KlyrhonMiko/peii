@@ -80,6 +80,19 @@ Create a new migration after model changes:
 ./.venv/bin/alembic revision --autogenerate -m "describe change"
 ```
 
+For production, run `./.venv/bin/alembic upgrade head` once as the managed-service release
+job before API replicas are promoted. Do not run migrations independently in every replica.
+
+## Survey Lifecycle Policy
+
+- Every public distribution has a mandatory expiry.
+- Deleting a survey archives it and revokes every unrevoked distribution link.
+- Restoring an archived survey returns it as inactive; publishing and issuing a new link are
+  explicit follow-up actions.
+- Surveys are a shared workspace: every authenticated portal user can manage every survey,
+  including distributions and raw responses. Retention and consent policy are documented in
+  `../docs/privacy-and-retention.md`.
+
 ## Validation
 
 Run these from `backend/`:
@@ -124,7 +137,7 @@ Routes are mounted below `API_V1_PREFIX` (normally `/api/v1`):
 - `/auth`: login, current principal, logout, recovery, and password changes.
 - `/rbac`: permissions, roles, and role assignments.
 - `/users` and `/audit-logs`: administration and audit history.
-- `/surveys`: surveys plus nested sections, questions, members, distributions, and
+- `/surveys`: surveys plus nested sections, questions, distributions, and
   responses.
 - `/survey/{token}`: public survey loading and idempotent response submission.
 - `/ml`: model catalog and sentiment inference. Model weights load lazily and may require

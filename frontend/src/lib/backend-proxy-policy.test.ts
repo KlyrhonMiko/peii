@@ -10,6 +10,8 @@ describe("isAllowedBackendRequest", () => {
       true,
     )
     expect(isAllowedBackendRequest("GET", ["surveys", "survey-id", "responses"])).toBe(true)
+    expect(isAllowedBackendRequest("POST", ["surveys", "survey-id", "restore"])).toBe(true)
+    expect(isAllowedBackendRequest("POST", ["surveys", "survey-id", "distributions", "distribution-id", "rotate"])).toBe(true)
   })
 
   it("allows user-management and role-management routes", () => {
@@ -34,6 +36,7 @@ describe("isAllowedBackendRequest", () => {
     expect(isAllowedBackendRequest("POST", ["users", "USER-123", "sessions"])).toBe(false)
     expect(isAllowedBackendRequest("GET", ["docs"])).toBe(false)
     expect(isAllowedBackendRequest("GET", ["surveys", "survey-id", "members"])).toBe(false)
+    expect(isAllowedBackendRequest("POST", ["surveys", "survey-id", "members", "transfer", "user-id"])).toBe(false)
   })
 
   it("denies unsupported methods and malformed survey paths", () => {

@@ -7,12 +7,15 @@ export type SurveyStatus = "Inactive" | "Active" | "Closed"
 export interface Distribution {
   id: string
   surveyId: string
-  token: string
   status: "active" | "suspended" | "expired" | "revoked"
   isActive: boolean
   expiresAt: string | null
   revokedAt: string | null
   createdAt: string
+}
+
+export interface DistributionSecret extends Distribution {
+  token: string
 }
 
 export interface SurveyResponse {
@@ -31,6 +34,7 @@ export interface Survey {
   responses: number
   dateCreated: string
   updatedAt: string
+  isDeleted: boolean
   targetCohort?: string
   description?: string
   questions?: SurveyQuestion[]
@@ -134,12 +138,15 @@ export interface ApiQuestion {
 export interface ApiDistribution {
   id: string
   survey_id: string
-  token: string
   status: "active" | "suspended" | "expired" | "revoked"
   is_active: boolean
   expires_at: string | null
   revoked_at: string | null
   created_at: string
+}
+
+export interface ApiDistributionSecret extends ApiDistribution {
+  token: string
 }
 
 export interface ApiSurveyResponse {
@@ -157,6 +164,17 @@ export interface ApiPagination {
   offset: number
   has_next: boolean
   has_prev: boolean
+}
+
+export interface SurveyListOptions {
+  includeArchived?: boolean
+  search?: string
+  status?: SurveyStatus
+  targetCohort?: string
+  sortBy?: "created_at" | "survey_id" | "title" | "status" | "responses_count"
+  sortOrder?: "asc" | "desc"
+  limit?: number
+  offset?: number
 }
 
 // ── Mapping ───────────────────────────────────────────────────────
@@ -181,6 +199,7 @@ function mapSurvey(api: ApiSurvey): Survey {
     responses: api.responses_count,
     dateCreated: api.created_at,
     updatedAt: api.updated_at,
+    isDeleted: api.is_deleted,
     ...(api.target_cohort ? { targetCohort: api.target_cohort } : {}),
     ...(api.description ? { description: api.description } : {}),
     ...(api.questions ? { questions: api.questions.map(mapQuestion) } : {}),
@@ -202,17 +221,20 @@ function mapQuestion(api: ApiQuestion): SurveyQuestion {
   }
 }
 
-function mapDistribution(api: ApiDistribution): Distribution {
+export function mapDistribution(api: ApiDistribution): Distribution {
   return {
     id: api.id,
     surveyId: api.survey_id,
-    token: api.token,
     status: api.status,
     isActive: api.is_active,
     expiresAt: api.expires_at,
     revokedAt: api.revoked_at,
     createdAt: api.created_at,
   }
+}
+
+function mapDistributionSecret(api: ApiDistributionSecret): DistributionSecret {
+  return { ...mapDistribution(api), token: api.token }
 }
 
 function mapResponse(api: ApiSurveyResponse): SurveyResponse {
@@ -227,11 +249,27 @@ function mapResponse(api: ApiSurveyResponse): SurveyResponse {
 
 // ── API operations ───────────────────────────────────────────────
 
-export async function fetchSurveys(): Promise<{
+export function buildSurveyListQuery(options: SurveyListOptions = {}): string {
+  const query = new URLSearchParams()
+  if (options.includeArchived) query.set("include_deleted", "true")
+  if (options.search) query.set("search", options.search)
+  if (options.status) query.set("status", options.status)
+  if (options.targetCohort) query.set("target_cohort", options.targetCohort)
+  if (options.sortBy) query.set("sort_by", options.sortBy)
+  if (options.sortOrder) query.set("sort_order", options.sortOrder)
+  if (options.limit) query.set("limit", String(options.limit))
+  if (options.offset) query.set("offset", String(options.offset))
+  const value = query.toString()
+  return value ? `?${value}` : ""
+}
+
+export async function fetchSurveys(options: SurveyListOptions = {}): Promise<{
   surveys: Survey[]
   pagination: ApiPagination
 }> {
-  const res = await api.get<ApiSurvey[]>("/surveys/")
+  const res = await api.get<ApiSurvey[]>(
+    `/surveys/${buildSurveyListQuery(options)}`,
+  )
   return {
     surveys: (res.data ?? []).map(mapSurvey),
     pagination: res.meta?.pagination as ApiPagination,
@@ -395,12 +433,12 @@ export async function deleteQuestion(
 export async function createDistribution(
   surveyUuid: string,
   expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
-): Promise<Distribution> {
-  const res = await api.post<ApiDistribution>(
+): Promise<DistributionSecret> {
+  const res = await api.post<ApiDistributionSecret>(
     `/surveys/${surveyUuid}/distributions/`,
     { expires_at: expiresAt },
   )
-  return mapDistribution(res.data!)
+  return mapDistributionSecret(res.data!)
 }
 
 export async function fetchDistributions(
@@ -417,6 +455,23 @@ export async function revokeDistribution(
   distributionId: string,
 ): Promise<void> {
   await api.delete(`/surveys/${surveyUuid}/distributions/${distributionId}`, {})
+}
+
+export async function rotateDistribution(
+  surveyUuid: string,
+  distributionId: string,
+  expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+): Promise<DistributionSecret> {
+  const res = await api.post<ApiDistributionSecret>(
+    `/surveys/${surveyUuid}/distributions/${distributionId}/rotate`,
+    { expires_at: expiresAt },
+  )
+  return mapDistributionSecret(res.data!)
+}
+
+export async function restoreSurvey(surveyId: string): Promise<Survey> {
+  const res = await api.post<ApiSurvey>(`/surveys/${surveyId}/restore`, {})
+  return mapSurvey(res.data!)
 }
 
 export async function fetchResponses(

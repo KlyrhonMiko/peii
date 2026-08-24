@@ -8,8 +8,6 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from core.config import settings
 from core.exceptions import AppError
 from models.rbac import Permission, Role, RolePermission, UserRole
-from models.survey import Survey
-from models.survey_membership import SurveyMembership
 from models.user import User
 from schemas.rbac import RoleCreate, RoleUpdate
 from services.audit_service import AuditEvent, commit_with_audit
@@ -27,20 +25,6 @@ PERMISSIONS: dict[str, str] = {
     "roles.read": "View roles and permissions.",
     "roles.manage": "Manage roles and permissions.",
     "audit_logs.read": "View audit logs.",
-    "surveys.access_all": "Access every survey.",
-    "surveys.read": "Read accessible surveys.",
-    "surveys.create": "Create surveys.",
-    "surveys.update": "Update accessible surveys.",
-    "surveys.publish": "Activate or close accessible surveys.",
-    "surveys.delete": "Delete accessible surveys.",
-    "surveys.restore": "Restore accessible surveys.",
-    "surveys.share": "Manage survey collaborators.",
-    "surveys.transfer": "Transfer survey ownership.",
-    "survey_structure.manage": "Manage survey structure.",
-    "survey_distributions.read": "View survey distributions.",
-    "survey_distributions.manage": "Manage survey distributions.",
-    "survey_distributions.read_token": "View survey bearer tokens.",
-    "survey_responses.read_raw": "View raw survey responses.",
     "ml.models.read": "View ML models.",
     "ml.sentiment.run": "Run sentiment analysis.",
 }
@@ -49,18 +33,6 @@ DEFAULT_ROLES: dict[str, set[str]] = {
     "admin": set(PERMISSIONS),
     "researcher": {
         "portal.access",
-        "surveys.read",
-        "surveys.create",
-        "surveys.update",
-        "surveys.publish",
-        "surveys.delete",
-        "surveys.restore",
-        "surveys.share",
-        "surveys.transfer",
-        "survey_structure.manage",
-        "survey_distributions.read",
-        "survey_distributions.manage",
-        "survey_distributions.read_token",
         "ml.models.read",
         "ml.sentiment.run",
     },
@@ -171,31 +143,6 @@ async def assert_eligible_admin_remains(
             "At least one active administrator must remain.",
             status_code=status.HTTP_409_CONFLICT,
         )
-
-
-async def assert_survey_access(
-    session: AsyncSession,
-    user: User,
-    permissions: set[str],
-    survey: Survey,
-    *,
-    write: bool = False,
-) -> str:
-    if "surveys.access_all" in permissions:
-        return "owner"
-    if survey.owner_id == user.id:
-        return "owner"
-    membership_result = await session.exec(
-        select(SurveyMembership).where(
-            col(SurveyMembership.survey_id) == survey.id,
-            col(SurveyMembership.user_id) == user.id,
-            col(SurveyMembership.is_deleted).is_(False),
-        )
-    )
-    membership = membership_result.first()
-    if membership and (not write or membership.access_level == "editor"):
-        return membership.access_level
-    raise AppError("Survey not found.", status_code=status.HTTP_404_NOT_FOUND)
 
 
 async def get_role_permissions(session: AsyncSession, role: Role) -> list[Permission]:

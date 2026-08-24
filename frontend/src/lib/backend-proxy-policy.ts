@@ -47,7 +47,10 @@ export function isAllowedBackendRequest(method: string, path: string[]): boolean
         (path.length === 2 && path[0] === "surveys" && path[1] === "with-structure") ||
         matchesSurveyChild(path, "sections") ||
         matchesSurveyChild(path, "questions") ||
-        matchesSurveyChild(path, "distributions")
+        matchesSurveyChild(path, "distributions") ||
+        (path.length === 3 && path[0] === "surveys" && hasValue(path[1]) && path[2] === "restore") ||
+        (path.length === 5 && path[0] === "surveys" && hasValue(path[1]) &&
+          path[2] === "distributions" && hasValue(path[3]) && path[4] === "rotate")
       )
     case "PATCH":
       return (

@@ -3,7 +3,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends
 
-from core.deps import AsyncDBSession, Principal, require_permissions
+from core.deps import AsyncDBSession, CurrentPrincipal
 from core.responses import APIResponse, list_meta_response, success_response
 from schemas.survey_response import SurveyResponseListQueryParams, SurveyResponseRead
 from services import response_service, survey_service
@@ -40,9 +40,9 @@ async def list_survey_responses(
     survey_id: UUID,
     session: AsyncDBSession,
     params: ResponseListParams,
-    principal: Principal = Depends(require_permissions("survey_responses.read_raw")),
+    principal: CurrentPrincipal,
 ) -> APIResponse[list[SurveyResponseRead]]:
-    await survey_service.authorize_survey(session, survey_id, principal.user, principal.permissions)
+    await survey_service.authorize_survey(session, survey_id)
     responses, total = await response_service.list_responses(session, survey_id, params)
     response_data = [SurveyResponseRead.model_validate(r) for r in responses]
     return success_response(

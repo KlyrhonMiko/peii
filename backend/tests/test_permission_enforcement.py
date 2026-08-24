@@ -36,23 +36,6 @@ async def test_ml_routes_require_their_specific_permissions(client, principal):
     ).status_code == 403
 
 
-async def test_distribution_token_routes_require_read_token(client, principal):
-    override_principal(
-        Principal(
-            user=principal.user,
-            permissions=frozenset({"survey_distributions.manage"}),
-            access_token="test",
-        )
-    )
-
-    response = await client.post(
-        "/api/v1/surveys/00000000-0000-0000-0000-000000000001/distributions/",
-        json={},
-    )
-
-    assert response.status_code == 403
-
-
 async def test_user_status_update_does_not_require_profile_update(client, principal):
     created = await client.post(
         "/api/v1/users/",
@@ -73,40 +56,5 @@ async def test_user_status_update_does_not_require_profile_update(client, princi
     )
 
     response = await client.patch(f"/api/v1/users/{user_id}", json={"is_active": True})
-
-    assert response.status_code == 200
-
-
-async def test_survey_publish_does_not_require_content_update(client, principal):
-    created = await client.post(
-        "/api/v1/surveys/with-structure",
-        json={
-            "title": "Permission survey",
-            "status": "Active",
-            "sections": [
-                {
-                    "client_id": "section",
-                    "title": "Main",
-                    "questions": [
-                        {
-                            "client_id": "question",
-                            "question_text": "Question",
-                            "question_type": "text",
-                        }
-                    ],
-                }
-            ],
-        },
-    )
-    survey_id = created.json()["data"]["survey_id"]
-    override_principal(
-        Principal(
-            user=principal.user,
-            permissions=frozenset({"surveys.publish"}),
-            access_token="test",
-        )
-    )
-
-    response = await client.patch(f"/api/v1/surveys/{survey_id}", json={"status": "Closed"})
 
     assert response.status_code == 200

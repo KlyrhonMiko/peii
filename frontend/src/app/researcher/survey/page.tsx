@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useMemo, useRef } from "react"
+import { useState, useEffect, useMemo, useRef, useDeferredValue } from "react"
 import type { DragEvent } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -46,6 +46,7 @@ import {
   ArrowUp,
   ArrowDown,
   GripVertical,
+  RotateCcw,
 } from "lucide-react"
 import { cn, formatDate } from "@/lib/utils"
 import {
@@ -57,8 +58,10 @@ import {
   replaceSurveyStructure,
   createDistribution,
   fetchDistributions,
-  fetchResponses,
   getScaleOptions,
+  revokeDistribution,
+  rotateDistribution,
+  restoreSurvey,
 } from "@/lib/surveys"
 import type { Survey, SurveyQuestion, SurveySection, Distribution, SurveyResponse, SurveyStatus, SurveyStructurePayload } from "@/lib/surveys"
 
@@ -255,7 +258,7 @@ type EditorSection = Omit<SurveySection, "questions"> & {
 }
 
 type PendingAction = {
-  type: "view" | "edit" | "generate" | "save" | "delete" | "distribute"
+  type: "view" | "edit" | "generate" | "save" | "delete" | "restore" | "distribute"
   surveyId?: string
 } | null
 
@@ -338,7 +341,17 @@ function aggregateResponses(responses: SurveyResponse[]) {
 
 export default function SurveyPage() {
   const [surveys, setSurveys] = useState<Survey[]>([])
+  const [showArchived, setShowArchived] = useState(false)
   const [loading, setLoading] = useState(true)
+  const [listLoading, setListLoading] = useState(false)
+  const [search, setSearch] = useState("")
+  const [statusFilter, setStatusFilter] = useState<SurveyStatus | "all">("all")
+  const [cohortFilter, setCohortFilter] = useState("")
+  const [sortBy, setSortBy] = useState<"created_at" | "title" | "status" | "responses_count">("created_at")
+  const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc")
+  const [offset, setOffset] = useState(0)
+  const [totalSurveys, setTotalSurveys] = useState(0)
+  const [cohortOptions, setCohortOptions] = useState<string[]>([])
   const [pendingAction, setPendingAction] = useState<Exclude<PendingAction, null> | null>(null)
   const pendingActionRef = useRef<Exclude<PendingAction, null> | null>(null)
   const [requestError, setRequestError] = useState<string | null>(null)
@@ -360,6 +373,7 @@ export default function SurveyPage() {
   const [showGeneratePreview, setShowGeneratePreview] = useState(false)
   const [distributeSurveyId, setDistributeSurveyId] = useState<string | null>(null)
   const [distributions, setDistributions] = useState<Distribution[]>([])
+  const [issuedTokens, setIssuedTokens] = useState<Record<string, string>>({})
   const [distLoading, setDistLoading] = useState(false)
   const [distributionError, setDistributionError] = useState<string | null>(null)
   const [surveyResponses, setSurveyResponses] = useState<SurveyResponse[]>([])
@@ -370,6 +384,7 @@ export default function SurveyPage() {
     [surveyResponses]
   )
   const [copiedToken, setCopiedToken] = useState<string | null>(null)
+  const deferredSearch = useDeferredValue(search)
 
   const editedSurvey = modalState?.type === "edit"
     ? surveys.find((survey) => survey.id === modalState.id)
@@ -389,11 +404,13 @@ export default function SurveyPage() {
           ? "Generating questionnaire..."
           : pendingAction?.type === "save"
             ? "Saving survey..."
-              : pendingAction?.type === "delete"
-                ? "Deleting survey..."
-                : pendingAction?.type === "distribute"
-                  ? "Loading distribution..."
-                  : null
+                : pendingAction?.type === "delete"
+                  ? "Deleting survey..."
+                  : pendingAction?.type === "restore"
+                    ? "Restoring survey..."
+                  : pendingAction?.type === "distribute"
+                    ? "Loading distribution..."
+                    : null
 
   const runExclusive = async <T,>(
     action: Exclude<PendingAction, null>,
@@ -415,20 +432,40 @@ export default function SurveyPage() {
   useEffect(() => {
     let cancelled = false
     const load = async () => {
+      setListLoading(true)
       try {
-        const result = await fetchSurveys()
-        if (!cancelled) setSurveys(result.surveys)
+        const result = await fetchSurveys({
+          includeArchived: showArchived,
+          ...(deferredSearch ? { search: deferredSearch } : {}),
+          ...(statusFilter !== "all" ? { status: statusFilter } : {}),
+          ...(cohortFilter ? { targetCohort: cohortFilter } : {}),
+          sortBy,
+          sortOrder,
+          limit: 20,
+          offset,
+        })
+        if (!cancelled) {
+          setSurveys(result.surveys)
+          setTotalSurveys(result.pagination.total)
+          setCohortOptions((current) => Array.from(new Set([
+            ...current,
+            ...result.surveys.flatMap((survey) => survey.targetCohort ? [survey.targetCohort] : []),
+          ])).sort())
+        }
       } catch (error) {
         if (!cancelled) setRequestError(error instanceof Error ? error.message : "We could not load surveys.")
       } finally {
-        if (!cancelled) setLoading(false)
+        if (!cancelled) {
+          setLoading(false)
+          setListLoading(false)
+        }
       }
     }
     void load()
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [showArchived, deferredSearch, statusFilter, cohortFilter, sortBy, sortOrder, offset])
 
   const handleDelete = async (surveyId: string) => {
     setRequestError(null)
@@ -439,6 +476,20 @@ export default function SurveyPage() {
       } catch (error) {
         setRequestError(error instanceof Error ? error.message : "We could not delete the survey.")
         throw error
+      }
+    })
+  }
+
+  const handleRestore = async (survey: Survey) => {
+    setRequestError(null)
+    await runExclusive({ type: "restore", surveyId: survey.id }, async () => {
+      try {
+        const restored = await restoreSurvey(survey.surveyId)
+        setSurveys((previous) => previous.map((item) => (
+          item.id === survey.id ? restored : item
+        )))
+      } catch (error) {
+        setRequestError(error instanceof Error ? error.message : "We could not restore the survey.")
       }
     })
   }
@@ -479,12 +530,8 @@ export default function SurveyPage() {
       try {
         const full = await fetchSurvey(survey.surveyId)
         setSurveys((prev) => prev.map((s) => (s.id === id ? { ...s, ...full } : s)))
-        if (full.responses > 0) {
-          const { responses } = await fetchResponses(full.id)
-          setSurveyResponses(responses)
-        } else {
-          setSurveyResponses([])
-        }
+        // Raw responses have a separate permission and must not block survey details.
+        setSurveyResponses([])
         setModalState({ type: "view", id })
       } catch (error) {
         setRequestError(error instanceof Error ? error.message : "We could not load the survey.")
@@ -641,6 +688,7 @@ export default function SurveyPage() {
     setRequestError(null)
     setDistributionError(null)
     setDistributions([])
+    setIssuedTokens({})
     setDistributeSurveyId(surveyId)
 
     const survey = surveys.find((item) => item.id === surveyId)
@@ -656,6 +704,7 @@ export default function SurveyPage() {
         if (!items.some((item) => item.isActive)) {
           const created = await createDistribution(surveyId)
           items = [created, ...items]
+          setIssuedTokens({ [created.id]: created.token })
         }
         setDistributions(items)
       } catch (error) {
@@ -678,6 +727,23 @@ export default function SurveyPage() {
     } catch {
       /* silently fail */
     }
+  }
+
+  const handleRotateDistribution = async (distributionId: string) => {
+    if (!distributeSurveyId || interactionLocked) return
+    await runExclusive({ type: "distribute", surveyId: distributeSurveyId }, async () => {
+      const replacement = await rotateDistribution(distributeSurveyId, distributionId)
+      setIssuedTokens({ [replacement.id]: replacement.token })
+      setDistributions(await fetchDistributions(distributeSurveyId))
+    })
+  }
+
+  const handleRevokeDistribution = async (distributionId: string) => {
+    if (!distributeSurveyId || interactionLocked) return
+    await runExclusive({ type: "distribute", surveyId: distributeSurveyId }, async () => {
+      await revokeDistribution(distributeSurveyId, distributionId)
+      setDistributions(await fetchDistributions(distributeSurveyId))
+    })
   }
 
   const addSection = () => {
@@ -947,6 +1013,17 @@ export default function SurveyPage() {
         </div>
         <div className="flex gap-2">
           <Button
+            onClick={() => {
+              setShowArchived((current) => !current)
+              setOffset(0)
+            }}
+            variant="outline"
+            disabled={interactionLocked}
+          >
+            <RotateCcw data-icon="inline-start" />
+            {showArchived ? "Hide Archived" : "Archived"}
+          </Button>
+          <Button
             onClick={handleShowGeneratePreview}
             variant="outline"
             disabled={interactionLocked}
@@ -978,6 +1055,64 @@ export default function SurveyPage() {
         </div>
       )}
 
+      <div className="flex flex-col gap-3 rounded-xl border border-slate-200/80 bg-white p-3 sm:flex-row sm:items-center">
+        <Input
+          value={search}
+          onChange={(event) => {
+            setSearch(event.target.value)
+            setOffset(0)
+          }}
+          placeholder="Search survey title, ID, or description"
+          className="sm:max-w-xs"
+        />
+        <select
+          aria-label="Filter by survey status"
+          className="h-8 rounded-lg border border-slate-200 bg-white px-2 text-sm"
+          value={statusFilter}
+          onChange={(event) => {
+            setStatusFilter(event.target.value as SurveyStatus | "all")
+            setOffset(0)
+          }}
+        >
+          <option value="all">All statuses</option>
+          {SURVEY_STATUSES.map((status) => <option key={status} value={status}>{status}</option>)}
+        </select>
+        <select
+          aria-label="Filter by target cohort"
+          className="h-8 rounded-lg border border-slate-200 bg-white px-2 text-sm"
+          value={cohortFilter}
+          onChange={(event) => {
+            setCohortFilter(event.target.value)
+            setOffset(0)
+          }}
+        >
+          <option value="">All cohorts</option>
+          {cohortOptions.map((cohort) => <option key={cohort} value={cohort}>{cohort}</option>)}
+        </select>
+        <select
+          aria-label="Sort surveys"
+          className="h-8 rounded-lg border border-slate-200 bg-white px-2 text-sm"
+          value={`${sortBy}:${sortOrder}`}
+          onChange={(event) => {
+            const [nextSortBy, nextSortOrder] = event.target.value.split(":")
+            if (!nextSortBy || (nextSortOrder !== "asc" && nextSortOrder !== "desc")) return
+            setSortBy(nextSortBy as typeof sortBy)
+            setSortOrder(nextSortOrder)
+            setOffset(0)
+          }}
+        >
+          <option value="created_at:desc">Newest first</option>
+          <option value="created_at:asc">Oldest first</option>
+          <option value="title:asc">Title A-Z</option>
+          <option value="title:desc">Title Z-A</option>
+          <option value="responses_count:desc">Most responses</option>
+          <option value="status:asc">Status</option>
+        </select>
+        <p className="text-xs text-slate-500 sm:ml-auto">
+          {totalSurveys} survey{totalSurveys === 1 ? "" : "s"}
+        </p>
+      </div>
+
       {/* Survey List */}
       <div className="rounded-xl border border-slate-200/80 bg-white overflow-hidden">
         <div className="overflow-x-auto">
@@ -992,7 +1127,7 @@ export default function SurveyPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {loading ? (
+              {loading || listLoading ? (
                 <tr>
                   <td colSpan={5} className="px-5 py-8 text-center text-slate-500">
                     <Loader2 className="size-5 animate-spin mx-auto" />
@@ -1011,7 +1146,7 @@ export default function SurveyPage() {
                 surveys.map((survey) => (
                   <tr
                     key={survey.id}
-                    className="hover:bg-slate-50/50 transition-colors"
+                    className={cn("hover:bg-slate-50/50 transition-colors", survey.isDeleted && "bg-slate-50/70")}
                   >
                     <td className="px-5 py-4">
                       <div className="flex items-center gap-3">
@@ -1032,10 +1167,11 @@ export default function SurveyPage() {
                           survey.status === "Inactive" &&
                             "bg-amber-50 text-amber-700",
                           survey.status === "Closed" &&
-                            "bg-slate-100 text-slate-600"
+                            "bg-slate-100 text-slate-600",
+                          survey.isDeleted && "bg-slate-100 text-slate-600"
                         )}
                       >
-                        {survey.status}
+                        {survey.isDeleted ? "Archived" : survey.status}
                       </span>
                     </td>
                     <td className="px-5 py-4">
@@ -1052,7 +1188,20 @@ export default function SurveyPage() {
                     </td>
                     <td className="px-5 py-4 text-right">
                       <div className="flex items-center justify-end gap-2">
-                        <Button
+                        {survey.isDeleted ? (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleRestore(survey)}
+                            disabled={interactionLocked}
+                            className="text-slate-500 hover:text-indigo-600 hover:bg-indigo-50"
+                          >
+                            <RotateCcw data-icon="inline-start" />
+                            Restore
+                          </Button>
+                        ) : (
+                          <>
+                          <Button
                           variant="ghost"
                           size="icon"
                           onClick={() => handleOpenView(survey.id)}
@@ -1072,7 +1221,6 @@ export default function SurveyPage() {
                         >
                           {pendingAction?.type === "edit" && pendingAction.surveyId === survey.id ? <Loader2 className="size-4 animate-spin" /> : <Pencil className="size-4" />}
                         </Button>
-
                         <Button
                           variant="ghost"
                           size="icon"
@@ -1093,6 +1241,8 @@ export default function SurveyPage() {
                         >
                           {pendingAction?.type === "delete" && pendingAction.surveyId === survey.id ? <Loader2 className="size-4 animate-spin" /> : <Trash className="size-4" />}
                         </Button>
+                          </>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -1102,6 +1252,20 @@ export default function SurveyPage() {
           </table>
         </div>
       </div>
+
+      {totalSurveys > 20 && (
+        <div className="flex items-center justify-end gap-2">
+          <p className="mr-auto text-xs text-slate-500">
+            Showing {offset + 1}-{Math.min(offset + surveys.length, totalSurveys)} of {totalSurveys}
+          </p>
+          <Button variant="outline" size="sm" onClick={() => setOffset(Math.max(0, offset - 20))} disabled={offset === 0 || listLoading}>
+            Previous
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => setOffset(offset + 20)} disabled={offset + surveys.length >= totalSurveys || listLoading}>
+            Next
+          </Button>
+        </div>
+      )}
 
       {/* ── Create / Edit Survey Dialog ─────────────────────────────── */}
       <Dialog
@@ -2471,9 +2635,9 @@ export default function SurveyPage() {
       >
         <DialogContent className="max-w-md" showCloseButton={true}>
           <DialogHeader>
-            <DialogTitle>Delete Survey</DialogTitle>
+            <DialogTitle>Archive Survey</DialogTitle>
             <DialogDescription>
-              Are you sure you want to delete this survey? This action cannot be undone and all collected responses will be permanently removed.
+              Archive this survey? It will be hidden and all distribution links will be revoked. Collected responses are retained.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
@@ -2501,7 +2665,7 @@ export default function SurveyPage() {
               disabled={interactionLocked}
             >
               {pendingAction?.type === "delete" ? <Loader2 className="size-4 animate-spin" /> : null}
-              Delete Survey
+              Archive Survey
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -2560,8 +2724,11 @@ export default function SurveyPage() {
                   )}
 
                   {distributions.map((d) => {
-                    const surveyUrl = `${typeof window !== "undefined" ? window.location.origin : ""}/survey/${d.token}`
-                    const displayUrl = surveyUrl.replace(/^https?:\/\//, '')
+                    const token = issuedTokens[d.id]
+                    const surveyUrl = token
+                      ? `${typeof window !== "undefined" ? window.location.origin : ""}/survey/${token}`
+                      : null
+                    const displayUrl = surveyUrl?.replace(/^https?:\/\//, '')
                     
                     return (
                       <div
@@ -2581,7 +2748,7 @@ export default function SurveyPage() {
                               <span className={cn("relative inline-flex size-2 rounded-full", d.isActive ? "bg-emerald-500" : "bg-slate-400")}></span>
                             </span>
                             <span className="truncate block text-xs font-medium text-slate-700">
-                              {displayUrl}
+                              {displayUrl ?? "Rotate to issue a new link"}
                             </span>
                           </div>
                           <span className="truncate block text-[10px] text-slate-400 ml-4">
@@ -2592,18 +2759,37 @@ export default function SurveyPage() {
                         <div className="flex shrink-0 items-center gap-1 sm:opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
                           {d.isActive && (
                             <>
+                              {token ? (
                               <Button
                                 variant="ghost"
                                 size="icon-xs"
-                                onClick={() => handleCopyLink(d.token)}
+                                onClick={() => handleCopyLink(token)}
                                 className="h-7 w-7 text-slate-500 hover:text-slate-900 hover:bg-slate-100 rounded-md"
                                 title="Copy link"
                               >
-                                {copiedToken === d.token ? (
+                                {copiedToken === token ? (
                                   <CheckCircle2 className="size-3.5 text-emerald-500" />
                                 ) : (
                                   <Copy className="size-3.5" />
                                 )}
+                              </Button>
+                              ) : (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => handleRotateDistribution(d.id)}
+                                  className="h-7 text-xs text-slate-600 hover:text-slate-900"
+                                >
+                                  Rotate
+                                </Button>
+                              )}
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => handleRevokeDistribution(d.id)}
+                                className="h-7 text-xs text-slate-500 hover:text-red-700"
+                              >
+                                Revoke
                               </Button>
                             </>
                           )}

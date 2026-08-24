@@ -90,3 +90,6 @@ yarn-error.log*
 
 # agents / skills
 .agents/
+
+# local documentation
+/docs/local_docs/

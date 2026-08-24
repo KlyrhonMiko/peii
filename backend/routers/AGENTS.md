@@ -53,6 +53,6 @@ parsing, status codes, response models, and response assembly.
 
 ## Auth Boundary
 - Protected routes use `CurrentPrincipal` or `require_permissions(...)` from `core.deps`.
-- Survey routes additionally enforce owner/collaborator access in the survey authorization
-  layer. Public token routes remain intentionally unauthenticated.
+- Survey routes require an authenticated principal and are shared across portal users. Public
+  token routes remain intentionally unauthenticated.
 - Frontend guards never replace backend authorization.

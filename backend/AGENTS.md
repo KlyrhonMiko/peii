@@ -109,8 +109,8 @@ Read this file first, then the guide closest to the files you are changing.
 ## Authentication Boundary
 - `core.auth` verifies Supabase bearer JWTs through JWKS and issuer/audience checks.
 - `core.deps.CurrentPrincipal` resolves the local user and effective roles/permissions.
-- Use `require_permissions(...)` for permission-gated routes. Survey routes also enforce
-  owner/collaborator access where applicable.
+- Use `require_permissions(...)` for admin permission-gated routes. Survey routes require an
+  authenticated principal and are shared across portal users.
 - Password login, recovery, invitation, logout, and password changes delegate to Supabase;
   never persist or log credentials or tokens locally.
 

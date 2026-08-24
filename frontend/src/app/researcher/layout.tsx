@@ -10,7 +10,7 @@ export default async function ResearcherLayout({
 }: {
   children: React.ReactNode
 }) {
-  const user = await requirePortalUser("portal.access")
+  const user = await requirePortalUser()
   return (
     <SidebarProvider>
       <AppSidebar user={user} />

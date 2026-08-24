@@ -108,10 +108,28 @@ describe("backend BFF", () => {
     )
 
     expect(fetchMock).toHaveBeenCalledWith(
-      "http://backend:8000/api/v1/surveys?limit=20",
+      "http://backend:8000/api/v1/surveys/?limit=20",
       expect.objectContaining({ method: "GET" }),
     )
     expect(response.headers.get("set-cookie")).toBeNull()
     expect(await response.text()).toBe('{"data":[]}')
+  })
+
+  it("normalizes collection routes to the backend trailing-slash form", async () => {
+    vi.stubEnv("BACKEND_INTERNAL_URL", "http://backend:8000/api/v1")
+    mocks.getClaims.mockResolvedValue({ data: { claims: { sub: "user-id" } } })
+    mocks.getSession.mockResolvedValue({ data: { session: { access_token: "access-token" } } })
+    const fetchMock = vi.fn(async () => new Response('{"data":[]}'))
+    vi.stubGlobal("fetch", fetchMock)
+
+    await GET(
+      new NextRequest("http://localhost:3000/api/backend/surveys?status=Active"),
+      context(["surveys"]),
+    )
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://backend:8000/api/v1/surveys/?status=Active",
+      expect.objectContaining({ method: "GET" }),
+    )
   })
 })

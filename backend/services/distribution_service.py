@@ -328,3 +328,38 @@ async def revoke_for_structure_change(
             )
         )
     return events
+
+
+async def revoke_for_survey_archive(
+    session: AsyncSession,
+    survey: Survey,
+    performed_by: UUID,
+    ip_address: str | None = None,
+) -> list[AuditEvent]:
+    result = await session.exec(
+        select(SurveyDistribution)
+        .where(
+            col(SurveyDistribution.survey_id) == survey.id,
+            col(SurveyDistribution.is_deleted).is_(False),
+            col(SurveyDistribution.revoked_at).is_(None),
+        )
+        .with_for_update()
+    )
+    now = utc_now()
+    events: list[AuditEvent] = []
+    for distribution in result.all():
+        distribution.revoked_at = now
+        distribution.updated_at = now
+        distribution.performed_by = performed_by
+        session.add(distribution)
+        events.append(
+            AuditEvent(
+                action="revoke",
+                resource_type="survey_distribution",
+                resource_id=str(distribution.id),
+                performed_by=performed_by,
+                changes={"reason": "survey_archived"},
+                ip_address=ip_address,
+            )
+        )
+    return events
