@@ -36,19 +36,3 @@ class RoleRead(BaseModel):
 
 class UserRoleUpdate(BaseModel):
     role_ids: list[UUID] = Field(min_length=1, max_length=20)
-
-
-class SurveyMembershipCreate(BaseModel):
-    user_id: UUID
-    access_level: str = Field(pattern=r"^(viewer|editor)$")
-
-
-class SurveyMembershipUpdate(BaseModel):
-    access_level: str = Field(pattern=r"^(viewer|editor)$")
-
-
-class SurveyMembershipRead(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
-    user_id: UUID
-    access_level: str

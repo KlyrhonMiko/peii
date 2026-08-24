@@ -1,9 +1,9 @@
 import json
 from datetime import datetime
-from typing import Any
+from typing import Annotated, Any, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from schemas.common import ListQueryParams
 
@@ -68,3 +68,59 @@ class SurveyResponseRead(SurveyResponseBaseSchema):
 
 class SurveyResponseListQueryParams(ListQueryParams):
     sort_by: str = "created_at"
+
+
+class EraseSelectedResponses(BaseModel):
+    scope: Literal["selected"]
+    response_ids: list[UUID] = Field(min_length=1, max_length=100)
+    confirmation: Literal["ERASE_SELECTED_RESPONSES"]
+
+    @field_validator("response_ids")
+    @classmethod
+    def require_unique_response_ids(cls, value: list[UUID]) -> list[UUID]:
+        if len(value) != len(set(value)):
+            raise ValueError("response_ids must be unique")
+        return value
+
+
+class EraseAllResponses(BaseModel):
+    scope: Literal["all"]
+    expected_response_count: int = Field(ge=0)
+    confirmation: Literal["ERASE_ALL_RESPONSES"]
+
+
+EraseResponsesRequest = Annotated[
+    EraseSelectedResponses | EraseAllResponses,
+    Field(discriminator="scope"),
+]
+
+
+class ResponseErasureResult(BaseModel):
+    scope: Literal["selected", "all"]
+    requested_count: int
+    erased_count: int
+
+
+AggregateQuestionType = Literal[
+    "single_choice",
+    "boolean",
+    "multiple_choice",
+    "scale",
+    "ranking",
+    "matrix",
+]
+
+
+class AggregateCell(BaseModel):
+    value: str | int | float | bool
+    count: int
+    rank: int | None = None
+    row: str | None = None
+
+
+class SurveyResponseAggregate(BaseModel):
+    question_id: UUID
+    question_text: str
+    question_type: AggregateQuestionType
+    total: int
+    cells: list[AggregateCell]

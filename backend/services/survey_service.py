@@ -8,11 +8,9 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from core.exceptions import AppError
 from models.survey import Survey
-from models.survey_membership import SurveyMembership
 from models.survey_question import SurveyQuestion
 from models.survey_response import SurveyResponse
 from models.survey_section import SurveySection
-from models.user import User
 from schemas.survey import (
     SurveyCreate,
     SurveyCreateWithStructure,
@@ -24,7 +22,6 @@ from schemas.survey import (
 from services.audit_service import AuditEvent, commit_with_audit
 from services.base_service import apply_updates, utc_now
 from services.question_validation import validate_question_definition
-from services.rbac_service import assert_survey_access
 from utils.identifiers import generate_business_id
 from utils.sorting import stable_order_by
 
@@ -53,22 +50,9 @@ def _apply_survey_list_filters(statement, params: SurveyListQueryParams):
 async def list_surveys(
     session: AsyncSession,
     params: SurveyListQueryParams,
-    user: User,
-    permissions: frozenset[str],
 ) -> tuple[list[Survey], int]:
     statement = select(Survey)
     total_statement = select(func.count()).select_from(Survey)
-    if "surveys.access_all" not in permissions:
-        accessible_ids = select(SurveyMembership.survey_id).where(
-            col(SurveyMembership.user_id) == user.id,
-            col(SurveyMembership.is_deleted).is_(False),
-        )
-        access_filter = or_(
-            col(Survey.owner_id) == user.id,
-            col(Survey.id).in_(accessible_ids),
-        )
-        statement = statement.where(access_filter)
-        total_statement = total_statement.where(access_filter)
     statement = _apply_survey_list_filters(statement, params)
 
     total_statement = _apply_survey_list_filters(total_statement, params)
@@ -95,24 +79,25 @@ async def list_surveys(
     return rows, total
 
 
-async def authorize_survey(
+async def resolve_survey(
     session: AsyncSession,
     survey_id: UUID | str,
-    user: User,
-    permissions: frozenset[str],
     *,
-    write: bool = False,
-    owner_only: bool = False,
     include_deleted: bool = False,
+    for_update: bool = False,
 ) -> Survey:
     survey = (
-        await get_survey_by_uuid(session, survey_id)
+        await get_survey_by_uuid(
+            session,
+            survey_id,
+            include_deleted=include_deleted,
+            for_update=for_update,
+        )
         if isinstance(survey_id, UUID)
-        else await get_survey(session, survey_id, include_deleted=include_deleted)
+        else await get_survey(
+            session, survey_id, include_deleted=include_deleted, for_update=for_update
+        )
     )
-    access_level = await assert_survey_access(session, user, set(permissions), survey, write=write)
-    if owner_only and access_level != "owner":
-        raise AppError("Survey not found.", status_code=status.HTTP_404_NOT_FOUND)
     return survey
 
 
@@ -207,13 +192,19 @@ async def ensure_survey_ready_for_activation(
         raise _activation_readiness_error(errors, status_code)
 
 
-async def get_survey_by_uuid(session: AsyncSession, survey_id: UUID) -> Survey:
-    result = await session.exec(
-        select(Survey).where(
-            col(Survey.id) == survey_id,
-            col(Survey.is_deleted).is_(False),
-        )
-    )
+async def get_survey_by_uuid(
+    session: AsyncSession,
+    survey_id: UUID,
+    *,
+    include_deleted: bool = False,
+    for_update: bool = False,
+) -> Survey:
+    statement = select(Survey).where(col(Survey.id) == survey_id)
+    if not include_deleted:
+        statement = statement.where(col(Survey.is_deleted).is_(False))
+    if for_update:
+        statement = statement.with_for_update()
+    result = await session.exec(statement)
     survey = result.first()
     if not survey:
         raise AppError("Survey not found.", status_code=status.HTTP_404_NOT_FOUND)
@@ -320,7 +311,6 @@ async def create_survey(
         )
     survey_data = payload.model_dump()
     survey_data["survey_id"] = generate_business_id("SURV")
-    survey_data["owner_id"] = actor_id
     survey = Survey.model_validate(survey_data)
     survey.performed_by = actor_id
     session.add(survey)
@@ -333,7 +323,7 @@ async def create_survey(
                 resource_id=survey.survey_id,
                 performed_by=actor_id,
                 ip_address=ip_address,
-            ),
+            )
         ],
     )
     await session.refresh(survey)
@@ -370,7 +360,6 @@ async def create_survey_with_structure(
 
     survey_data = payload.model_dump(exclude={"sections"})
     survey_data["survey_id"] = generate_business_id("SURV")
-    survey_data["owner_id"] = actor_id
     survey = Survey.model_validate(survey_data)
     survey.performed_by = actor_id
     session.add(survey)
@@ -485,22 +474,27 @@ async def soft_delete_survey(
     actor_id: UUID,
     ip_address: str | None = None,
 ) -> Survey:
-    survey = await get_survey(session, survey_id)
+    survey = await get_survey(session, survey_id, for_update=True)
     survey.is_deleted = True
     survey.deleted_at = utc_now()
     survey.performed_by = actor_id
     survey.updated_at = utc_now()
     session.add(survey)
+    # Avoid a module cycle with distribution validation's survey-readiness dependency.
+    from services.distribution_service import revoke_for_survey_archive
+
+    distribution_events = await revoke_for_survey_archive(session, survey, actor_id, ip_address)
     await commit_with_audit(
         session,
         [
             AuditEvent(
-                action="delete",
+                action="archive",
                 resource_type="survey",
                 resource_id=survey.survey_id,
                 performed_by=actor_id,
                 ip_address=ip_address,
-            )
+            ),
+            *distribution_events,
         ],
     )
     await session.refresh(survey)
@@ -522,15 +516,9 @@ async def restore_survey(
     )
     if not survey.is_deleted:
         raise AppError("Survey is not deleted.", status_code=status.HTTP_400_BAD_REQUEST)
-    if survey.status == "Active":
-        await ensure_survey_ready_for_activation(
-            session,
-            survey.id,
-            status.HTTP_409_CONFLICT,
-        )
-
     survey.is_deleted = False
     survey.deleted_at = None
+    survey.status = "Inactive"
     survey.performed_by = actor_id
     survey.updated_at = utc_now()
     session.add(survey)

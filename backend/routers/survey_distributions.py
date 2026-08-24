@@ -51,13 +51,9 @@ async def create_distribution(
     payload: SurveyDistributionCreate,
     session: AsyncDBSession,
     request: Request,
-    principal: Principal = Depends(
-        require_permissions("survey_distributions.manage", "survey_distributions.read_token")
-    ),
+    principal: Principal = Depends(require_permissions("survey_distributions.manage")),
 ) -> APIResponse[SurveyDistributionSecretRead]:
-    await survey_service.authorize_survey(
-        session, survey_id, principal.user, principal.permissions, write=True
-    )
+    await survey_service.resolve_survey(session, survey_id)
     ip_address = request.client.host if request.client else None
     distribution = await distribution_service.create_distribution(
         session, survey_id, payload, performed_by=principal.user.id, ip_address=ip_address
@@ -72,14 +68,14 @@ async def create_distribution(
     "/",
     response_model=APIResponse[list[SurveyDistributionRead]],
     summary="List Distributions",
-    description="List all distribution tokens for a survey.",
+    description="List distribution metadata for a survey; distribution tokens are not returned.",
 )
 async def list_distributions(
     survey_id: UUID,
     session: AsyncDBSession,
-    principal: Principal = Depends(require_permissions("survey_distributions.read")),
+    principal: Principal = Depends(require_permissions("survey_distributions.manage")),
 ) -> APIResponse[list[SurveyDistributionRead]]:
-    await survey_service.authorize_survey(session, survey_id, principal.user, principal.permissions)
+    await survey_service.resolve_survey(session, survey_id)
     distributions, survey_status = await distribution_service.list_distributions(session, survey_id)
     return success_response(
         [_distribution_read(d, survey_status) for d in distributions],
@@ -99,9 +95,7 @@ async def revoke_distribution(
     request: Request,
     principal: Principal = Depends(require_permissions("survey_distributions.manage")),
 ) -> APIResponse[SurveyDistributionRead]:
-    await survey_service.authorize_survey(
-        session, survey_id, principal.user, principal.permissions, write=True
-    )
+    await survey_service.resolve_survey(session, survey_id)
     ip_address = request.client.host if request.client else None
     distribution, survey_status = await distribution_service.revoke_distribution(
         session, survey_id, distribution_id, performed_by=principal.user.id, ip_address=ip_address
@@ -125,13 +119,9 @@ async def rotate_distribution(
     payload: SurveyDistributionCreate,
     session: AsyncDBSession,
     request: Request,
-    principal: Principal = Depends(
-        require_permissions("survey_distributions.manage", "survey_distributions.read_token")
-    ),
+    principal: Principal = Depends(require_permissions("survey_distributions.manage")),
 ) -> APIResponse[SurveyDistributionSecretRead]:
-    await survey_service.authorize_survey(
-        session, survey_id, principal.user, principal.permissions, write=True
-    )
+    await survey_service.resolve_survey(session, survey_id)
     ip_address = request.client.host if request.client else None
     distribution, survey_status = await distribution_service.rotate_distribution(
         session,

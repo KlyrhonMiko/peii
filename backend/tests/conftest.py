@@ -26,6 +26,21 @@ from main import app  # noqa: E402
 from models.user import User  # noqa: E402
 from services import user_service  # noqa: E402
 from services.rbac_service import PERMISSIONS  # noqa: E402
+from tests.integration.fixtures import (  # noqa: E402,F401
+    PostgresTestDatabase,
+    migrate_to,
+    postgres_connection,
+    postgres_database,
+)
+
+
+def pytest_addoption(parser: pytest.Parser) -> None:
+    parser.addoption(
+        "--require-postgres",
+        action="store_true",
+        default=False,
+        help="fail instead of skip when TEST_DATABASE_URL is not configured",
+    )
 
 
 @pytest.fixture

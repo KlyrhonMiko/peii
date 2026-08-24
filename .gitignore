@@ -90,3 +90,10 @@ yarn-error.log*
 
 # agents / skills
 .agents/
+
+.opencode/
+
+.playwright-mcp/
+
+# local documentation
+docs/

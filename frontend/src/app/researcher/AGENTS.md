@@ -10,8 +10,10 @@ analytics, survey management/detail/settings, and model routes.
   renders the cohort trend chart wrapper.
 - `analytics/page.tsx` owns interactive filters and renders PEII dimensions and sentiment
   divergence chart wrappers.
-- `survey/page.tsx` provides live survey CRUD, structure editing/reordering, distribution,
-  response, and aggregation workflows; nested detail/settings pages remain placeholders.
+- `survey/page.tsx` authenticates with `surveys.read` and composes the live
+  `SurveyManagement` client component. That component owns survey CRUD, structure
+  editing/reordering, distribution, response, aggregate, raw, export, and erasure workflows;
+  nested detail/settings pages remain placeholders.
 - `models/page.tsx` loads the authenticated model catalog server-side from
   `BACKEND_INTERNAL_URL`.
 
@@ -25,6 +27,8 @@ analytics, survey management/detail/settings, and model routes.
   `src/components/Client*.tsx`.
 - Preserve the current analytics tone: compact surfaces, subtle borders, restrained
   shadows, and indigo/slate accents.
+- Pass explicit capability data from the route. Do not treat portal authentication as survey
+  authorization; the shared survey workspace is global RBAC without ownership or membership.
 
 ## Data And Charts
 - If chart or summary-card data becomes dynamic, define explicit data types.

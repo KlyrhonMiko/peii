@@ -6,6 +6,9 @@ pre-commit configuration currently invokes them automatically.
 
 ## Command
 - Run from `backend/`: `env DEBUG=false ./.venv/bin/pytest -q`.
+- Integration tests are marked `integration` and skip when `TEST_DATABASE_URL` is absent. Run
+  the PostgreSQL integration gate with
+  `TEST_DATABASE_URL=postgresql+psycopg2://... env DEBUG=false ./.venv/bin/pytest -q --require-postgres`.
 - Keep tests compatible with `pytest.ini`, which discovers `tests/`.
 - Use repo-local tools from `./.venv/bin/` in docs and scripts.
 
@@ -26,7 +29,8 @@ pre-commit configuration currently invokes them automatically.
 - Use lower-level service or utility tests only when they isolate behavior more clearly
   than an API test.
 - Keep tests deterministic. Do not depend on an external Postgres, Supabase project,
-  network service, clock-sensitive sleeps, or test order.
+  network service, clock-sensitive sleeps, or test order. The explicitly marked PostgreSQL
+  integration tests are the exception and use an isolated schema.
 - Use unique emails, usernames, or ids inside tests to avoid accidental cross-test coupling.
 - Keep manual smoke scripts out of `tests/`; pytest files should be automated assertions.
 
@@ -44,6 +48,9 @@ pre-commit configuration currently invokes them automatically.
 - For expected domain failures, assert the status code and shared error shape.
 - For user/auth behavior, assert Supabase identity linkage, invitation timestamps, legacy
   password/role field rejection, and the absence of credentials in responses.
+- For survey capability behavior, cover the separate aggregate/raw/export/erase permissions,
+  token-free distribution metadata, explicit expiry, `k=5` suppression, archive/restore, and
+  idempotent selected/all erasure.
 
 ## Fixture & Database Override Rules
 - `conftest.py` overrides both sync `get_session` and async `get_async_session` with an in-memory SQLite database (`aiosqlite`).

@@ -8,7 +8,7 @@ database shape; they should not know about HTTP requests.
 - Shared table fields live in `models/base_model.py`.
 - `TimestampedUUIDModel` provides UUIDv7 `id`, timestamps, soft-delete fields, and
   `performed_by`; `BaseModel` is the common resource base.
-- Resources commonly inherit `BaseModel`; RBAC and membership tables inherit
+- Resources commonly inherit `BaseModel`; RBAC association tables inherit
   `TimestampedUUIDModel`; `AuditLog` has a direct `SQLModel` shape.
 - Current tables use explicit `Field(...)` constraints, indexes, uniqueness, and
   max lengths.
@@ -27,6 +27,8 @@ database shape; they should not know about HTTP requests.
 - Keep business rules and commits in services, not model methods.
 - The local `User` model links to Supabase with `auth_user_id` and does not persist a
   password.
+- Survey scope is global RBAC; do not add survey ownership persistence or per-survey access
+  tables to model definitions.
 - Do not expose sensitive fields by making them convenient on read schemas. Schema files
   own API visibility.
 

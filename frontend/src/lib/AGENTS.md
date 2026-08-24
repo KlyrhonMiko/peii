@@ -6,7 +6,8 @@ This guide covers `src/lib/`.
 ## Current Responsibilities
 - `utils.ts` provides `cn()` and `formatDate()`.
 - `api.ts` owns the authenticated browser API envelope/error client.
-- `users.ts`, `rbac.ts`, and `surveys.ts` own domain types, mapping, and operations.
+- `users.ts`, `rbac.ts`, and `surveys.ts` own domain types, mapping, and operations. `surveys.ts`
+  includes explicit distribution, aggregate, raw-response, export, and erasure operations.
 - `auth.ts` owns server-side current-user and permission guards.
 - `supabase/` owns the server client and cookie policy.
 - `safe-redirect.ts` and `backend-proxy-policy.ts` own navigation and backend endpoint
@@ -34,5 +35,8 @@ This guide covers `src/lib/`.
 ## API And Data Helpers
 - Keep `api.ts`, `users.ts`, `rbac.ts`, and `surveys.ts` aligned with backend schemas and
   the shared envelope shape.
+- Forward the effective capability set to researcher UI; authentication is not sufficient for
+  survey operations. Distribution metadata must remain token-free after reload, while create
+  and rotate may expose a token only in their one-time secret response.
 - Authenticated browser calls use `api.ts` and `/api/backend`. Server-only calls use
   `BACKEND_INTERNAL_URL`; public surveys use `NEXT_PUBLIC_API_URL` directly.

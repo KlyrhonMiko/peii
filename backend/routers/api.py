@@ -6,7 +6,6 @@ from routers.health import router as health_router
 from routers.ml import router as ml_router
 from routers.rbac import router as rbac_router
 from routers.survey_distributions import router as survey_distributions_router
-from routers.survey_memberships import router as survey_memberships_router
 from routers.survey_public import router as survey_public_router
 from routers.survey_questions import router as survey_questions_router
 from routers.survey_responses import router as survey_responses_router
@@ -36,11 +35,6 @@ api_router.include_router(
     survey_sections_router,
     prefix="/surveys/{survey_id}/sections",
     tags=["survey-sections"],
-)
-api_router.include_router(
-    survey_memberships_router,
-    prefix="/surveys/{survey_id}/members",
-    tags=["survey-memberships"],
 )
 api_router.include_router(
     survey_responses_router,

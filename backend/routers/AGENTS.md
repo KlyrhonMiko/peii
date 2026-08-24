@@ -53,6 +53,9 @@ parsing, status codes, response models, and response assembly.
 
 ## Auth Boundary
 - Protected routes use `CurrentPrincipal` or `require_permissions(...)` from `core.deps`.
-- Survey routes additionally enforce owner/collaborator access in the survey authorization
-  layer. Public token routes remain intentionally unauthenticated.
+- Survey routes use explicit capability checks over a global RBAC workspace; authentication
+  alone does not grant survey access, and survey ownership or membership is not used. Keep raw
+  reads, aggregates, export, distribution management, and erasure separately permissioned.
+- Public token routes remain intentionally unauthenticated and must not expose token secrets in
+  metadata responses.
 - Frontend guards never replace backend authorization.

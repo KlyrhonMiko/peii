@@ -34,7 +34,6 @@ async def _create_legacy_active_survey(client, title: str) -> tuple[str, str]:
     try:
         survey = Survey(
             survey_id=f"SURV-{uuid4().hex[:8]}",
-            owner_id=UUID("00000000-0000-0000-0000-000000000001"),
             title=title,
             status="Active",
         )
@@ -365,23 +364,21 @@ async def test_legacy_invalid_active_survey_cannot_be_distributed_or_submitted(c
         await session_generator.aclose()
 
 
-async def test_restore_rejects_legacy_invalid_active_survey(client):
+async def test_restore_inactivates_legacy_invalid_active_survey(client):
     _, survey_business_id = await _create_legacy_active_survey(client, "Deleted Legacy Survey")
 
     deleted = await client.request("DELETE", f"/api/v1/surveys/{survey_business_id}", json={})
     assert deleted.status_code == 200
 
     restored = await client.post(f"/api/v1/surveys/{survey_business_id}/restore", json={})
-    assert restored.status_code == 409
-    body = restored.json()
-    assert body["message"] == "Survey is not ready to be activated."
-    assert body["errors"][0]["code"] == "no_sections"
+    assert restored.status_code == 200
+    assert restored.json()["data"]["status"] == "Inactive"
 
     override = app.dependency_overrides[get_async_session]
     session_generator = override()
     session = await anext(session_generator)
     try:
         result = await session.exec(select(Survey).where(Survey.survey_id == survey_business_id))
-        assert result.one().is_deleted is True
+        assert result.one().is_deleted is False
     finally:
         await session_generator.aclose()

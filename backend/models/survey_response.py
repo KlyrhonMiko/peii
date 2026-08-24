@@ -4,7 +4,7 @@ from sqlalchemy import JSON, Column, ForeignKeyConstraint, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlmodel import Field
 
-from models.base_model import BaseModel
+from models.base_model import BaseModel, TimestampedUUIDModel
 
 
 class SurveyResponse(BaseModel, table=True):
@@ -32,3 +32,23 @@ class SurveyResponse(BaseModel, table=True):
     answers: dict[str, object] = Field(
         sa_column=Column(JSON().with_variant(JSONB, "postgresql"), nullable=False)
     )
+
+
+class ResponseErasureReceipt(TimestampedUUIDModel, table=True):
+    """Durable, non-sensitive idempotency record for a response erasure batch."""
+
+    __tablename__ = "response_erasure_receipts"
+    __table_args__ = (
+        UniqueConstraint(
+            "survey_id",
+            "idempotency_key",
+            name="uq_response_erasure_receipts_survey_idempotency",
+        ),
+    )
+
+    survey_id: UUID = Field(foreign_key="surveys.id", index=True, nullable=False)
+    idempotency_key: UUID = Field(index=True, nullable=False)
+    request_hash: str = Field(max_length=64, nullable=False)
+    scope: str = Field(max_length=20, nullable=False)
+    requested_count: int = Field(nullable=False)
+    erased_count: int = Field(nullable=False)

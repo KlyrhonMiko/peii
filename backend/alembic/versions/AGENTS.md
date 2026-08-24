@@ -7,11 +7,16 @@ database change log, not as scratch files.
 ## Revision Rules
 - Add a new revision for each new schema change.
 - Do not rewrite older shared or already-applied revisions.
+- The current head is `20260825_0001`, with `20260825_0002` immediately before it. Preserve
+  both revisions and the older collaboration history exactly as committed.
 - Start model-driven migrations with Alembic autogenerate, then edit only after reviewing
   the generated diff.
 - Keep each revision focused on the schema change it represents.
 - Keep `revision`, `down_revision`, `branch_labels`, and `depends_on` accurate.
 - Keep upgrade and downgrade paths paired when practical.
+- Revision `81568591615f` intentionally has an unusable downgrade because its removed
+  collaboration data and APIs cannot be safely recreated. Roll back with a forward-fix or a
+  validated backup/PITR restore instead.
 
 ## Safe Change Patterns
 - For new non-null fields on existing tables, use a safe transition: add nullable or with

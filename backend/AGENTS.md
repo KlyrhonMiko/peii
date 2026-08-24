@@ -26,6 +26,9 @@ Read this file first, then the guide closest to the files you are changing.
   - `./.venv/bin/ruff check .`
   - `./.venv/bin/mypy .`
   - `env DEBUG=false ./.venv/bin/pytest -q`
+- PostgreSQL integration tests are marked `integration` and skip when
+  `TEST_DATABASE_URL` is absent. Run them explicitly with
+  `TEST_DATABASE_URL=postgresql+psycopg2://... env DEBUG=false ./.venv/bin/pytest -q --require-postgres`.
 - The committed config is Python 3.14-oriented: `ruff.toml` targets `py314`, `mypy.ini`
   uses `python_version = 3.14`, and the Docker image is `python:3.14-slim`.
 - No tracked pre-commit configuration currently runs these checks automatically.
@@ -109,8 +112,10 @@ Read this file first, then the guide closest to the files you are changing.
 ## Authentication Boundary
 - `core.auth` verifies Supabase bearer JWTs through JWKS and issuer/audience checks.
 - `core.deps.CurrentPrincipal` resolves the local user and effective roles/permissions.
-- Use `require_permissions(...)` for permission-gated routes. Survey routes also enforce
-  owner/collaborator access where applicable.
+- Use `require_permissions(...)` for capability-gated routes. Survey access is global RBAC:
+  authentication alone is not authorization, and surveys have no ownership or membership
+  scope. Keep `surveys.read`, `surveys.manage`, distribution management, aggregate reads, raw
+  reads, export, and erase as separate capabilities.
 - Password login, recovery, invitation, logout, and password changes delegate to Supabase;
   never persist or log credentials or tokens locally.
 
@@ -120,6 +125,9 @@ Read this file first, then the guide closest to the files you are changing.
 - Review the generated diff before making manual edits. Manual edits should be narrow and explainable from the model change, data backfill, or database limitation.
 - When adding a required business id to an existing table, use a safe migration sequence: add nullable, backfill existing rows with unique prefixed values, alter to non-null, then add the unique index.
 - Add a new revision for new schema work. Do not rewrite older shared or applied revisions.
+- The current head is `20260825_0001` (following `20260825_0002`). The downgrade for
+  `81568591615f` is unusable; rollback requires a reviewed forward-fix or validated backup/PITR
+  restore.
 - Keep model, schema, service/router contract, tests, and migration files in sync when one feature touches all of them.
 
 ## Testing Standards

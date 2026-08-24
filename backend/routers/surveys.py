@@ -3,8 +3,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, Request, status
 
-from core.deps import AsyncDBSession, CurrentPrincipal, Principal, require_permissions
-from core.exceptions import AppError
+from core.deps import AsyncDBSession, Principal, require_permissions
 from core.responses import list_meta_response, success_response
 from models.survey import Survey
 from models.survey_question import SurveyQuestion
@@ -84,11 +83,9 @@ async def replace_survey_structure(
     payload: SurveyStructureReplace,
     session: AsyncDBSession,
     request: Request,
-    principal: Principal = Depends(require_permissions("survey_structure.manage")),
+    principal: Principal = Depends(require_permissions("surveys.manage")),
 ) -> APIResponse[dict]:
-    await survey_service.authorize_survey(
-        session, survey_id, principal.user, principal.permissions, write=True
-    )
+    await survey_service.resolve_survey(session, survey_id)
     ip_address = request.client.host if request.client else None
     survey = await survey_structure_service.replace_structure(
         session,
@@ -117,10 +114,8 @@ async def list_surveys(
     params: SurveyListParams,
     principal: Principal = Depends(require_permissions("surveys.read")),
 ) -> APIResponse[list[SurveyRead]]:
-    surveys, total = await survey_service.list_surveys(
-        session, params, principal.user, principal.permissions
-    )
-    response_surveys = [SurveyRead.model_validate(s) for s in surveys]
+    surveys, total = await survey_service.list_surveys(session, params)
+    response_surveys = [SurveyRead.model_validate(survey) for survey in surveys]
     return success_response(
         response_surveys,
         meta=list_meta_response(
@@ -144,13 +139,15 @@ async def create_survey(
     payload: SurveyCreate,
     session: AsyncDBSession,
     request: Request,
-    principal: Principal = Depends(require_permissions("surveys.create")),
+    principal: Principal = Depends(require_permissions("surveys.manage")),
 ) -> APIResponse[SurveyRead]:
     ip_address = request.client.host if request.client else None
     survey = await survey_service.create_survey(
         session, payload, principal.user.id, ip_address=ip_address
     )
-    return success_response(SurveyRead.model_validate(survey), message="Survey created.")
+    return success_response(
+        SurveyRead.model_validate(survey), message="Survey created."
+    )
 
 
 @router.post(
@@ -164,7 +161,7 @@ async def create_survey_with_structure(
     payload: SurveyCreateWithStructure,
     session: AsyncDBSession,
     request: Request,
-    principal: Principal = Depends(require_permissions("surveys.create")),
+    principal: Principal = Depends(require_permissions("surveys.manage")),
 ) -> APIResponse[dict]:
     ip_address = request.client.host if request.client else None
     survey = await survey_service.create_survey_with_structure(
@@ -176,10 +173,8 @@ async def create_survey_with_structure(
     created_survey, sections = await survey_service.get_survey_with_sections(
         session, survey.survey_id
     )
-    return success_response(
-        _survey_structure_data(created_survey, sections),
-        message="Survey created.",
-    )
+    survey_data = _survey_structure_data(created_survey, sections)
+    return success_response(survey_data, message="Survey created.")
 
 
 @router.get(
@@ -193,7 +188,7 @@ async def get_survey(
     session: AsyncDBSession,
     principal: Principal = Depends(require_permissions("surveys.read")),
 ) -> APIResponse[dict]:
-    await survey_service.authorize_survey(session, survey_id, principal.user, principal.permissions)
+    await survey_service.resolve_survey(session, survey_id)
     survey, sections_with_questions = await survey_service.get_survey_with_sections(
         session, survey_id
     )
@@ -212,60 +207,39 @@ async def update_survey(
     payload: SurveyUpdate,
     session: AsyncDBSession,
     request: Request,
-    principal: CurrentPrincipal,
+    principal: Principal = Depends(require_permissions("surveys.manage")),
 ) -> APIResponse[SurveyRead]:
-    updates = payload.model_dump(exclude_unset=True)
-    required_permissions = set()
-    if payload.status is not None:
-        required_permissions.add("surveys.publish")
-        owner_only = True
-    else:
-        owner_only = False
-    if set(updates) - {"status"} or not required_permissions:
-        required_permissions.add("surveys.update")
-    if not required_permissions.issubset(principal.permissions):
-        raise AppError("You do not have permission to perform this action.", status_code=403)
-    await survey_service.authorize_survey(
-        session,
-        survey_id,
-        principal.user,
-        principal.permissions,
-        write=True,
-        owner_only=owner_only,
-    )
+    await survey_service.resolve_survey(session, survey_id)
     ip_address = request.client.host if request.client else None
     survey = await survey_service.update_survey(
         session, survey_id, payload, principal.user.id, ip_address=ip_address
     )
-    return success_response(SurveyRead.model_validate(survey), message="Survey updated.")
+    return success_response(
+        SurveyRead.model_validate(survey), message="Survey updated."
+    )
 
 
 @router.delete(
     "/{survey_id}",
     response_model=APIResponse[SurveyRead],
-    summary="Delete Survey (Soft)",
-    description="Soft delete a survey record by marking is_deleted=True.",
+    summary="Archive Survey",
+    description="Archive a survey record by marking is_deleted=True.",
 )
 async def delete_survey(
     survey_id: str,
     payload: SurveyDelete,
     session: AsyncDBSession,
     request: Request,
-    principal: Principal = Depends(require_permissions("surveys.delete")),
+    principal: Principal = Depends(require_permissions("surveys.manage")),
 ) -> APIResponse[SurveyRead]:
-    await survey_service.authorize_survey(
-        session,
-        survey_id,
-        principal.user,
-        principal.permissions,
-        write=True,
-        owner_only=True,
-    )
+    await survey_service.resolve_survey(session, survey_id)
     ip_address = request.client.host if request.client else None
     survey = await survey_service.soft_delete_survey(
         session, survey_id, payload, principal.user.id, ip_address=ip_address
     )
-    return success_response(SurveyRead.model_validate(survey), message="Survey deleted.")
+    return success_response(
+        SurveyRead.model_validate(survey), message="Survey archived."
+    )
 
 
 @router.post(
@@ -279,19 +253,13 @@ async def restore_survey(
     payload: SurveyRestore,
     session: AsyncDBSession,
     request: Request,
-    principal: Principal = Depends(require_permissions("surveys.restore")),
+    principal: Principal = Depends(require_permissions("surveys.manage")),
 ) -> APIResponse[SurveyRead]:
-    await survey_service.authorize_survey(
-        session,
-        survey_id,
-        principal.user,
-        principal.permissions,
-        write=True,
-        owner_only=True,
-        include_deleted=True,
-    )
+    await survey_service.resolve_survey(session, survey_id, include_deleted=True)
     ip_address = request.client.host if request.client else None
     survey = await survey_service.restore_survey(
         session, survey_id, payload, principal.user.id, ip_address=ip_address
     )
-    return success_response(SurveyRead.model_validate(survey), message="Survey restored.")
+    return success_response(
+        SurveyRead.model_validate(survey), message="Survey restored."
+    )

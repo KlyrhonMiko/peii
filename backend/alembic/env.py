@@ -20,11 +20,11 @@ from core.config import settings  # noqa: E402
 from models import (  # noqa: F401,E402
     AuditLog,
     Permission,
+    ResponseErasureReceipt,
     Role,
     RolePermission,
     Survey,
     SurveyDistribution,
-    SurveyMembership,
     SurveyQuestion,
     SurveyResponse,
     SurveySection,

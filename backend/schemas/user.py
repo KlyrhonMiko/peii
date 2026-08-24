@@ -85,6 +85,7 @@ class UserRead(UserBase):
         },
     )
 
+    id: UUID
     user_id: str
     roles: list[str] = Field(default_factory=list)
     invited_at: datetime | None = None

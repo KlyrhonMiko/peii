@@ -80,6 +80,42 @@ Create a new migration after model changes:
 ./.venv/bin/alembic revision --autogenerate -m "describe change"
 ```
 
+The current migration head is `20260825_0001`. For production, run
+`./.venv/bin/alembic upgrade head` once as the managed-service release job before API
+replicas are promoted. Do not run migrations independently in every replica. Do not rewrite
+the older collaboration revisions; revision `81568591615f` has an unusable downgrade.
+Database rollback therefore requires a reviewed forward-fix or a validated backup/PITR
+restore, not an ad hoc downgrade.
+
+## Survey Access And Lifecycle Policy
+
+- Survey access is global RBAC, not unrestricted authentication and not survey ownership or
+  membership. A permitted principal can act on any survey in the shared workspace, but every
+  operation still requires its explicit capability.
+- The seven survey capabilities are `surveys.read`, `surveys.manage`,
+  `survey_distributions.manage`, `survey_responses.read_aggregates`,
+  `survey_responses.read_raw`, `survey_responses.export`, and `survey_responses.erase`.
+  Admin has all seven; researcher has all except erase; staff has `surveys.read` and
+  `survey_responses.read_aggregates`. Existing portal and ML capabilities remain in each
+  default role. Raw and CSV export are separately permissioned; erase is admin-default.
+- Every public distribution has an explicit mandatory expiry. Metadata listing never returns
+  tokens; a newly issued or rotated token is returned only once. Archiving a survey revokes
+  unrevoked distributions. Restoring it leaves it inactive, so activation and a new link are
+  explicit follow-up actions.
+- Aggregate responses use conservative `k=5` suppression and only supported categorical,
+  boolean, multiple-choice, scale, ranking, and matrix question types. Raw responses and
+  long-format CSV export are separate routes and permissions. Selected erasure or all-response
+  erasure writes minimal tombstones and is idempotent; all-scope erasure requires an archived
+  survey.
+
+Retention and consent policy are documented in `../docs/privacy-and-retention.md`.
+
+The legacy collaboration bridge is run from `backend/`. Start with a dry run from the
+supported revision `5b37d61c76ff`; unknown legacy roles require a role-mapping JSON file.
+Only after a verified backup/PITR point should apply mode be used with
+`--apply --confirm-backup`. Reconcile any reported null `auth_user_id` values with Supabase
+Auth before relying on the migrated users.
+
 ## Validation
 
 Run these from `backend/`:
@@ -89,6 +125,28 @@ env DEBUG=false ./.venv/bin/pytest -q
 ./.venv/bin/ruff check .
 ./.venv/bin/mypy .
 ```
+
+The normal suite skips tests marked `integration` when `TEST_DATABASE_URL` is absent. Run the
+isolated PostgreSQL integration tests explicitly with:
+
+```bash
+TEST_DATABASE_URL=postgresql+psycopg2://user:password@localhost:5432/peii_test \
+  env DEBUG=false ./.venv/bin/pytest -q -m integration --require-postgres
+```
+
+To bridge a legacy collaboration database, run from `backend/` (with the application
+quiesced):
+
+```bash
+./.venv/bin/python scripts/bridge_collaboration_upgrade.py
+./.venv/bin/python scripts/bridge_collaboration_upgrade.py \
+  --role-map /path/to/legacy-role-map.json \
+  --apply --confirm-backup
+```
+
+The first command is read-only. The second requires a verified backup/PITR point and is
+supported only when the database starts at `5b37d61c76ff`; review the JSON report and any
+`auth_user_id` reconciliation warnings before enabling access.
 
 ## Run with Docker
 
@@ -124,7 +182,7 @@ Routes are mounted below `API_V1_PREFIX` (normally `/api/v1`):
 - `/auth`: login, current principal, logout, recovery, and password changes.
 - `/rbac`: permissions, roles, and role assignments.
 - `/users` and `/audit-logs`: administration and audit history.
-- `/surveys`: surveys plus nested sections, questions, members, distributions, and
+- `/surveys`: surveys plus nested sections, questions, distributions, and
   responses.
 - `/survey/{token}`: public survey loading and idempotent response submission.
 - `/ml`: model catalog and sentiment inference. Model weights load lazily and may require

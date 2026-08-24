@@ -35,6 +35,7 @@ async def test_create_and_list_distributions(client):
     list_resp = await client.get(f"/api/v1/surveys/{survey_uuid}/distributions/")
     assert list_resp.status_code == 200
     assert list_resp.json()["data"][0]["status"] == "active"
+    assert "token" not in list_resp.json()["data"][0]
 
 
 async def test_revoke_distribution(client):
@@ -113,3 +114,49 @@ async def test_distribution_suspends_and_reactivates_with_survey_status(client):
     assert rotate.json()["data"]["id"] != distribution_id
     assert (await client.get(f"/api/v1/survey/{token}")).status_code == 404
     assert (await client.get(f"/api/v1/survey/{rotate.json()['data']['token']}")).status_code == 200
+
+
+async def test_archiving_revokes_distributions_and_restore_is_inactive(client):
+    survey_uuid = await _create_active_survey(client)
+    surveys = (await client.get("/api/v1/surveys/")).json()["data"]
+    survey = next(survey for survey in surveys if survey["id"] == survey_uuid)
+    created = await client.post(
+        f"/api/v1/surveys/{survey_uuid}/distributions/", json={"expires_at": EXPIRY}
+    )
+    token = created.json()["data"]["token"]
+
+    archived = await client.request("DELETE", f"/api/v1/surveys/{survey['survey_id']}", json={})
+    assert archived.status_code == 200
+    assert (await client.get(f"/api/v1/survey/{token}")).status_code == 404
+
+    restored = await client.post(f"/api/v1/surveys/{survey['survey_id']}/restore", json={})
+    assert restored.status_code == 200
+    assert restored.json()["data"]["status"] == "Inactive"
+
+    distributions = await client.get(f"/api/v1/surveys/{survey_uuid}/distributions/")
+    assert distributions.json()["data"][0]["status"] == "revoked"
+
+
+async def test_archiving_revokes_every_distribution_link(client):
+    survey_uuid = await _create_active_survey(client)
+    surveys = (await client.get("/api/v1/surveys/")).json()["data"]
+    survey = next(survey for survey in surveys if survey["id"] == survey_uuid)
+    first = await client.post(
+        f"/api/v1/surveys/{survey_uuid}/distributions/", json={"expires_at": EXPIRY}
+    )
+    second = await client.post(
+        f"/api/v1/surveys/{survey_uuid}/distributions/", json={"expires_at": EXPIRY}
+    )
+    first_token = first.json()["data"]["token"]
+    second_token = second.json()["data"]["token"]
+
+    archived = await client.request("DELETE", f"/api/v1/surveys/{survey['survey_id']}", json={})
+    assert archived.status_code == 200
+    assert (await client.get(f"/api/v1/survey/{first_token}")).status_code == 404
+    assert (await client.get(f"/api/v1/survey/{second_token}")).status_code == 404
+
+    restored = await client.post(f"/api/v1/surveys/{survey['survey_id']}/restore", json={})
+    assert restored.status_code == 200
+    distributions = await client.get(f"/api/v1/surveys/{survey_uuid}/distributions/")
+    assert len(distributions.json()["data"]) == 2
+    assert {item["status"] for item in distributions.json()["data"]} == {"revoked"}

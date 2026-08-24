@@ -5,6 +5,7 @@ from core.database import get_async_session
 from main import app
 from models.audit_log import AuditLog
 from models.rbac import Role, UserRole
+from models.survey import Survey
 from models.user import User
 from services import user_service
 
@@ -176,3 +177,22 @@ async def test_list_users_has_no_role_filter(client):
     assert response.status_code == 200
     assert "role" not in response.json()["meta"]["filters"]
     assert response.json()["meta"]["pagination"]["total"] == 1
+
+
+async def test_can_deactivate_or_delete_user_who_created_a_survey(client):
+    created = await client.post("/api/v1/users/", json=user_payload("researcher@example.com"))
+    user_id = created.json()["data"]["user_id"]
+
+    session_generator = app.dependency_overrides[get_async_session]()
+    session = await anext(session_generator)
+    try:
+        session.add(Survey(survey_id="SURV-SHARED", title="Shared"))
+        await session.commit()
+    finally:
+        await session_generator.aclose()
+
+    deactivated = await client.patch(f"/api/v1/users/{user_id}", json={"is_active": False})
+    deleted = await client.request("DELETE", f"/api/v1/users/{user_id}", json={})
+
+    assert deactivated.status_code == 200
+    assert deleted.status_code == 200

@@ -59,13 +59,17 @@ export default async function SurveyPage({
 
   if (!survey || survey.sections.length === 0) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-[#f0f2f5]">
-        <div className="rounded-xl bg-white p-8 text-center shadow-sm ring-1 ring-black/[0.04]">
-          <p className="text-sm text-slate-500">
-            Survey not found or unavailable.
+      <main className="flex min-h-screen items-center justify-center bg-[#f0f2f5] p-6">
+        <div className="max-w-md rounded-xl bg-white p-8 text-center shadow-sm ring-1 ring-black/[0.04]">
+          <h1 className="text-lg font-semibold text-slate-900">This survey is unavailable</h1>
+          <p className="mt-2 text-sm leading-6 text-slate-600">
+            This link may have expired, been revoked, or the survey is no longer accepting responses.
+          </p>
+          <p className="mt-4 text-xs text-slate-500">
+            Please contact the person who shared this link if you believe this is unexpected.
           </p>
         </div>
-      </div>
+      </main>
     )
   }
 

@@ -14,6 +14,11 @@ Follow `ui/AGENTS.md` when editing primitive building blocks under `src/componen
 - `ClientCohortTrendChart.tsx`, `ClientPEIIDimensionsChart.tsx`, and
   `ClientSentimentDivergenceChart.tsx` isolate client-only dynamic chart imports.
 - `ClientSurveyForm.tsx` renders the public survey intake with section-per-page navigation.
+- `SurveyManagement.tsx` is the client-side shared-workspace survey management surface. It
+  gates CRUD, structure editing, aggregates, raw responses, CSV export, and erasure by the
+  capabilities passed by the route.
+- `SurveyDistributionManager.tsx` owns distribution lifecycle UI: token-free metadata reloads,
+  explicit expiry, one-time token display, rotation, and revocation.
 - `CohortTrendChart.tsx` contains a filter-aware Recharts bar chart;
   `PEIIDimensionsChart.tsx` and `SentimentDivergenceChart.tsx` contain analytics charts.
 
@@ -28,6 +33,9 @@ Follow `ui/AGENTS.md` when editing primitive building blocks under `src/componen
 - Favor small helpers for formatting, color mapping, and display logic instead of large
   inline JSX expressions.
 - Keep route-specific copy in routes unless the component is intentionally reusable.
+- Keep capability checks explicit and separate: aggregate, raw, export, and erase are not
+  interchangeable permissions. The shared workspace is global RBAC, not survey ownership or
+  membership.
 
 ## Server And Client Boundaries
 - Add `"use client"` only to components that need hooks, browser APIs, event handlers, or
