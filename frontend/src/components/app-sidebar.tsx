@@ -14,7 +14,7 @@ import {
   SidebarHeader,
   SidebarFooter,
 } from "@/components/ui/sidebar"
-import { LayoutDashboard, BarChart3, Settings, FlaskConical, LogOut, ClipboardList, Cpu, UsersRound } from "lucide-react"
+import { LayoutDashboard, BarChart3, Settings, FlaskConical, LogOut, ClipboardList, Cpu, ShieldCheck, UsersRound } from "lucide-react"
 import { logoutAction } from "@/app/login/actions"
 import type { PortalUser } from "@/lib/auth"
 
@@ -27,6 +27,7 @@ const mainItems = [
 
 const managementItems = [
   { title: "Users", url: "/admin/users", icon: UsersRound, permission: "users.read" },
+  { title: "Roles & permissions", url: "/admin/roles", icon: ShieldCheck, permission: "roles.read" },
   { title: "Settings", url: "#", icon: Settings },
 ]
 

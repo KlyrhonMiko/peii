@@ -12,7 +12,7 @@ describe("isAllowedBackendRequest", () => {
     expect(isAllowedBackendRequest("GET", ["surveys", "survey-id", "responses"])).toBe(true)
   })
 
-  it("allows only the user-management and role-assignment routes", () => {
+  it("allows user-management and role-management routes", () => {
     expect(isAllowedBackendRequest("GET", ["users"])).toBe(true)
     expect(isAllowedBackendRequest("POST", ["users"])).toBe(true)
     expect(isAllowedBackendRequest("POST", ["users", "batch"])).toBe(true)
@@ -22,12 +22,15 @@ describe("isAllowedBackendRequest", () => {
     expect(isAllowedBackendRequest("POST", ["users", "USER-123", "invitation", "resend"])).toBe(true)
     expect(isAllowedBackendRequest("POST", ["users", "USER-123", "sessions", "revoke"])).toBe(true)
     expect(isAllowedBackendRequest("GET", ["rbac", "roles"])).toBe(true)
+    expect(isAllowedBackendRequest("GET", ["rbac", "permissions"])).toBe(true)
+    expect(isAllowedBackendRequest("POST", ["rbac", "roles"])).toBe(true)
+    expect(isAllowedBackendRequest("PATCH", ["rbac", "roles", "role-id"])).toBe(true)
     expect(isAllowedBackendRequest("PUT", ["rbac", "users", "USER-123", "roles"])).toBe(true)
   })
 
   it("denies authentication and unknown backend routes", () => {
     expect(isAllowedBackendRequest("POST", ["auth", "login"])).toBe(false)
-    expect(isAllowedBackendRequest("GET", ["rbac", "permissions"])).toBe(false)
+    expect(isAllowedBackendRequest("DELETE", ["rbac", "roles", "role-id"])).toBe(false)
     expect(isAllowedBackendRequest("POST", ["users", "USER-123", "sessions"])).toBe(false)
     expect(isAllowedBackendRequest("GET", ["docs"])).toBe(false)
     expect(isAllowedBackendRequest("GET", ["surveys", "survey-id", "members"])).toBe(false)

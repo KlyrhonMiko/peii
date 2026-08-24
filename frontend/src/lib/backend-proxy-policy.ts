@@ -29,6 +29,7 @@ export function isAllowedBackendRequest(method: string, path: string[]): boolean
       return (
         (path.length === 1 && path[0] === "users") ||
         (path.length === 2 && path[0] === "rbac" && path[1] === "roles") ||
+        (path.length === 2 && path[0] === "rbac" && path[1] === "permissions") ||
         (path.length === 1 && path[0] === "surveys") ||
         matchesSurveyResource(path) ||
         matchesSurveyChild(path, "distributions") ||
@@ -37,6 +38,7 @@ export function isAllowedBackendRequest(method: string, path: string[]): boolean
     case "POST":
       return (
         (path.length === 1 && path[0] === "users") ||
+        (path.length === 2 && path[0] === "rbac" && path[1] === "roles") ||
         (path.length === 2 && path[0] === "users" && path[1] === "batch") ||
         (path.length === 3 && hasValue(path[1]) && path[0] === "users" && path[2] === "restore") ||
         (path.length === 4 && hasValue(path[1]) && path[0] === "users" && path[2] === "invitation" && path[3] === "resend") ||
@@ -50,6 +52,7 @@ export function isAllowedBackendRequest(method: string, path: string[]): boolean
     case "PATCH":
       return (
         matchesUserResource(path) ||
+        (path.length === 3 && path[0] === "rbac" && path[1] === "roles" && hasValue(path[2])) ||
         matchesSurveyResource(path) ||
         matchesSurveyChildResource(path, "sections") ||
         matchesSurveyChildResource(path, "questions") ||

@@ -16,7 +16,6 @@ from services.audit_service import AuditEvent, commit_with_audit
 
 PERMISSIONS: dict[str, str] = {
     "portal.access": "Access the PEII portal.",
-    "analytics.read": "View aggregate analytics.",
     "users.read": "View users.",
     "users.invite": "Invite users.",
     "users.update": "Update user profiles.",
@@ -41,7 +40,6 @@ PERMISSIONS: dict[str, str] = {
     "survey_distributions.read": "View survey distributions.",
     "survey_distributions.manage": "Manage survey distributions.",
     "survey_distributions.read_token": "View survey bearer tokens.",
-    "survey_responses.read_aggregates": "View aggregate responses.",
     "survey_responses.read_raw": "View raw survey responses.",
     "ml.models.read": "View ML models.",
     "ml.sentiment.run": "Run sentiment analysis.",
@@ -51,7 +49,6 @@ DEFAULT_ROLES: dict[str, set[str]] = {
     "admin": set(PERMISSIONS),
     "researcher": {
         "portal.access",
-        "analytics.read",
         "surveys.read",
         "surveys.create",
         "surveys.update",
@@ -64,12 +61,13 @@ DEFAULT_ROLES: dict[str, set[str]] = {
         "survey_distributions.read",
         "survey_distributions.manage",
         "survey_distributions.read_token",
-        "survey_responses.read_aggregates",
         "ml.models.read",
         "ml.sentiment.run",
     },
-    "staff": {"portal.access", "analytics.read", "ml.models.read"},
+    "staff": {"portal.access", "ml.models.read"},
 }
+
+ADMIN_ROLE_NAME = "admin"
 
 
 async def effective_permissions(session: AsyncSession, user_id: UUID) -> set[str]:
@@ -102,6 +100,77 @@ async def effective_role_names(session: AsyncSession, user_id: UUID) -> list[str
         .order_by(col(Role.name))
     )
     return list(result.all())
+
+
+async def lock_admin_role(session: AsyncSession) -> Role:
+    """Serializes mutations that could leave the portal without an administrator."""
+    result = await session.exec(
+        select(Role)
+        .where(
+            col(Role.name) == ADMIN_ROLE_NAME,
+            col(Role.is_system).is_(True),
+            col(Role.is_deleted).is_(False),
+        )
+        .with_for_update()
+    )
+    role = result.first()
+    if role is None:
+        raise AppError("System Admin role is unavailable.", status_code=status.HTTP_409_CONFLICT)
+    return role
+
+
+async def user_has_admin_role(session: AsyncSession, user_id: UUID, admin_role_id: UUID) -> bool:
+    result = await session.exec(
+        select(UserRole.id).where(
+            col(UserRole.user_id) == user_id,
+            col(UserRole.role_id) == admin_role_id,
+            col(UserRole.is_deleted).is_(False),
+        )
+    )
+    return result.first() is not None
+
+
+async def user_has_protected_admin_role(session: AsyncSession, user_id: UUID) -> bool:
+    result = await session.exec(
+        select(UserRole.id)
+        .join(Role, col(Role.id) == UserRole.role_id)
+        .where(
+            col(UserRole.user_id) == user_id,
+            col(UserRole.is_deleted).is_(False),
+            col(Role.name) == ADMIN_ROLE_NAME,
+            col(Role.is_system).is_(True),
+            col(Role.is_deleted).is_(False),
+        )
+    )
+    return result.first() is not None
+
+
+async def assert_eligible_admin_remains(
+    session: AsyncSession, excluded_user_id: UUID | None = None
+) -> None:
+    statement = (
+        select(User.id)
+        .join(UserRole, col(UserRole.user_id) == User.id)
+        .join(Role, col(Role.id) == UserRole.role_id)
+        .where(
+            col(Role.name) == ADMIN_ROLE_NAME,
+            col(Role.is_system).is_(True),
+            col(Role.is_active).is_(True),
+            col(Role.is_deleted).is_(False),
+            col(UserRole.is_deleted).is_(False),
+            col(User.is_active).is_(True),
+            col(User.is_deleted).is_(False),
+        )
+        .limit(1)
+    )
+    if excluded_user_id is not None:
+        statement = statement.where(col(User.id) != excluded_user_id)
+    result = await session.exec(statement)
+    if result.first() is None:
+        raise AppError(
+            "At least one active administrator must remain.",
+            status_code=status.HTTP_409_CONFLICT,
+        )
 
 
 async def assert_survey_access(
@@ -214,6 +283,11 @@ async def update_role(
 ) -> Role:
     if role.is_system and payload.is_active is False:
         raise AppError("System roles cannot be deactivated.", status_code=status.HTTP_409_CONFLICT)
+    if role.name == ADMIN_ROLE_NAME and role.is_system and payload.permission_ids is not None:
+        raise AppError(
+            "System Admin role permissions cannot be changed.",
+            status_code=status.HTTP_409_CONFLICT,
+        )
     if payload.description is not None:
         role.description = payload.description
     if payload.is_active is not None:
@@ -263,6 +337,7 @@ async def _replace_role_permissions(
 async def set_user_roles(
     session: AsyncSession, user: User, role_ids: list[UUID], actor_id: UUID, ip_address: str | None
 ) -> None:
+    admin_role = await lock_admin_role(session)
     roles = list(
         (
             await session.exec(
@@ -281,6 +356,15 @@ async def set_user_roles(
     current = list(
         (await session.exec(select(UserRole).where(col(UserRole.user_id) == user.id))).all()
     )
+    currently_admin = await user_has_admin_role(session, user.id, admin_role.id)
+    will_remain_admin = admin_role.id in set(role_ids)
+    if user.id == actor_id and currently_admin and not will_remain_admin:
+        raise AppError(
+            "Administrators cannot remove their own Admin role.",
+            status_code=status.HTTP_409_CONFLICT,
+        )
+    if currently_admin and not will_remain_admin:
+        await assert_eligible_admin_remains(session, excluded_user_id=user.id)
     for assignment in current:
         await session.delete(assignment)
     for role in roles:
