@@ -42,7 +42,8 @@ already owns them.
   `globals.css`.
 - `frontend/src/components/` contains product-level reusable UI.
 - `frontend/src/components/ui/` contains generic shadcn-style primitives.
-- `frontend/src/hooks/` and `frontend/src/lib/` contain reusable hooks and utilities.
+- `frontend/src/hooks/` contains reusable hooks; `frontend/src/lib/` contains shared API,
+  auth, RBAC, Supabase, redirect/proxy policy, and utility modules.
 - `frontend/public/` contains static assets.
 - `backend/main.py` wires FastAPI, CORS, exception handlers, and the API router.
 - `backend/core/` contains settings, database wiring, shared dependencies, responses, and
@@ -58,6 +59,7 @@ Frontend commands run from `frontend/`:
 - `npm install`
 - `npm run dev`
 - `npm run lint`
+- `npm test`
 - `npm run build`
 - `npm run start`
 
@@ -69,8 +71,8 @@ Backend commands run from `backend/`:
 - `./.venv/bin/ruff check .`
 - `./.venv/bin/mypy .`
 - `env DEBUG=false ./.venv/bin/pytest -q`
-- `alembic upgrade head`
-- `alembic revision --autogenerate -m "describe change"`
+- `./.venv/bin/alembic upgrade head`
+- `./.venv/bin/alembic revision --autogenerate -m "describe change"`
 
 Use `docker compose up --build` from the repo root when you need the full stack:
 frontend, backend, PostgreSQL, and Adminer.
@@ -79,6 +81,7 @@ frontend, backend, PostgreSQL, and Adminer.
 Before committing frontend work, run from `frontend/`:
 
 - `npm run lint`
+- `npm test`
 - `npm run build`
 
 Before committing backend work, run from `backend/`:
@@ -87,13 +90,7 @@ Before committing backend work, run from `backend/`:
 - `./.venv/bin/mypy .`
 - `env DEBUG=false ./.venv/bin/pytest -q`
 
-The root `.pre-commit-config.yaml` is intentionally strict:
-
-- `pre-commit`: backend Ruff, backend mypy, backend pytest, frontend lint,
-  frontend build.
-- `pre-push`: backend pytest, frontend build.
-
-Expect `git commit` to run the backend test suite and the frontend production build.
+No tracked pre-commit configuration currently runs these checks automatically.
 
 ## Frontend Standards
 - Defer detailed frontend rules to `frontend/AGENTS.md` and its nested guides.
@@ -103,28 +100,40 @@ Expect `git commit` to run the backend test suite and the frontend production bu
 - Prefer existing `src/components/ui/` primitives, semantic tokens, and `cn()` before
   custom markup.
 - Keep Recharts and other client-only libraries behind focused client components.
-- Do not assume route protection or auth exists just because an admin page exists.
+- Authentication uses Supabase sessions. Protected frontend routes call
+  `requirePortalUser()` and permission-sensitive pages request explicit permissions.
 
 ## Backend Standards
 - Defer detailed backend rules to `backend/AGENTS.md` and its nested guides.
 - Keep routers thin, services responsible for business logic and ORM queries, schemas for
   API contracts, and models for persistence shape.
-- Preserve the shared response envelope: `data`, `message`, `errors`, and `meta`.
-- The current user `password` column stores an Argon2 hash; read schemas must not expose
-  password data.
-- Do not describe login, current-user loading, authorization, or route protection as
-  implemented unless real dependencies and tests exist.
+- Preserve the shared response envelope for successful responses and handled application,
+  validation, and integrity errors: `data`, `message`, `errors`, and `meta`.
+- User passwords are managed by Supabase Auth and are not persisted in the local `users`
+  table. Never expose authentication secrets or tokens in read schemas.
+- Protected backend routes use `CurrentPrincipal` or `require_permissions(...)`; keep
+  frontend guards and backend authorization aligned.
 
 ## Migration And Configuration Practices
 - Runtime settings load from the repo-root `.env`.
 - Update `.env.example` whenever config keys, modes, or expected formats change.
 - For every backend model change that alters table shape, the migration flow is mandatory:
-  run `alembic revision --autogenerate -m "..."` first, review the generated diff, then
+  run `./.venv/bin/alembic revision --autogenerate -m "..."` first, review the generated diff, then
   make narrow manual fixes only if needed.
 - Add new Alembic revisions for new schema work. Do not rewrite older shared or applied
   revisions.
 - Keep backend model, schema, service/router behavior, tests, and migrations aligned in
   the same feature change.
+
+## Documentation Synchronization
+- Update associated documentation in the same change whenever behavior, architecture,
+  commands, configuration, routes, API contracts, dependencies, or directory ownership
+  changes.
+- Review the nearest `AGENTS.md`, relevant `README.md` files, `.env.example`, and any
+  setup or operational guidance affected by the change. Do not leave documentation
+  updates for a separate follow-up.
+- Remove or rewrite obsolete instructions rather than layering new guidance over stale
+  descriptions.
 
 ## Commit And Pull Request Guidelines
 Use short imperative commits, such as `Add user service pagination` or

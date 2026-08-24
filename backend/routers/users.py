@@ -3,7 +3,7 @@ from typing import Annotated, Literal
 from fastapi import APIRouter, Depends, Query, Request, status
 
 from core.config import settings
-from core.deps import AsyncDBSession, Principal, require_permissions
+from core.deps import AsyncDBSession, CurrentPrincipal, Principal, require_permissions
 from core.exceptions import AppError
 from core.responses import list_meta_response, success_response
 from schemas.common import APIResponse
@@ -22,8 +22,6 @@ router = APIRouter()
 
 
 def _invitation_redirect() -> str:
-    if settings.APP_ORIGIN is None:
-        raise AppError("Application origin is not configured.", status_code=503)
     return f"{settings.APP_ORIGIN}/auth/confirm?next=/reset-password"
 
 
@@ -206,9 +204,15 @@ async def update_user(
     payload: UserUpdate,
     session: AsyncDBSession,
     request: Request,
-    principal: Principal = Depends(require_permissions("users.update")),
+    principal: CurrentPrincipal,
 ) -> APIResponse[UserRead]:
-    if payload.is_active is not None and "users.change_status" not in principal.permissions:
+    updates = payload.model_dump(exclude_unset=True)
+    required_permissions = set()
+    if payload.is_active is not None:
+        required_permissions.add("users.change_status")
+    if set(updates) - {"is_active"} or not required_permissions:
+        required_permissions.add("users.update")
+    if not required_permissions.issubset(principal.permissions):
         raise AppError("You do not have permission to perform this action.", status_code=403)
     ip_address = request.client.host if request.client else None
     user = await user_service.update_user(

@@ -67,3 +67,17 @@ async def test_revoke_user_sessions_uses_supabase_admin_global_logout(monkeypatc
         "/auth/v1/admin/users/00000000-0000-0000-0000-000000000003/logout"
     )
     assert client.calls[0]["json"] == {"scope": "global"}
+
+
+async def test_logout_user_session_uses_the_callers_access_token(monkeypatch):
+    client = FakeClient()
+    monkeypatch.setattr(supabase_auth_service.httpx, "AsyncClient", lambda **_: client)
+
+    await supabase_auth_service.logout_user_session("user-access-token")
+
+    url = client.calls[0]["url"]
+    headers = client.calls[0]["headers"]
+    assert isinstance(url, str)
+    assert isinstance(headers, dict)
+    assert url.endswith("/auth/v1/logout")
+    assert headers["Authorization"] == "Bearer user-access-token"

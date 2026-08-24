@@ -14,21 +14,21 @@ parsing, status codes, response models, and response assembly.
 ## Router Rules
 - Keep routers thin. They should parse HTTP input, call services, convert models to read
   schemas, and return the shared response envelope.
-- Do not build ORM statements, apply business rules, check uniqueness, hash passwords,
-  or commit sessions in routers.
-- Use `core.deps.DBSession` for database session injection.
+- Keep ORM statements, business rules, conflict checks, and commits in services. Existing
+  direct-query exceptions in RBAC, public-survey, and audit-detail routes are technical debt,
+  not examples for new routes.
+- Use `core.deps.AsyncDBSession` for database session injection.
 - Keep endpoint-specific query dependencies with the resource route unless they are truly
   reusable across resources.
 - Register resource routers through `routers/api.py`; do not add ad hoc route mounting in
   `main.py`.
 - Prefer explicit status codes for create and other non-default responses.
 
-## List Endpoint Rules
+## Paginated List Endpoint Rules
 - Parse query params with FastAPI `Query(...)` so validation and OpenAPI docs stay useful.
 - Return a typed query-param schema object to the service.
-- Keep route-level `sort_by` literals aligned with the resource schema and service
-  allow-list. Include the resource business id when the UI exposes it for list search or
-  sorting.
+- Prefer route-level `sort_by` literals aligned with the resource schema and service
+  allow-list. Include a business id when the UI exposes it for list search or sorting.
 - Normalize small HTTP-facing values here when appropriate, such as trimming search text.
 - Do not compute total counts in routers. Services should return rows plus filtered total.
 - Build list metadata with `list_meta_response()` using the same query-param schema passed
@@ -46,11 +46,13 @@ parsing, status codes, response models, and response assembly.
 ## Async & Request ID Handlers
 - All new and existing route handlers must be declared as `async def`.
 - Always inject `core.deps.AsyncDBSession` (instead of the synchronous `DBSession`) for database operations.
-- Pass the FastAPI `Request` object to services to extract client-facing details (like `request.client.host` for the `ip_address` field in audit logging).
-- Annotate every endpoint route decorator with explicit `summary` and `description` fields to ensure Swagger UI is properly populated.
+- Extract client details such as `request.client.host` in the router and pass the narrow
+  value to services for audit logging.
+- Prefer explicit `summary` and `description` fields on endpoint decorators. Current ML
+  routes rely on function docstrings.
 
 ## Auth Boundary
-- No route-level authentication or authorization dependency is currently wired.
-- Do not imply an endpoint is protected unless the route depends on a real auth/current-user
-  dependency and tests cover the behavior.
-- When auth arrives, enforce it through route dependencies and document the dependency path.
+- Protected routes use `CurrentPrincipal` or `require_permissions(...)` from `core.deps`.
+- Survey routes additionally enforce owner/collaborator access in the survey authorization
+  layer. Public token routes remain intentionally unauthenticated.
+- Frontend guards never replace backend authorization.

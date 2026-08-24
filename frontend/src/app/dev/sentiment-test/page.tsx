@@ -7,6 +7,9 @@ import { Loader2, Sparkles, AlertCircle, BrainCircuit } from "lucide-react";
 
 const TL_MODEL_ID = "dost-asti/RoBERTa-tl-sentiment-analysis";
 const EN_MODEL_ID = "distilbert-base-uncased-finetuned-sst-2-english";
+const API_BASE = process.env.NEXT_PUBLIC_API_URL;
+
+if (!API_BASE) throw new Error("NEXT_PUBLIC_API_URL is not configured");
 
 export default function SentimentTestPage() {
   const [text, setText] = useState("");
@@ -22,7 +25,6 @@ export default function SentimentTestPage() {
     setError(null);
 
     try {
-      const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api/v1";
       const response = await fetch(`${API_BASE}/ml/sentiment`, {
         method: "POST",
         headers: {

@@ -3,7 +3,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, Request, status
 
-from core.deps import AsyncDBSession, Principal, require_permissions
+from core.deps import AsyncDBSession, CurrentPrincipal, Principal, require_permissions
 from core.exceptions import AppError
 from core.responses import list_meta_response, success_response
 from models.survey import Survey
@@ -212,14 +212,19 @@ async def update_survey(
     payload: SurveyUpdate,
     session: AsyncDBSession,
     request: Request,
-    principal: Principal = Depends(require_permissions("surveys.update")),
+    principal: CurrentPrincipal,
 ) -> APIResponse[SurveyRead]:
+    updates = payload.model_dump(exclude_unset=True)
+    required_permissions = set()
     if payload.status is not None:
-        if "surveys.publish" not in principal.permissions:
-            raise AppError("You do not have permission to perform this action.", status_code=403)
+        required_permissions.add("surveys.publish")
         owner_only = True
     else:
         owner_only = False
+    if set(updates) - {"status"} or not required_permissions:
+        required_permissions.add("surveys.update")
+    if not required_permissions.issubset(principal.permissions):
+        raise AppError("You do not have permission to perform this action.", status_code=403)
     await survey_service.authorize_survey(
         session,
         survey_id,

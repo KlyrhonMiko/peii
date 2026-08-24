@@ -18,10 +18,12 @@ Read this file first, then the guide closest to the files you are changing:
 ## Current Structure
 - `src/app/` owns App Router layouts, pages, route segments, metadata, and
   `globals.css`.
-- `src/components/` owns product-level reusable UI: sidebar, chart wrappers, and charts.
+- `src/components/` owns portal navigation, admin management interfaces, public survey
+  controls, dashboard filters, and chart implementations/wrappers.
 - `src/components/ui/` owns generic shadcn-style primitives.
 - `src/hooks/` owns reusable React hooks.
-- `src/lib/` owns small shared utilities such as `cn()`.
+- `src/lib/` owns API clients and domain types, authentication/RBAC helpers, Supabase
+  server integration, backend-proxy and redirect policy, and utilities such as `cn()`.
 - `public/` contains static assets served directly by Next.js.
 
 ## Command Surface
@@ -34,11 +36,15 @@ Run frontend commands from `frontend/`:
 - `npm run build` runs the production Next.js build.
 - `npm run start` serves a production build.
 
-The repo-level `.pre-commit-config.yaml` runs frontend lint and build on
-`pre-commit`, and frontend build again on `pre-push`.
+`dev`, `build`, and `start` use `scripts/run-next.mjs` to load Next environment
+configuration from the repository root. `lint` and `test` invoke their tools directly.
+Runtime keys include `BACKEND_INTERNAL_URL`, `NEXT_PUBLIC_API_URL`, `SUPABASE_URL`,
+`SUPABASE_PUBLISHABLE_KEY`, and `APP_ORIGIN`.
+
+No tracked pre-commit configuration currently runs frontend checks automatically.
 
 ## Validation
-- Before committing frontend changes, run `npm run lint` and `npm run build`.
+- Before committing frontend changes, run `npm run lint`, `npm test`, and `npm run build`.
 - If you changed routing, navigation, charts, browser-only behavior, or responsive layout,
   also verify the affected screen in a browser.
 - If lint or TypeScript rules are hardened, fix the newly exposed issues in the same
@@ -47,8 +53,8 @@ The repo-level `.pre-commit-config.yaml` runs frontend lint and build on
   demonstrably wrong for this repo and the config change explains why.
 
 ## Stack Contracts
-- `package.json` declares Next 16.2, React 19.2, Tailwind 4, Recharts, Base UI,
-  lucide icons, and shadcn.
+- `package.json` declares Next 16.2, React 19.2, Tailwind 4, Recharts, Base UI, Supabase
+  SSR/client libraries, Motion, lucide icons, shadcn, and Vitest.
 - `components.json` uses `style: "base-nova"`, `rsc: true`, Tailwind v4 CSS variables,
   Base UI composition, and lucide as the icon library.
 - Internal imports should use the configured `@/*` alias.
@@ -100,7 +106,8 @@ before assuming it is not active.
 - Keep route files focused on route composition, page-level content, and metadata.
 - Move reusable product UI into `src/components/`.
 - Keep generic primitives in `src/components/ui/`.
-- Keep reusable hooks in `src/hooks/` and framework-agnostic helpers in `src/lib/`.
+- Keep reusable hooks in `src/hooks/`; shared frontend infrastructure and utilities belong
+  in `src/lib/`, with server-only modules kept out of client components.
 - When a route and component share data, define a concrete type instead of duplicating
   inline object shapes.
 - For independent async work, start requests in parallel rather than creating waterfalls.
@@ -108,9 +115,8 @@ before assuming it is not active.
   through multiple client boundaries.
 
 ## UI And Styling
-- Preserve the current PEII product feel unless the task is explicitly a redesign:
-  compact operational screens, light surfaces, subtle borders, and restrained
-  slate/indigo accents.
+- Preserve compact operational styling in researcher/admin screens. The public landing
+  page intentionally uses a larger marketing layout, motion, and bento-style sections.
 - New or heavily touched UI should prefer existing `src/components/ui/` primitives before
   custom markup.
 - Use built-in component variants before overriding colors or typography with `className`.
@@ -123,6 +129,15 @@ before assuming it is not active.
 - Use lucide icons because `components.json` sets `"iconLibrary": "lucide"`.
 - Icons inside buttons should use `data-icon="inline-start"` or `data-icon="inline-end"`
   and should not add manual sizing classes.
+
+## Authentication And API Paths
+- `src/proxy.ts` refreshes Supabase claims and cookies; route layouts/pages enforce access
+  with `requirePortalUser()`.
+- Authenticated browser CRUD uses the allowlisted same-origin `/api/backend` proxy, which
+  forwards the Supabase bearer token and checks unsafe request origins.
+- Server-side auth and model requests use `BACKEND_INTERNAL_URL`.
+- Public survey loading/submission and the development sentiment page use
+  `NEXT_PUBLIC_API_URL` directly.
 
 ## Navigation And Browser APIs
 - Use `next/link` for internal navigation in route/page code.

@@ -8,6 +8,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from core.exceptions import AppError
 from models.user import User
 from schemas.user import UserCreate, UserDelete, UserListQueryParams, UserRestore, UserUpdate
+from services import rbac_service
 from services.audit_service import AuditEvent, commit_with_audit
 from services.base_service import apply_updates, utc_now
 from services.supabase_auth_service import (
@@ -221,6 +222,22 @@ async def update_user(
 ) -> User:
     user = await get_user(session, user_id)
     updates = payload.model_dump(exclude_unset=True)
+    admin_role = None
+    is_admin = False
+    if updates.get("is_active") is False and await rbac_service.user_has_protected_admin_role(
+        session, user.id
+    ):
+        admin_role = await rbac_service.lock_admin_role(session)
+        is_admin = await rbac_service.user_has_admin_role(session, user.id, admin_role.id)
+        if is_admin and user.id == actor_id:
+            raise AppError(
+                "Administrators cannot deactivate themselves.",
+                status_code=status.HTTP_409_CONFLICT,
+            )
+        if is_admin:
+            await rbac_service.assert_eligible_admin_remains(
+                session, excluded_user_id=user.id
+            )
 
     # Compute changes for auditing
     changes = {}
@@ -335,6 +352,18 @@ async def soft_delete_user(
     ip_address: str | None = None,
 ) -> User:
     user = await get_user(session, user_id)
+    admin_role = None
+    is_admin = False
+    if await rbac_service.user_has_protected_admin_role(session, user.id):
+        admin_role = await rbac_service.lock_admin_role(session)
+        is_admin = await rbac_service.user_has_admin_role(session, user.id, admin_role.id)
+    if is_admin and user.id == actor_id:
+        raise AppError(
+            "Administrators cannot delete themselves.",
+            status_code=status.HTTP_409_CONFLICT,
+        )
+    if is_admin:
+        await rbac_service.assert_eligible_admin_remains(session, excluded_user_id=user.id)
     user.is_deleted = True
     user.deleted_at = utc_now()
     user.performed_by = actor_id

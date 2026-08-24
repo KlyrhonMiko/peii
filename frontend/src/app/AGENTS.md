@@ -13,9 +13,14 @@ Follow the route-area guide when editing a nested route:
 ## Current Responsibilities
 - `layout.tsx` defines app-wide metadata, fonts, and the top-level `TooltipProvider`.
 - `page.tsx` is the public PEII landing page.
-- `researcher/` contains the researcher portal layout and analytics routes.
-- `admin/` contains admin routes.
-- `survey/` contains tokenized alumni survey routes.
+- `researcher/` contains authenticated dashboard, analytics, survey, and model routes.
+- `admin/` contains authenticated, permission-gated user and role management routes.
+- `survey/` contains public tokenized alumni survey routes and loading UI.
+- `login/`, `forgot-password/`, `reset-password/`, and `auth/confirm/` implement Supabase
+  authentication and recovery flows.
+- `api/backend/[...path]/` is the authenticated, allowlisted backend proxy.
+- `access-denied/` handles authorization failures; `dev/sentiment-test/` is a public
+  development utility.
 - `globals.css` is the Tailwind v4 and shadcn theme entrypoint.
 
 ## Route Rules
@@ -30,6 +35,10 @@ Follow the route-area guide when editing a nested route:
   required by a primitive.
 - Export route metadata when title, description, or page identity changes.
 - Keep route params typed and used. Prefix intentionally unused params with `_`.
+- Keep authentication mutations in server actions and validate redirect destinations with
+  `safeInternalPath()`.
+- Keep backend and Supabase secrets server-only. Authenticated browser backend calls should
+  use `/api/backend`; unsafe proxy methods require an exact application-origin match.
 
 ## Server And Client Boundaries
 - Do not move an entire route to the client just because one widget needs interactivity.
@@ -38,6 +47,8 @@ Follow the route-area guide when editing a nested route:
 - Keep server routes from importing Recharts directly.
 - Keep client component props narrow and serializable.
 - Start independent async work in parallel when adding data loading.
+- `researcher/survey/page.tsx` is a large current exception to the composition rule; do not
+  use it as the model for new route architecture.
 
 ## State And Effects
 - Avoid mount-only `setState` effects when render-time derivation or CSS is enough.

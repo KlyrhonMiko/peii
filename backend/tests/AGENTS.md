@@ -1,8 +1,8 @@
 # Tests Guide
 
 ## Purpose
-`tests/` holds deterministic backend tests that are safe for normal pytest discovery and
-for the repo's pre-commit/pre-push hooks.
+`tests/` holds deterministic backend tests for normal pytest discovery. No tracked
+pre-commit configuration currently invokes them automatically.
 
 ## Command
 - Run from `backend/`: `env DEBUG=false ./.venv/bin/pytest -q`.
@@ -10,7 +10,8 @@ for the repo's pre-commit/pre-push hooks.
 - Use repo-local tools from `./.venv/bin/` in docs and scripts.
 
 ## Current Test Harness
-- Tests are async and use `pytest.mark.anyio`.
+- API tests are predominantly async and use `pytest.mark.anyio`; focused unit and static
+  enforcement tests may be synchronous.
 - `conftest.py` starts a local Uvicorn server on an ephemeral localhost port.
 - The shared `client` fixture uses `httpx.AsyncClient` against the running app.
 - `conftest.py` overrides `core.database.get_session()` with an in-memory SQLite
@@ -30,24 +31,24 @@ for the repo's pre-commit/pre-push hooks.
 - Keep manual smoke scripts out of `tests/`; pytest files should be automated assertions.
 
 ## What To Assert
-- For every API response contract change, assert the universal envelope fields:
+- For handled API response contract changes, assert the shared envelope fields:
   `data`, `message`, `errors`, and `meta`.
 - For generated business ids, assert that create responses expose the expected prefixed
   shape, client payloads do not control the value, and list search/sort behavior includes
   the field when the endpoint supports it.
-- For list endpoints, assert both `meta.pagination` and `meta.filters`.
+- For paginated list endpoints, assert both `meta.pagination` and `meta.filters`.
 - For filters, assert both returned rows and metadata echo.
 - For sorting changes, include tie-case coverage proving the stable `id` tiebreaker.
 - For soft delete and restore, assert default hiding, `include_deleted`, state fields,
   and restored visibility.
 - For expected domain failures, assert the status code and shared error shape.
-- For persistence transforms, assert the stored value when it matters. Current user tests
-  read the row through the overridden session to verify Argon2 hashing.
+- For user/auth behavior, assert Supabase identity linkage, invitation timestamps, legacy
+  password/role field rejection, and the absence of credentials in responses.
 
 ## Fixture & Database Override Rules
 - `conftest.py` overrides both sync `get_session` and async `get_async_session` with an in-memory SQLite database (`aiosqlite`).
 - If a test needs direct database inspection, use the overridden `get_async_session` generator. Call `await anext(session_generator)` to resolve the session and `await session_generator.aclose()` in a `finally` block to close it.
-- Always assert that the `meta` dict in any response contains a valid `request_id` trace string.
+- Assert `meta.request_id` when changing response/tracing contracts. Middleware and response
+  helpers normally provide it, but existing coverage is not universal.
 - Assert database side effects—such as the creation of audit logs on mutations—by executing queries against the active database.
 - Keep server startup and teardown in `conftest.py`; individual tests should not start their own app server.
-

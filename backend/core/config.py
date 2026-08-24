@@ -19,16 +19,15 @@ class Settings(BaseSettings):
     LOCAL_DATABASE_URL: str
     SUPABASE_DATABASE_URL: str
     BACKEND_CORS_ORIGINS: list[str]
-    SUPABASE_URL: str | None = None
-    SUPABASE_PUBLISHABLE_KEY: str | None = None
-    SUPABASE_SECRET_KEY: str | None = None
-    APP_ORIGIN: str | None = None
-    INITIAL_ADMIN_EMAIL: str | None = None
-    INITIAL_ADMIN_USERNAME: str | None = None
-    INITIAL_ADMIN_FIRST_NAME: str | None = None
-    INITIAL_ADMIN_LAST_NAME: str | None = None
-    HF_API_TOKEN: str | None = None
-    SYSTEM_ACTOR_ID: UUID = UUID("00000000-0000-0000-0000-000000000001")
+    SUPABASE_URL: str
+    SUPABASE_PUBLISHABLE_KEY: str
+    SUPABASE_SECRET_KEY: str
+    APP_ORIGIN: str
+    INITIAL_ADMIN_EMAIL: str
+    INITIAL_ADMIN_USERNAME: str
+    INITIAL_ADMIN_FIRST_NAME: str
+    INITIAL_ADMIN_LAST_NAME: str
+    SYSTEM_ACTOR_ID: UUID
 
     model_config = SettingsConfigDict(
         env_file=str(ROOT_ENV_FILE),

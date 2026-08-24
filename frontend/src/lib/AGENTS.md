@@ -4,17 +4,25 @@
 This guide covers `src/lib/`.
 
 ## Current Responsibilities
-- `utils.ts` provides `cn()`, the shared `clsx` plus `tailwind-merge` class helper used
-  by UI primitives and components.
+- `utils.ts` provides `cn()` and `formatDate()`.
+- `api.ts` owns the authenticated browser API envelope/error client.
+- `users.ts`, `rbac.ts`, and `surveys.ts` own domain types, mapping, and operations.
+- `auth.ts` owns server-side current-user and permission guards.
+- `supabase/` owns the server client and cookie policy.
+- `safe-redirect.ts` and `backend-proxy-policy.ts` own navigation and backend endpoint
+  security policy. Focused Vitest tests are colocated with these modules.
 
 ## Utility Rules
-- Keep `src/lib/` for small framework-agnostic helpers and narrowly shared frontend
-  utilities.
-- Utilities should be deterministic and side-effect light.
+- Keep `src/lib/` for framework-agnostic helpers and narrowly shared Next.js/frontend
+  infrastructure. Retain `server-only` boundaries and never import those modules into
+  client components.
+- Pure helpers should be deterministic. Data/auth infrastructure may perform explicitly
+  bounded fetch, session, cookie, and redirect effects.
 - Prefer tiny composable helpers over catch-all utility modules.
 - Keep type signatures explicit and reusable.
 - Use `unknown` plus narrowing for uncertain external values.
-- Do not add React hooks, JSX components, route logic, or browser subscriptions here.
+- Do not add route components, route handlers, React hooks, JSX components, or browser
+  subscriptions here. Shared routing-security helpers may live here.
 - If a helper becomes React-specific, move it to `src/hooks/` or `src/components/`.
 
 ## `cn()` Usage
@@ -24,7 +32,7 @@ This guide covers `src/lib/`.
 - Keep `cn()` as the single class merge helper unless a clear repo-wide need emerges.
 
 ## API And Data Helpers
-- If frontend API helpers are added later, keep response types aligned with backend
-  schemas and the shared envelope shape.
-- Keep fetch/base URL configuration centralized rather than scattering literal URLs across
-  pages.
+- Keep `api.ts`, `users.ts`, `rbac.ts`, and `surveys.ts` aligned with backend schemas and
+  the shared envelope shape.
+- Authenticated browser calls use `api.ts` and `/api/backend`. Server-only calls use
+  `BACKEND_INTERNAL_URL`; public surveys use `NEXT_PUBLIC_API_URL` directly.

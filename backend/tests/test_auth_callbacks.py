@@ -3,7 +3,9 @@ from sqlmodel import select
 
 from core.database import get_async_session
 from core.deps import Principal, get_current_principal
+from core.exceptions import AppError
 from main import app
+from models.audit_log import AuditLog
 from models.user import User
 from routers import auth
 from services import user_service
@@ -103,3 +105,60 @@ async def test_first_successful_password_change_completes_onboarding(client, mon
     finally:
         await session_generator.aclose()
     assert updated_user.onboarding_completed_at is not None
+
+
+async def test_logout_revokes_the_supabase_session_before_auditing(client, monkeypatch):
+    revoked: list[str] = []
+
+    async def capture_logout(access_token: str) -> None:
+        revoked.append(access_token)
+
+    monkeypatch.setattr(auth, "logout_user_session", capture_logout)
+    response = await client.post("/api/v1/auth/logout")
+
+    assert response.status_code == 200
+    assert revoked == ["test"]
+
+    session_generator = app.dependency_overrides[get_async_session]()
+    session = await anext(session_generator)
+    try:
+        audits = list(
+            (
+                await session.exec(
+                    select(AuditLog).where(
+                        AuditLog.resource_id == "USER-TESTADMIN",
+                        AuditLog.action == "logout",
+                    )
+                )
+            ).all()
+        )
+    finally:
+        await session_generator.aclose()
+    assert len(audits) == 1
+
+
+async def test_logout_does_not_audit_when_supabase_revocation_fails(client, monkeypatch):
+    async def failed_logout(_: str) -> None:
+        raise AppError("Unable to log out.", status_code=502)
+
+    monkeypatch.setattr(auth, "logout_user_session", failed_logout)
+    response = await client.post("/api/v1/auth/logout")
+
+    assert response.status_code == 502
+
+    session_generator = app.dependency_overrides[get_async_session]()
+    session = await anext(session_generator)
+    try:
+        audits = list(
+            (
+                await session.exec(
+                    select(AuditLog).where(
+                        AuditLog.resource_id == "USER-TESTADMIN",
+                        AuditLog.action == "logout",
+                    )
+                )
+            ).all()
+        )
+    finally:
+        await session_generator.aclose()
+    assert not audits

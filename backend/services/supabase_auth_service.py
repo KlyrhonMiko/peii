@@ -7,22 +7,13 @@ from core.config import settings
 from core.exceptions import AppError
 
 
-def _required(value: str | None, name: str) -> str:
-    if value is None:
-        raise AppError(f"{name} is not configured.", status_code=503)
-    return value
-
-
 def _headers(secret: bool = False) -> dict[str, str]:
-    key = _required(
-        settings.SUPABASE_SECRET_KEY if secret else settings.SUPABASE_PUBLISHABLE_KEY,
-        "Supabase authentication",
-    )
+    key = settings.SUPABASE_SECRET_KEY if secret else settings.SUPABASE_PUBLISHABLE_KEY
     return {"apikey": key, "Authorization": f"Bearer {key}"}
 
 
 def _auth_url(path: str) -> str:
-    return f"{_required(settings.SUPABASE_URL, 'Supabase authentication')}/auth/v1{path}"
+    return f"{settings.SUPABASE_URL}/auth/v1{path}"
 
 
 async def password_login(email: str, password: str) -> dict[str, Any]:
@@ -88,12 +79,25 @@ async def revoke_user_sessions(auth_user_id: UUID | str) -> None:
         raise AppError("Unable to revoke user sessions.", status_code=502)
 
 
+async def logout_user_session(access_token: str) -> None:
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        response = await client.post(
+            _auth_url("/logout"),
+            headers={
+                "apikey": settings.SUPABASE_PUBLISHABLE_KEY,
+                "Authorization": f"Bearer {access_token}",
+            },
+        )
+    if response.status_code not in {200, 204}:
+        raise AppError("Unable to log out.", status_code=502)
+
+
 async def update_password(access_token: str, password: str) -> None:
     async with httpx.AsyncClient(timeout=10.0) as client:
         response = await client.put(
             _auth_url("/user"),
             headers={
-                "apikey": _required(settings.SUPABASE_PUBLISHABLE_KEY, "Supabase authentication"),
+                "apikey": settings.SUPABASE_PUBLISHABLE_KEY,
                 "Authorization": f"Bearer {access_token}",
             },
             json={"password": password},

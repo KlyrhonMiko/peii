@@ -4,7 +4,9 @@
 This guide covers `src/app/survey/` and dynamic alumni survey route segments.
 
 ## Current Responsibilities
-- `[alumniToken]/page.tsx` renders the tokenized alumni survey card UI.
+- `[alumniToken]/page.tsx` loads a public survey from `NEXT_PUBLIC_API_URL` without caching,
+  handles unavailable/empty surveys, and passes the structure to `ClientSurveyForm`.
+- `[alumniToken]/loading.tsx` provides the accessible route loading state.
 - The token is currently displayed in the footer and should be treated as a domain input.
 
 ## Survey Rules
@@ -26,6 +28,7 @@ This guide covers `src/app/survey/` and dynamic alumni survey route segments.
 - Do not collect or display unnecessary sensitive information.
 
 ## Client Boundary
-- Keep the route server-rendered until real interactivity requires a client component.
-- Move interactive form state and submission behavior into a focused client component when
-  needed.
+- Keep the route server-rendered for survey loading. `ClientSurveyForm` owns section
+  navigation, answers, validation, submission/idempotency, and success/error states.
+- Public responses post directly to `${NEXT_PUBLIC_API_URL}/survey/${token}/respond`; they
+  do not use the authenticated `/api/backend` proxy.

@@ -4,8 +4,8 @@
 This guide covers `src/components/ui/`, the generic component primitive layer.
 
 ## Current Responsibilities
-- This directory holds shadcn-style primitives: `button`, `card`, `input`, `separator`,
-  `sheet`, `sidebar`, `skeleton`, and `tooltip`.
+- This directory holds shadcn-style primitives: `button`, `card`, `dialog`, `input`,
+  `popover`, `separator`, `sheet`, `sidebar`, `skeleton`, and `tooltip`.
 - The project uses `components.json` with `style: "base-nova"`, Base UI primitives,
   Tailwind v4 CSS variables, and lucide icons.
 

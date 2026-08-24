@@ -51,7 +51,9 @@ async def create_distribution(
     payload: SurveyDistributionCreate,
     session: AsyncDBSession,
     request: Request,
-    principal: Principal = Depends(require_permissions("survey_distributions.manage")),
+    principal: Principal = Depends(
+        require_permissions("survey_distributions.manage", "survey_distributions.read_token")
+    ),
 ) -> APIResponse[SurveyDistributionSecretRead]:
     await survey_service.authorize_survey(
         session, survey_id, principal.user, principal.permissions, write=True
@@ -123,7 +125,9 @@ async def rotate_distribution(
     payload: SurveyDistributionCreate,
     session: AsyncDBSession,
     request: Request,
-    principal: Principal = Depends(require_permissions("survey_distributions.manage")),
+    principal: Principal = Depends(
+        require_permissions("survey_distributions.manage", "survey_distributions.read_token")
+    ),
 ) -> APIResponse[SurveyDistributionSecretRead]:
     await survey_service.authorize_survey(
         session, survey_id, principal.user, principal.permissions, write=True

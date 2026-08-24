@@ -6,10 +6,14 @@ from schemas.common import APIResponse
 from schemas.ml import ModelInfo, SentimentRequest, SentimentResponse
 from services import ml_service
 
-router = APIRouter(dependencies=[Depends(require_permissions("portal.access"))])
+router = APIRouter()
 
 
-@router.post("/sentiment", response_model=APIResponse[SentimentResponse])
+@router.post(
+    "/sentiment",
+    response_model=APIResponse[SentimentResponse],
+    dependencies=[Depends(require_permissions("ml.sentiment.run"))],
+)
 async def analyze_sentiment(request: SentimentRequest):
     """
     Analyzes the sentiment of a given Tagalog text using the local Hugging Face model.
@@ -19,7 +23,11 @@ async def analyze_sentiment(request: SentimentRequest):
     return success_response(data=prediction, message="Sentiment analysis completed successfully.")
 
 
-@router.get("/models", response_model=APIResponse[list[ModelInfo]])
+@router.get(
+    "/models",
+    response_model=APIResponse[list[ModelInfo]],
+    dependencies=[Depends(require_permissions("ml.models.read"))],
+)
 async def list_models():
     """
     Returns a list of ML models available in the system.

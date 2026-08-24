@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server"
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 const mocks = vi.hoisted(() => {
   const verifyOtp = vi.fn()
@@ -13,8 +13,13 @@ import { GET } from "./route"
 
 describe("GET /auth/confirm", () => {
   beforeEach(() => {
+    vi.stubEnv("APP_ORIGIN", "http://localhost:3000")
     mocks.verifyOtp.mockReset()
     mocks.createSupabaseServerClient.mockClear()
+  })
+
+  afterEach(() => {
+    vi.unstubAllEnvs()
   })
 
   it("verifies a recovery token hash server-side before redirecting", async () => {
@@ -38,5 +43,16 @@ describe("GET /auth/confirm", () => {
     expect(response.headers.get("location")).toBe(
       "http://localhost:3000/login?error=confirmation",
     )
+  })
+
+  it("rejects a backslash-based external destination", async () => {
+    mocks.verifyOtp.mockResolvedValue({ error: null })
+    const request = new NextRequest(
+      "http://attacker.example/auth/confirm?token_hash=one-time-token&type=recovery&next=/%5Cevil.example",
+    )
+
+    const response = await GET(request)
+
+    expect(response.headers.get("location")).toBe("http://localhost:3000/researcher/dashboard")
   })
 })

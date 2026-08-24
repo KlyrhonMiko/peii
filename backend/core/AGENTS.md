@@ -17,17 +17,22 @@ backend without knowing about one resource such as users.
 - ORM query construction for one resource.
 - Business rules, conflict checks, password hashing, soft-delete workflows, or commits.
 - Resource-specific response shaping beyond shared envelope and metadata helpers.
-- Authentication or permission helpers that are not wired through real route dependencies.
+- Resource-specific authentication or permission policy; shared verified dependencies
+  belong here.
 
 ## Current Files
 - `config.py` owns `Settings`, loads the repo-root `.env`, and exposes `database_url`, `async_database_url`, and `is_sqlite`. It has no default values (fails fast if config is missing).
+- `auth.py` parses bearer headers, caches Supabase JWKS, validates JWTs, and defines
+  `AuthClaims`.
 - `database.py` owns both sync (`engine`/`get_session`) and async (`async_engine`/`get_async_session`) database engines and session factories. It configures PgBouncer-compatible connection args for async operations.
-- `deps.py` defines `DBSession` (sync) and `AsyncDBSession` (async), along with shared query parameters.
+- `deps.py` defines session aliases, shared query parameters, `CurrentPrincipal`, and
+  permission dependencies.
 - `context.py` defines thread-safe ContextVar (`request_id_ctx`) for tracing requests.
 - `logging.py` configures `structlog` for structured logging, supporting dev-friendly ConsoleRenderer and prod-friendly JSONRenderer, with automated request ID injection.
 - `middleware.py` defines ASGI `RequestIdMiddleware` for request ID propagation in headers/context.
 - `responses.py` owns `success_response()`, `error_response()`, and `list_meta_response()`. Both `success_response` and `error_response` automatically inject the active request ID into `meta.request_id`.
-- `handlers.py` translates `AppError`, `RequestValidationError`, and `IntegrityError` into the universal error envelope and structured-logs them using `structlog`.
+- `handlers.py` translates `AppError`, `RequestValidationError`, and `IntegrityError` into
+  the shared error envelope and structured-logs them using `structlog`.
 - `exceptions.py` owns small application exception types that handlers can render.
 
 ## Settings Rules
@@ -39,12 +44,14 @@ backend without knowing about one resource such as users.
 ## Database Rules
 - Use `get_async_session()` as the standard FastAPI dependency for async route handlers.
 - If a new model table is added, update the model metadata import path in `core/database.py` so tests and Alembic autogenerate can see it.
-- Keep PgBouncer connection args (`prepared_statement_name_func`, etc.) configured cleanly in `database.py` for all PostgreSQL connections.
+- Keep asyncpg cache/name connection args centralized in `database.py` for non-SQLite
+  async engines. The sync engine does not receive these arguments.
 
 ## Response And Error Rules
 - Preserve the top-level response shape: `data`, `message`, `errors`, `meta`.
 - Success and error helpers automatically extract and attach `request_id` context.
 - Keep success responses typed through `APIResponse[T]` where possible.
-- Keep list metadata assembly centralized in `list_meta_response()`, but pass in the endpoint-specific filter schema from the route.
+- Keep paginated list metadata assembly centralized in `list_meta_response()`, but pass in
+  the endpoint-specific filter schema from the route.
 - For expected domain failures, raise `AppError` from services and let `handlers.py` produce the HTTP response.
 - Use `structlog` inside `handlers.py` to record failures with comprehensive context.

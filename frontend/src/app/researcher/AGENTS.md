@@ -1,13 +1,19 @@
 # Researcher Route Guide
 
 ## Scope
-This guide covers `src/app/researcher/`, including the researcher layout, dashboard, and
-analytics routes.
+This guide covers `src/app/researcher/`, including the researcher layout, dashboard,
+analytics, survey management/detail/settings, and model routes.
 
 ## Current Responsibilities
 - `layout.tsx` owns the researcher shell, sticky top bar, and `SidebarProvider`.
-- `dashboard/page.tsx` composes summary cards and the cohort trend chart wrapper.
-- `analytics/page.tsx` composes the feature-importance chart wrapper.
+- `dashboard/page.tsx` owns department/batch filter state, derives summary values, and
+  renders the cohort trend chart wrapper.
+- `analytics/page.tsx` owns interactive filters and renders PEII dimensions and sentiment
+  divergence chart wrappers.
+- `survey/page.tsx` provides live survey CRUD, structure editing/reordering, distribution,
+  response, and aggregation workflows; nested detail/settings pages remain placeholders.
+- `models/page.tsx` loads the authenticated model catalog server-side from
+  `BACKEND_INTERNAL_URL`.
 
 ## Researcher Rules
 - Keep shared portal chrome in `layout.tsx`; do not duplicate it in child pages.
@@ -25,8 +31,8 @@ analytics routes.
 - Move data shaping into typed helpers, server loaders, or service functions rather than
   burying transformations inside JSX.
 - Keep chart dimensions stable so responsive containers do not collapse.
-- If filters become interactive, isolate the interactive controls in client components
-  instead of making the full route a client component.
+- Isolate interactive controls when practical. The current dashboard and analytics routes
+  are client components because they own filter state consumed by metrics and charts.
 
 ## Styling
 - Prefer shared card and chart components for repeated analytics surfaces.

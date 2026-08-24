@@ -1,17 +1,35 @@
 # Backend
 
-FastAPI backend scaffold for `peii`.
+FastAPI API for PEII authentication, RBAC, user administration, survey authoring and
+distribution, public responses, audit logs, and sentiment inference.
 
 ## Run locally
 
-1. Install dependencies:
+1. Copy the root `.env.example` to `.env` and replace every placeholder. All backend
+   settings are required; there are no startup defaults.
+
+   For a backend process running directly on the host, a local PostgreSQL URL normally
+   uses `localhost`. The `postgres` hostname in the example is for Docker Compose.
+
+2. Install dependencies from `backend/`:
 
 ```bash
 python3.14 -m venv .venv
 ./.venv/bin/pip install -r requirements.txt
 ```
 
-2. Start the development server from `backend/`:
+3. Apply migrations and initialize RBAC/admin data:
+
+```bash
+./.venv/bin/alembic upgrade head
+./.venv/bin/python scripts/seed_rbac.py
+./.venv/bin/python scripts/bootstrap_admin.py
+```
+
+The bootstrap command uses the `INITIAL_ADMIN_*` settings and Supabase Admin API. It
+links or invites that identity and grants the seeded `admin` role.
+
+4. Start the development server:
 
 ```bash
 ./.venv/bin/uvicorn main:app --reload
@@ -27,9 +45,10 @@ Database mode is controlled from the root `.env`:
 
 ## Supabase Auth email links
 
-The application completes recovery and invitation sessions server-side at
-`APP_ORIGIN/auth/confirm?next=/reset-password`. Configure that URL in the
-Supabase Auth redirect allowlist for every environment.
+The backend sends recovery and invitation redirects to
+`APP_ORIGIN/auth/confirm?next=/reset-password`. The frontend route at that application
+origin completes the Supabase session. Configure the URL in the Supabase Auth redirect
+allowlist for every environment.
 
 Use token-hash links in the Supabase email templates so access and refresh
 tokens are never placed in the browser URL. Build the callback from `SiteURL`
@@ -52,13 +71,13 @@ Do not use an implicit-flow link that includes `#access_token` or
 Run migrations from `backend/`:
 
 ```bash
-alembic upgrade head
+./.venv/bin/alembic upgrade head
 ```
 
 Create a new migration after model changes:
 
 ```bash
-alembic revision --autogenerate -m "describe change"
+./.venv/bin/alembic revision --autogenerate -m "describe change"
 ```
 
 ## Validation
@@ -79,8 +98,11 @@ From the repo root:
 docker compose up --build
 ```
 
-The bundled PostgreSQL and Adminer services are for `DB_MODE=local`.
-If you switch to `DB_MODE=supabase`, the backend will use the Supabase connection string from `.env`.
+PostgreSQL and Adminer always start with the full Compose graph. `DB_MODE=supabase`
+changes the database URL selected by the backend but does not disable those services.
+
+Compose does not currently apply Alembic migrations automatically. Initialize a fresh
+database before using the application.
 
 For local database containers only:
 
@@ -95,14 +117,33 @@ Services:
 - Adminer: `http://localhost:8080`
 - PostgreSQL: `localhost:5432`
 
-## Initial structure
+## API Surface
 
-- `core/`: app settings, database engine/session, and other shared infrastructure.
+Routes are mounted below `API_V1_PREFIX` (normally `/api/v1`):
+
+- `/auth`: login, current principal, logout, recovery, and password changes.
+- `/rbac`: permissions, roles, and role assignments.
+- `/users` and `/audit-logs`: administration and audit history.
+- `/surveys`: surveys plus nested sections, questions, members, distributions, and
+  responses.
+- `/survey/{token}`: public survey loading and idempotent response submission.
+- `/ml`: model catalog and sentiment inference. Model weights load lazily and may require
+  substantial network, disk, memory, and CPU resources on first use.
+
+Protected routes accept a Supabase bearer token and resolve it through JWKS verification,
+the local user record, and effective role/permission dependencies.
+
+## Structure
+
+- `core/`: settings, auth/JWKS, database sessions, dependencies, tracing, responses, and
+  handlers.
 - `core/deps.py`: shared FastAPI dependencies and common query params.
 - `core/handlers.py`: global API exception handling.
-- `models/base_model.py`: shared SQLModel base with UUIDv7 primary key and audit/soft-delete fields.
+- `models/base_model.py`: shared timestamped UUID and resource base classes. Most resources
+  use them; audit logs have a distinct persistence shape.
 - `models/`: SQLModel table definitions.
 - `schemas/`: request and response schemas for FastAPI.
 - `routers/`: API endpoint modules.
 - `services/`: business-logic layer.
 - `utils/`: project-specific helpers.
+- `scripts/`: RBAC/admin initialization and optional survey seed scripts.
