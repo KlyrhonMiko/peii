@@ -31,7 +31,7 @@ class PublicSurveyQuestion(BaseModel):
         if isinstance(v, str):
             try:
                 return json.loads(v)
-            except json.JSONDecodeError, TypeError:
+            except (json.JSONDecodeError, TypeError):
                 return None
         return v
 
@@ -41,7 +41,7 @@ class PublicSurveyQuestion(BaseModel):
         if isinstance(v, str):
             try:
                 return json.loads(v)
-            except json.JSONDecodeError, TypeError:
+            except (json.JSONDecodeError, TypeError):
                 return None
         return v
 

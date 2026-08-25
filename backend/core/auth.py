@@ -34,7 +34,9 @@ async def verify_bearer_token(authorization: str | None = Header(default=None)) 
             algorithms=["RS256", "ES256"],
             issuer=f"{settings.SUPABASE_URL}/auth/v1",
             audience="authenticated",
+            leeway=60,
         )
         return AuthClaims(subject=UUID(claims["sub"]), access_token=access_token)
     except (jwt.PyJWTError, KeyError, ValueError) as exc:
+        print(f"JWT Verification failed: {exc}", flush=True)
         raise AppError("Authentication required.", status_code=401) from exc
