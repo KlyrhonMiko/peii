@@ -40,7 +40,7 @@ def _deserialize_options(options_str: str | None) -> list[str] | None:
         return None
     try:
         return json.loads(options_str)
-    except json.JSONDecodeError, TypeError:
+    except (json.JSONDecodeError, TypeError):
         return None
 
 
@@ -53,7 +53,7 @@ def _deserialize_config(config_str: str | None) -> dict | None:
         return None
     try:
         return json.loads(config_str)
-    except json.JSONDecodeError, TypeError:
+    except (json.JSONDecodeError, TypeError):
         return None
 
 

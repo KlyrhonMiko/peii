@@ -549,5 +549,5 @@ def _serialize_options(options_str: str | None) -> list[str] | None:
         return None
     try:
         return json.loads(options_str)
-    except json.JSONDecodeError, TypeError:
+    except (json.JSONDecodeError, TypeError):
         return None
