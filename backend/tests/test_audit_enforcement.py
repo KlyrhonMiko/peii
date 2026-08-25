@@ -32,8 +32,6 @@ async def test_commit_with_audit_rolls_back_when_audit_staging_fails(monkeypatch
             user_id="USER-ROLLBACK",
             email="rollback@example.com",
             username="rollback-user",
-            password="hashed-password",
-            role="staff",
             first_name="Rollback",
             last_name="Test",
         )
@@ -153,11 +151,6 @@ def test_mutation_modules_do_not_commit_outside_audit_service():
 
     for path in paths:
         if path.name == "audit_service.py":
-            continue
-        if path.name == "bridge_collaboration_upgrade.py":
-            # This staged schema bridge runs across historical revisions where
-            # application models/services are not import-compatible. It writes
-            # its own non-sensitive audit event in the same raw SQL transaction.
             continue
         tree = ast.parse(path.read_text(), filename=str(path))
         writes = [

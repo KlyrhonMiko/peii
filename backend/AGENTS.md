@@ -20,7 +20,7 @@ Read this file first, then the guide closest to the files you are changing.
 - Run backend commands from `backend/` unless a command explicitly says otherwise.
 - Use the repo-local virtualenv: `python3.14 -m venv .venv` and
   `./.venv/bin/pip install -r requirements.txt`.
-- Start the API with `./.venv/bin/uvicorn main:app --reload`.
+- Start the API with `./.venv/bin/uvicorn main:app --reload --no-access-log --no-proxy-headers`.
 - Apply migrations with `./.venv/bin/alembic upgrade head`.
 - Run the backend validation gate with:
   - `./.venv/bin/ruff check .`
@@ -34,7 +34,10 @@ Read this file first, then the guide closest to the files you are changing.
 - No tracked pre-commit configuration currently runs these checks automatically.
 
 ### Runtime Configuration
-- `core/config.py` loads the repo-root `.env` with Pydantic settings. No default fallbacks exist; missing configuration fails fast at startup.
+- `core/config.py` loads the repo-root `.env` with Pydantic settings. Core application settings
+  fail fast when missing; traffic-security and public-policy settings have local-safe defaults,
+  but production must explicitly set the required Redis, rate-limit, trusted-proxy, request-size,
+  and approved consent values documented in `docs/production-decisions.md`.
 - Keep `.env.example` aligned whenever backend config keys, modes, or expected formats change.
 - Database selection is environment-driven:
   - `DB_MODE=local` uses `LOCAL_DATABASE_URL`.
@@ -45,6 +48,8 @@ Read this file first, then the guide closest to the files you are changing.
   also receive asyncpg cache/name connection arguments in `core/database.py`.
 - `SQL_ECHO` controls SQLAlchemy logging; keep normal development output quiet unless debugging SQL specifically.
 - `LOG_JSON` controls whether structured logs are formatted as JSON lines (for production aggregators) or colored console logs (for local development).
+- `RATE_LIMIT_INCLUDE_CLIENT_IP=false` keeps public rate-limit buckets keyed by the resource
+  identifier only. Enable it only after the complete trusted forwarding chain is verified.
 - `BACKEND_CORS_ORIGINS` is parsed as a list by settings. Keep examples valid for Pydantic.
 
 ## Architecture
@@ -90,7 +95,7 @@ Read this file first, then the guide closest to the files you are changing.
 - New models must be exported from `models/__init__.py` and imported by metadata wiring such as `core/database.py` and `alembic/env.py` so tests, table creation, and Alembic autogenerate see them.
 - Treat `include_deleted` as query behavior. It is not authorization.
 - User passwords are managed by Supabase Auth and are not persisted in the local `users`
-  table. User create/update schemas reject legacy local password fields.
+  table. User create/update schemas reject local password fields.
 
 ## Human-Readable Business IDs
 - Use `utils.identifiers.generate_business_id(prefix)` for UI-facing ids.
@@ -113,8 +118,8 @@ Read this file first, then the guide closest to the files you are changing.
 - `core.auth` verifies Supabase bearer JWTs through JWKS and issuer/audience checks.
 - `core.deps.CurrentPrincipal` resolves the local user and effective roles/permissions.
 - Use `require_permissions(...)` for capability-gated routes. Survey access is global RBAC:
-  authentication alone is not authorization, and surveys have no ownership or membership
-  scope. Keep `surveys.read`, `surveys.manage`, distribution management, aggregate reads, raw
+  authentication alone is not authorization. Survey authorization is global RBAC. Keep
+  `surveys.read`, `surveys.manage`, distribution management, aggregate reads, raw
   reads, export, and erase as separate capabilities.
 - Password login, recovery, invitation, logout, and password changes delegate to Supabase;
   never persist or log credentials or tokens locally.
@@ -125,9 +130,13 @@ Read this file first, then the guide closest to the files you are changing.
 - Review the generated diff before making manual edits. Manual edits should be narrow and explainable from the model change, data backfill, or database limitation.
 - When adding a required business id to an existing table, use a safe migration sequence: add nullable, backfill existing rows with unique prefixed values, alter to non-null, then add the unique index.
 - Add a new revision for new schema work. Do not rewrite older shared or applied revisions.
-- The current head is `20260825_0001` (following `20260825_0002`). The downgrade for
-  `81568591615f` is unusable; rollback requires a reviewed forward-fix or validated backup/PITR
-  restore.
+- The database uses the canonical first-release baseline `20260825_v1` followed by the Phase 2
+  compatibility revision `f77a807cf2f9_expand_distribution_security`. Fresh environments must
+  run `./.venv/bin/alembic upgrade head`; production runs it once as the protected release job.
+- The compatibility revision stores SHA-256 token digests and 8-character prefixes, but retains
+  plaintext distribution tokens until the later digest-only/drop gate. Follow
+  expand -> dual-write/digest-first -> reconcile -> digest-only app -> later contract/drop gate;
+  do not claim plaintext has already been removed.
 - Keep model, schema, service/router contract, tests, and migration files in sync when one feature touches all of them.
 
 ## Testing Standards

@@ -32,10 +32,11 @@ def _distribution_read(
 
 
 def _distribution_secret_read(
-    distribution: SurveyDistribution, survey_status: str
+    secret_result: distribution_service.DistributionSecretResult, survey_status: str
 ) -> SurveyDistributionSecretRead:
+    distribution = secret_result.distribution
     return SurveyDistributionSecretRead(
-        **_distribution_read(distribution, survey_status).model_dump(), token=distribution.token
+        **_distribution_read(distribution, survey_status).model_dump(), token=secret_result.token
     )
 
 
@@ -55,11 +56,11 @@ async def create_distribution(
 ) -> APIResponse[SurveyDistributionSecretRead]:
     await survey_service.resolve_survey(session, survey_id)
     ip_address = request.client.host if request.client else None
-    distribution = await distribution_service.create_distribution(
+    secret_result = await distribution_service.create_distribution(
         session, survey_id, payload, performed_by=principal.user.id, ip_address=ip_address
     )
     return success_response(
-        _distribution_secret_read(distribution, "Active"),
+        _distribution_secret_read(secret_result, "Active"),
         message="Distribution created.",
     )
 
@@ -123,7 +124,7 @@ async def rotate_distribution(
 ) -> APIResponse[SurveyDistributionSecretRead]:
     await survey_service.resolve_survey(session, survey_id)
     ip_address = request.client.host if request.client else None
-    distribution, survey_status = await distribution_service.rotate_distribution(
+    secret_result, survey_status = await distribution_service.rotate_distribution(
         session,
         survey_id,
         distribution_id,
@@ -132,6 +133,6 @@ async def rotate_distribution(
         ip_address=ip_address,
     )
     return success_response(
-        _distribution_secret_read(distribution, survey_status),
+        _distribution_secret_read(secret_result, survey_status),
         message="Distribution rotated.",
     )

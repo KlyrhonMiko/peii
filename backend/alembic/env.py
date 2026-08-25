@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import os
 import sys
 from logging.config import fileConfig
 from pathlib import Path
 
 from dotenv import load_dotenv
-from sqlalchemy import engine_from_config, pool
+from sqlalchemy import Connection, engine_from_config, pool, text
 from sqlmodel import SQLModel
 
 from alembic import context
@@ -33,7 +34,6 @@ from models import (  # noqa: F401,E402
 )
 
 config = context.config
-config.set_main_option("sqlalchemy.url", settings.database_url)
 
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
@@ -56,6 +56,10 @@ def run_migrations_offline() -> None:
 
 
 def run_migrations_online() -> None:
+    # ConfigParser interpolation treats percent signs as placeholders. Escape them
+    # only for the online engine configuration; the offline URL is passed directly
+    # to Alembic and must remain unchanged.
+    config.set_main_option("sqlalchemy.url", settings.database_url.replace("%", "%%"))
     connectable = engine_from_config(
         config.get_section(config.config_ini_section, {}),
         prefix="sqlalchemy.",
@@ -63,6 +67,7 @@ def run_migrations_online() -> None:
     )
 
     with connectable.connect() as connection:
+        _assert_expected_schema(connection)
         context.configure(
             connection=connection,
             target_metadata=target_metadata,
@@ -72,6 +77,30 @@ def run_migrations_online() -> None:
 
         with context.begin_transaction():
             context.run_migrations()
+
+
+def _assert_expected_schema(connection: Connection) -> None:
+    expected_schema = os.environ.get("ALEMBIC_EXPECTED_SCHEMA")
+    if expected_schema is None:
+        return
+    expected_schema = expected_schema.strip()
+    if not expected_schema:
+        raise RuntimeError("ALEMBIC_EXPECTED_SCHEMA must not be empty when provided.")
+
+    try:
+        actual_schema = connection.execute(text("SELECT current_schema()")).scalar_one_or_none()
+        # The schema check starts an implicit read-only transaction. End it before
+        # Alembic establishes its migration transaction.
+        connection.commit()
+    except BaseException:
+        connection.rollback()
+        raise
+
+    if actual_schema != expected_schema:
+        raise RuntimeError(
+            "Alembic schema guard failed: "
+            f"expected {expected_schema!r}, got {actual_schema!r}."
+        )
 
 
 if context.is_offline_mode():

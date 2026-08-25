@@ -35,8 +35,8 @@ describe("isAllowedBackendRequest", () => {
     expect(isAllowedBackendRequest("DELETE", ["rbac", "roles", "role-id"])).toBe(false)
     expect(isAllowedBackendRequest("POST", ["users", "USER-123", "sessions"])).toBe(false)
     expect(isAllowedBackendRequest("GET", ["docs"])).toBe(false)
-    expect(isAllowedBackendRequest("GET", ["surveys", "survey-id", "members"])).toBe(false)
-    expect(isAllowedBackendRequest("POST", ["surveys", "survey-id", "members", "transfer", "user-id"])).toBe(false)
+    expect(isAllowedBackendRequest("GET", ["surveys", "survey-id", "unsupported"])).toBe(false)
+    expect(isAllowedBackendRequest("POST", ["surveys", "survey-id", "unsupported", "action", "id"])).toBe(false)
   })
 
   it("denies unsupported methods and malformed survey paths", () => {
@@ -55,10 +55,10 @@ describe("isAllowedBackendRequest", () => {
     expect(isAllowedBackendRequest("POST", ["surveys", "survey-id", "responses", "erase", "again"])).toBe(false)
   })
 
-  it("rejects survey membership and ownership routes", () => {
+  it("rejects unsupported survey subroutes for every method", () => {
     for (const method of ["GET", "POST", "PATCH", "PUT", "DELETE"]) {
-      expect(isAllowedBackendRequest(method, ["surveys", "survey-id", "members"])).toBe(false)
-      expect(isAllowedBackendRequest(method, ["surveys", "survey-id", "owner"])).toBe(false)
+      expect(isAllowedBackendRequest(method, ["surveys", "survey-id", "unsupported"])).toBe(false)
+      expect(isAllowedBackendRequest(method, ["surveys", "survey-id", "unsupported", "action"])).toBe(false)
     }
   })
 })

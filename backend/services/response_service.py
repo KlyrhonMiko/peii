@@ -4,6 +4,7 @@ import io
 import json
 import math
 from collections import Counter
+from dataclasses import dataclass
 from datetime import date
 from typing import cast
 from uuid import UUID
@@ -28,6 +29,7 @@ from schemas.survey_response import (
     SurveyResponseAggregate,
     SurveyResponseListQueryParams,
 )
+from services import survey_consent, survey_privacy
 from services.audit_service import AuditEvent, commit_with_audit
 from services.base_service import utc_now
 from services.distribution_service import get_distribution_and_survey_by_token
@@ -211,7 +213,15 @@ async def submit_response(
     actor_id: UUID,
     idempotency_key: UUID | None = None,
     ip_address: str | None = None,
+    consent_version: str | None = None,
 ) -> tuple[SurveyResponse, bool]:
+    # Public HTTP callers must supply the current version.  A missing value is
+    # defaulted only for existing internal service callers, preserving their
+    # behavior while the public request schema remains strict.
+    if consent_version is None:
+        consent_version = survey_consent.get_public_consent_policy().version
+    consent_policy = survey_consent.require_current_consent(consent_version)
+
     try:
         answers_json = json.dumps(answers, allow_nan=False)
     except (TypeError, ValueError) as exc:
@@ -237,22 +247,89 @@ async def submit_response(
     answers_hash = None
     if idempotency_key is not None:
         answers_hash = hashlib.sha256(
+            json.dumps(
+                {"answers": answers, "consent_version": consent_version},
+                sort_keys=True,
+                separators=(",", ":"),
+                allow_nan=False,
+            ).encode()
+        ).hexdigest()
+        legacy_answers_hash = hashlib.sha256(
             json.dumps(answers, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()
         ).hexdigest()
         existing_result = await session.exec(
             select(SurveyResponse).where(
                 col(SurveyResponse.distribution_id) == distribution.id,
                 col(SurveyResponse.idempotency_key) == idempotency_key,
-            )
+            ).with_for_update()
         )
         existing = existing_result.first()
         if existing is not None:
+            consent_fields = (
+                existing.consent_version,
+                existing.consented_at,
+                existing.consent_notice_snapshot,
+            )
+            all_consent_fields_null = all(field is None for field in consent_fields)
+            all_consent_fields_present = all(field is not None for field in consent_fields)
+            if not all_consent_fields_null and not all_consent_fields_present:
+                raise AppError(
+                    "Existing response consent evidence is incomplete.",
+                    status_code=status.HTTP_409_CONFLICT,
+                    errors={"code": "invalid_consent_evidence"},
+                )
+
+            if all_consent_fields_present and (
+                existing.consent_version != consent_version
+                or existing.consent_notice_snapshot != consent_policy.model_dump(mode="json")
+            ):
+                raise AppError(
+                    "Existing response consent evidence is inconsistent.",
+                    status_code=status.HTTP_409_CONFLICT,
+                    errors={"code": "invalid_consent_evidence"},
+                )
+
+            if existing.idempotency_hash == answers_hash:
+                if not all_consent_fields_present:
+                    raise AppError(
+                        "Existing response consent evidence is incomplete.",
+                        status_code=status.HTTP_409_CONFLICT,
+                        errors={"code": "invalid_consent_evidence"},
+                    )
+                return existing, True
+
+            if existing.idempotency_hash == legacy_answers_hash:
+                existing.idempotency_hash = answers_hash
+                if all_consent_fields_null:
+                    existing.consent_version = consent_version
+                    existing.consented_at = utc_now()
+                    existing.consent_notice_snapshot = consent_policy.model_dump(mode="json")
+                    replay_action = "consent_recorded_on_legacy_replay"
+                else:
+                    replay_action = "response_replay_hash_upgraded"
+                session.add(existing)
+                await commit_with_audit(
+                    session,
+                    [
+                        AuditEvent(
+                            action=replay_action,
+                            resource_type="survey_response",
+                            resource_id=str(existing.id),
+                            performed_by=actor_id,
+                            changes=None,
+                            ip_address=None,
+                        )
+                    ],
+                )
+                await session.refresh(existing)
+                return existing, True
+
             if existing.idempotency_hash != answers_hash:
                 raise AppError(
-                    "Idempotency-Key was already used with different answers.",
+                    "Idempotency-Key was already used with different answers or consent version.",
                     status_code=status.HTTP_409_CONFLICT,
+                    errors={"code": "idempotency_conflict"},
                 )
-            return existing, True
 
     if survey.is_deleted or survey.status != "Active":
         raise AppError(
@@ -266,6 +343,9 @@ async def submit_response(
         distribution_id=distribution.id,
         idempotency_key=idempotency_key,
         idempotency_hash=answers_hash,
+        consent_version=consent_version,
+        consented_at=utc_now(),
+        consent_notice_snapshot=consent_policy.model_dump(mode="json"),
         answers=answers,
         performed_by=actor_id,
     )
@@ -289,7 +369,7 @@ async def submit_response(
                 resource_id=str(response.id),
                 performed_by=actor_id,
                 changes={"distribution_id": str(distribution.id)},
-                ip_address=ip_address,
+                ip_address=None,
             ),
             AuditEvent(
                 action="response_submitted",
@@ -297,7 +377,7 @@ async def submit_response(
                 resource_id=survey.survey_id,
                 performed_by=actor_id,
                 changes={"response_id": str(response.id)},
-                ip_address=ip_address,
+                ip_address=None,
             ),
         ],
     )
@@ -359,6 +439,7 @@ _AGGREGATE_TYPES = {
     QuestionType.RANKING,
     QuestionType.MATRIX,
 }
+_AGGREGATE_BATCH_SIZE = 1000
 
 
 async def _load_aggregate_questions(
@@ -372,6 +453,7 @@ async def _load_aggregate_questions(
             col(SurveySection.survey_id) == survey_id,
             col(SurveySection.is_deleted).is_(False),
             col(SurveyQuestion.is_deleted).is_(False),
+            col(SurveyQuestion.question_type).in_(_AGGREGATE_TYPES),
         )
         .order_by(
             col(SurveySection.order_index),
@@ -383,20 +465,67 @@ async def _load_aggregate_questions(
     return list(result.all())
 
 
-def _aggregate_question(
-    question: SurveyQuestion, responses: list[SurveyResponse]
-) -> SurveyResponseAggregate | None:
-    question_type = QuestionType(question.question_type)
-    if question_type not in _AGGREGATE_TYPES:
-        return None
+@dataclass
+class _AggregateState:
+    question: SurveyQuestion
+    question_type: QuestionType
+    options: list[object]
+    config: dict[str, object]
+    counts: Counter[object]
+    total: int = 0
 
+
+def _new_aggregate_state(question: SurveyQuestion) -> _AggregateState:
+    question_type = QuestionType(question.question_type)
     options = _load_json(question.options, "options")
     config = _load_json(question.config, "config")
     normalized_options = options if isinstance(options, list) else []
     normalized_config = config if isinstance(config, dict) else {}
-    answers = [response.answers.get(str(question.id)) for response in responses]
-    answers = [answer for answer in answers if not _is_blank_answer(answer)]
-    total = len(answers)
+    counts: Counter[object] = Counter()
+    state = _AggregateState(
+        question=question,
+        question_type=question_type,
+        options=normalized_options,
+        config=normalized_config,
+        counts=counts,
+    )
+    if question_type in {
+        QuestionType.SINGLE_CHOICE,
+        QuestionType.MULTIPLE_CHOICE,
+    }:
+        for option in normalized_options:
+            state.counts[option] = 0
+    elif question_type == QuestionType.BOOLEAN:
+        state.counts[False] = 0
+        state.counts[True] = 0
+    elif question_type == QuestionType.SCALE:
+        scale_options = (
+            normalized_options
+            if all(isinstance(item, str) for item in normalized_options)
+            else None
+        )
+        minimum, maximum = get_scale_bounds(
+            cast(list[str] | None, scale_options), normalized_config
+        )
+        for scale_value in range(minimum, maximum + 1):
+            state.counts[scale_value] = 0
+    elif question_type == QuestionType.RANKING:
+        for rank in range(1, len(normalized_options) + 1):
+            for option in normalized_options:
+                state.counts[(option, rank)] = 0
+    else:
+        columns = get_matrix_columns(normalized_config)
+        for row in normalized_options:
+            for matrix_value in columns:
+                state.counts[(row, matrix_value)] = 0
+    return state
+
+
+def _accumulate_aggregate_answer(state: _AggregateState, answer: object) -> None:
+    if _is_blank_answer(answer):
+        return
+    state.total += 1
+    question_type = state.question_type
 
     if question_type in {
         QuestionType.SINGLE_CHOICE,
@@ -404,64 +533,103 @@ def _aggregate_question(
         QuestionType.MULTIPLE_CHOICE,
     }:
         if question_type == QuestionType.MULTIPLE_CHOICE:
-            counts: Counter[object] = Counter(
-                item for answer in answers if isinstance(answer, list) for item in answer
-            )
+            if isinstance(answer, list):
+                for item in answer:
+                    try:
+                        if item in state.counts:
+                            state.counts[item] += 1
+                    except TypeError:
+                        continue
         else:
-            counts = Counter(answers)
-        cells = [
-            {"value": option, "count": counts.get(option, 0)}
-            for option in (
-                normalized_options
-                if question_type != QuestionType.BOOLEAN
-                else [False, True]
-            )
-        ]
+            try:
+                if answer in state.counts:
+                    state.counts[answer] += 1
+            except TypeError:
+                pass
     elif question_type == QuestionType.SCALE:
-        minimum, maximum = get_scale_bounds(
-            normalized_options
-            if all(isinstance(item, str) for item in normalized_options)
-            else None,
-            normalized_config,
+        try:
+            if answer in state.counts:
+                state.counts[answer] += 1
+        except TypeError:
+            pass
+    elif question_type == QuestionType.RANKING:
+        if isinstance(answer, list):
+            for rank, value in enumerate(answer, start=1):
+                try:
+                    if (value, rank) in state.counts:
+                        state.counts[(value, rank)] += 1
+                except TypeError:
+                    continue
+    else:
+        if isinstance(answer, dict):
+            for row, value in answer.items():
+                try:
+                    if (row, value) in state.counts:
+                        state.counts[(row, value)] += 1
+                except TypeError:
+                    continue
+
+
+def _aggregate_cells(state: _AggregateState) -> list[dict[str, object]]:
+    question_type = state.question_type
+    if question_type in {
+        QuestionType.SINGLE_CHOICE,
+        QuestionType.MULTIPLE_CHOICE,
+    }:
+        return [
+            {"value": option, "count": state.counts.get(option, 0)}
+            for option in state.options
+        ]
+    if question_type == QuestionType.BOOLEAN:
+        return [
+            {"value": value, "count": state.counts.get(value, 0)}
+            for value in (False, True)
+        ]
+    if question_type == QuestionType.SCALE:
+        scale_options = (
+            state.options
+            if all(isinstance(item, str) for item in state.options)
+            else None
         )
-        counts = Counter(answers)
-        cells = [
-            {"value": value, "count": counts.get(value, 0)}
+        minimum, maximum = get_scale_bounds(
+            cast(list[str] | None, scale_options),
+            state.config,
+        )
+        return [
+            {"value": value, "count": state.counts.get(value, 0)}
             for value in range(minimum, maximum + 1)
         ]
-    elif question_type == QuestionType.RANKING:
-        counts = Counter(
-            (value, rank)
-            for answer in answers
-            if isinstance(answer, list)
-            for rank, value in enumerate(answer, start=1)
-        )
-        cells = [
-            {"value": value, "rank": rank, "count": counts.get((value, rank), 0)}
-            for rank in range(1, len(normalized_options) + 1)
-            for value in normalized_options
+    if question_type == QuestionType.RANKING:
+        return [
+            {
+                "value": value,
+                "rank": rank,
+                "count": state.counts.get((value, rank), 0),
+            }
+            for rank in range(1, len(state.options) + 1)
+            for value in state.options
         ]
-    else:
-        columns = get_matrix_columns(normalized_config)
-        counts = Counter(
-            (row, value)
-            for answer in answers
-            if isinstance(answer, dict)
-            for row, value in answer.items()
-        )
-        cells = [
-            {"row": row, "value": value, "count": counts.get((row, value), 0)}
-            for row in normalized_options
-            for value in columns
-        ]
+    columns = get_matrix_columns(state.config)
+    return [
+        {"row": row, "value": value, "count": state.counts.get((row, value), 0)}
+        for row in state.options
+        for value in columns
+    ]
 
-    if total < 5 or any(0 < cell["count"] < 5 for cell in cells):
+
+def _finalize_aggregate(state: _AggregateState) -> SurveyResponseAggregate | None:
+    cells = _aggregate_cells(state)
+
+    if state.total < survey_privacy.RESPONSE_COUNT_PRIVACY_THRESHOLD or any(
+        0 < cast(int, cell["count"]) < survey_privacy.RESPONSE_COUNT_PRIVACY_THRESHOLD
+        for cell in cells
+    ):
         return None
     return SurveyResponseAggregate(
-        question_id=question.id,
-        question_text=question.question_text,
-        question_type=cast(AggregateQuestionType, question_type.value),
-        total=total,
+        question_id=state.question.id,
+        question_text=state.question.question_text,
+        question_type=cast(AggregateQuestionType, state.question_type.value),
+        total=state.total,
         cells=[AggregateCell.model_validate(cell) for cell in cells],
     )
 
@@ -470,18 +638,33 @@ async def aggregate_responses(
     session: AsyncSession, survey_id: UUID
 ) -> list[SurveyResponseAggregate]:
     await resolve_survey(session, survey_id)
-    responses_result = await session.exec(
-        select(SurveyResponse)
-        .where(
-            col(SurveyResponse.survey_id) == survey_id,
-            col(SurveyResponse.is_deleted).is_(False),
-        )
-        .order_by(col(SurveyResponse.id))
-    )
-    responses = list(responses_result.all())
+    questions = await _load_aggregate_questions(session, survey_id)
+    states = {
+        str(question.id): _new_aggregate_state(question) for question in questions
+    }
+    if not states:
+        return []
+
+    responses_statement = select(SurveyResponse.answers).where(
+        col(SurveyResponse.survey_id) == survey_id,
+        col(SurveyResponse.is_deleted).is_(False),
+    ).order_by(col(SurveyResponse.id))
+    answers_result = await session.stream(responses_statement)
+    try:
+        async for answer_batch in answers_result.scalars().partitions(_AGGREGATE_BATCH_SIZE):
+            for answers in answer_batch:
+                if not isinstance(answers, dict):
+                    continue
+                for question_id, answer in answers.items():
+                    state = states.get(question_id)
+                    if state is not None:
+                        _accumulate_aggregate_answer(state, answer)
+    finally:
+        await answers_result.close()
+
     aggregates: list[SurveyResponseAggregate] = []
-    for question in await _load_aggregate_questions(session, survey_id):
-        aggregate = _aggregate_question(question, responses)
+    for question in questions:
+        aggregate = _finalize_aggregate(states[str(question.id)])
         if aggregate is not None:
             aggregates.append(aggregate)
     return aggregates
@@ -628,6 +811,7 @@ async def erase_responses(
             raise AppError(
                 "Idempotency-Key was already used with a different erasure request.",
                 status_code=status.HTTP_409_CONFLICT,
+                errors={"code": "idempotency_conflict"},
             )
         return ResponseErasureResult.model_validate(
             {
@@ -684,6 +868,9 @@ async def erase_responses(
         response.distribution_id = None
         response.idempotency_key = None
         response.idempotency_hash = None
+        response.consent_version = None
+        response.consented_at = None
+        response.consent_notice_snapshot = None
         response.is_deleted = True
         response.deleted_at = now
         response.updated_at = now

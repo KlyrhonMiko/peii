@@ -1,4 +1,5 @@
 import re
+from collections.abc import Sequence
 
 from fastapi import FastAPI, Request
 from fastapi.encoders import jsonable_encoder
@@ -18,6 +19,19 @@ def _redact_token_path(path: str) -> str:
     return _TOKEN_PATH_PATTERN.sub(r"\1[REDACTED]", path)
 
 
+def _safe_validation_errors(errors: Sequence[dict]) -> list[dict]:
+    """Keep validation locations/messages while excluding submitted field values."""
+
+    return [
+        {
+            key: value
+            for key, value in error.items()
+            if key not in {"input", "ctx"}
+        }
+        for error in errors
+    ]
+
+
 def register_exception_handlers(app: FastAPI) -> None:
     @app.exception_handler(AppError)
     async def app_error_handler(request: Request, exc: AppError) -> JSONResponse:
@@ -28,26 +42,32 @@ def register_exception_handlers(app: FastAPI) -> None:
             path=_redact_token_path(request.url.path),
             method=request.method,
         )
-        headers = {"WWW-Authenticate": "Bearer"} if exc.status_code == 401 else None
+        headers: dict[str, str] = {}
+        if exc.status_code == 401:
+            headers["WWW-Authenticate"] = "Bearer"
+        retry_after = getattr(exc, "retry_after", None)
+        if retry_after is not None:
+            headers["Retry-After"] = str(retry_after)
         return JSONResponse(
             status_code=exc.status_code,
             content=error_response(exc.message, errors=exc.errors),
-            headers=headers,
+            headers=headers or None,
         )
 
     @app.exception_handler(RequestValidationError)
     async def validation_error_handler(
         request: Request, exc: RequestValidationError
     ) -> JSONResponse:
+        safe_errors = _safe_validation_errors(exc.errors())
         logger.info(
             "Validation error occurred",
-            errors=exc.errors(),
+            errors=safe_errors,
             path=_redact_token_path(request.url.path),
             method=request.method,
         )
         return JSONResponse(
             status_code=422,
-            content=error_response("Validation error.", errors=jsonable_encoder(exc.errors())),
+            content=error_response("Validation error.", errors=jsonable_encoder(safe_errors)),
         )
 
     @app.exception_handler(IntegrityError)

@@ -12,3 +12,18 @@ class AppError(Exception):
         self.status_code = status_code
         self.errors = errors
         super().__init__(message)
+
+
+class RateLimitExceeded(AppError):
+    def __init__(self, retry_after: int) -> None:
+        self.retry_after = max(1, retry_after)
+        super().__init__("Too many requests. Please try again later.", status_code=429)
+
+
+class RedisUnavailableError(AppError):
+    def __init__(self) -> None:
+        super().__init__("Traffic security is temporarily unavailable.", status_code=503)
+
+
+class RequestTooLargeError(BaseException):
+    """Internal ASGI signal that bypasses FastAPI's body-parser exception wrapping."""

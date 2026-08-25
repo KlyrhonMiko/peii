@@ -6,11 +6,12 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 
 interface ForgotPasswordPageProps {
-  searchParams: Promise<{ sent?: string }>
+  searchParams: Promise<{ sent?: string; error?: string; retryAfter?: string }>
 }
 
 export default async function ForgotPasswordPage({ searchParams }: ForgotPasswordPageProps) {
   const params = await searchParams
+  const retryAfter = parseRetryAfter(params.retryAfter)
   return (
     <main className="flex min-h-screen items-center justify-center bg-slate-50 p-5">
       <Card className="w-full max-w-sm">
@@ -21,6 +22,10 @@ export default async function ForgotPasswordPage({ searchParams }: ForgotPasswor
           {params.sent === "1" ? (
             <p className="text-sm text-muted-foreground" role="status">
               If the account exists, a recovery link has been sent to its email address.
+            </p>
+          ) : params.error === "retry-later" ? (
+            <p className="text-sm text-destructive" role="alert">
+              We could not process that request right now. Please try again{retryAfter === null ? " later" : ` in ${retryAfter} seconds`}.
             </p>
           ) : (
             <form action={requestPasswordRecoveryAction} className="grid gap-4">
@@ -38,4 +43,10 @@ export default async function ForgotPasswordPage({ searchParams }: ForgotPasswor
       </Card>
     </main>
   )
+}
+
+function parseRetryAfter(value: string | undefined): number | null {
+  if (value === undefined || !/^\d+$/.test(value)) return null
+  const seconds = Number(value)
+  return Number.isSafeInteger(seconds) && seconds > 0 ? seconds : null
 }

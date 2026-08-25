@@ -2,8 +2,15 @@ from datetime import UTC, datetime
 
 from fastapi import APIRouter, Request
 
+from core.client_ip import resolve_client_ip
 from core.config import settings
 from core.deps import AsyncDBSession, CurrentPrincipal
+from core.rate_limit import (
+    enforce_rate_limit,
+    normalize_rate_limit_identifier,
+    rate_limit_identifiers,
+    rate_limit_policy,
+)
 from core.responses import success_response
 from schemas.auth import (
     AuthSession,
@@ -15,13 +22,17 @@ from schemas.auth import (
 from schemas.common import APIResponse
 from services import auth_service
 from services.audit_service import AuditEvent, commit_with_audit
-from services.supabase_auth_service import logout_user_session, send_recovery_email, update_password
+from services.supabase_auth_service import (
+    logout_user_session,
+    send_recovery_email,
+    update_password,
+)
 
 router = APIRouter()
 
 
 def _ip_address(request: Request) -> str | None:
-    return request.client.host if request.client else None
+    return resolve_client_ip(request)
 
 
 @router.post(
@@ -33,6 +44,11 @@ def _ip_address(request: Request) -> str | None:
 async def login(
     payload: LoginRequest, session: AsyncDBSession, request: Request
 ) -> APIResponse[AuthSession]:
+    identifier = normalize_rate_limit_identifier(payload.identifier)
+    await enforce_rate_limit(
+        rate_limit_policy("login"),
+        rate_limit_identifiers(f"identifier:{identifier}", request),
+    )
     user, session_data = await auth_service.authenticate(
         session, payload.identifier, payload.password
     )
@@ -92,9 +108,16 @@ async def logout(
     summary="Request password recovery",
     description="Request a recovery email without revealing account existence.",
 )
-async def recover_password(payload: PasswordRecoveryRequest) -> APIResponse[None]:
+async def recover_password(
+    payload: PasswordRecoveryRequest, request: Request
+) -> APIResponse[None]:
+    email = normalize_rate_limit_identifier(payload.email)
+    await enforce_rate_limit(
+        rate_limit_policy("password-recovery"),
+        rate_limit_identifiers(f"email:{email}", request),
+    )
     redirect_to = f"{settings.APP_ORIGIN}/auth/confirm?next=/reset-password"
-    await send_recovery_email(payload.email, redirect_to)
+    await send_recovery_email(email, redirect_to)
     return success_response(None, message="If the account exists, a recovery email has been sent.")
 
 

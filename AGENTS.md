@@ -67,7 +67,7 @@ Backend commands run from `backend/`:
 
 - `python3.14 -m venv .venv`
 - `./.venv/bin/pip install -r requirements.txt`
-- `./.venv/bin/uvicorn main:app --reload`
+- `./.venv/bin/uvicorn main:app --reload --no-access-log --no-proxy-headers`
 - `./.venv/bin/ruff check .`
 - `./.venv/bin/mypy .`
 - `env DEBUG=false ./.venv/bin/pytest -q`

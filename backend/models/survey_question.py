@@ -13,7 +13,7 @@ class SurveyQuestion(BaseModel, table=True):
         ForeignKeyConstraint(
             ["section_id", "survey_id"],
             ["survey_sections.id", "survey_sections.survey_id"],
-            name="fk_survey_questions_section_owner",
+            name="fk_survey_questions_section_survey",
         ),
         CheckConstraint("order_index >= 0", name="ck_survey_questions_order_index"),
         Index(

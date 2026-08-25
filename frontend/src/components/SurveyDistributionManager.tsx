@@ -31,8 +31,7 @@ function defaultExpiryValue(): string {
   return expiry.toISOString().slice(0, 16)
 }
 
-function formatDate(value: string | null): string {
-  if (!value) return "No expiry"
+function formatDate(value: string): string {
   return new Date(value).toLocaleString()
 }
 

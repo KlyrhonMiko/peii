@@ -20,6 +20,7 @@ services:
       - "8000:8000"
     depends_on:
       - postgres
+      - redis
 
   postgres:
     image: postgres:17-alpine
@@ -34,6 +35,14 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
 
+  redis:
+    image: redis:7.4-alpine
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+
   adminer:
     image: adminer:4
     env_file:
@@ -47,3 +56,4 @@ services:
 
 volumes:
   postgres_data:
+  redis_data:

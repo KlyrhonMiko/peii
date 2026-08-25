@@ -6,7 +6,7 @@ or shared FastAPI infrastructure.
 
 ## Belongs Here
 - Pure or near-pure helpers with narrow responsibilities.
-- Reusable security primitives such as password hashing and verification.
+- Generic utilities that are shared across resource boundaries.
 - Reusable identifier primitives such as human-readable business id generation.
 - Reusable query helpers that do not know about a specific model or request.
 
@@ -21,8 +21,6 @@ or shared FastAPI infrastructure.
 ## Current Helpers
 - `identifiers.py` owns `generate_business_id()`, the shared helper for UI-facing
   resource ids.
-- `security.py` owns Argon2 password hashing through `hash_password()` and
-  `verify_password()`.
 - `sorting.py` owns `stable_order_by()`, which applies the primary order plus `id` as a
   deterministic tiebreaker.
 
@@ -33,15 +31,6 @@ or shared FastAPI infrastructure.
   in `utils/` unless the behavior becomes genuinely shared across resources.
 - Business ids are UI references, not authorization controls and not replacements for the
   internal UUID primary key.
-
-## Security Helper Rules
-- Keep password hashing centralized in `security.py`; do not add one-off hashing inside
-  services or routers.
-- `verify_password()` should return `False` for mismatches without leaking the underlying
-  Argon2 exception.
-- Authentication/session policy belongs in `core/auth.py`, shared dependencies, and
-  services/routers. `security.py` remains a generic primitive and is not the current user
-  password store.
 
 ## Sorting Helper Rules
 - Keep `stable_order_by()` generic. Services choose the allowed primary column and pass it in.

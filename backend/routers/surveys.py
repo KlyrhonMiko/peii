@@ -4,6 +4,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Query, Request, status
 
 from core.deps import AsyncDBSession, Principal, require_permissions
+from core.exceptions import AppError
 from core.responses import list_meta_response, success_response
 from models.survey import Survey
 from models.survey_question import SurveyQuestion
@@ -22,7 +23,7 @@ from schemas.survey import (
 from schemas.survey_question import SurveyQuestionRead
 from schemas.survey_section import SurveySectionRead
 from schemas.survey_structure import SurveyStructureReplace
-from services import survey_service, survey_structure_service
+from services import survey_privacy, survey_service, survey_structure_service
 
 router = APIRouter()
 
@@ -57,8 +58,9 @@ SurveyListParams = Annotated[SurveyListQueryParams, Depends(get_survey_list_quer
 def _survey_structure_data(
     survey: Survey,
     sections_with_questions: list[tuple[SurveySection, list[SurveyQuestion]]],
+    permissions: frozenset[str],
 ) -> dict:
-    survey_data = SurveyRead.model_validate(survey).model_dump()
+    survey_data = _survey_read(survey, permissions).model_dump()
     section_list: list[dict] = []
     all_questions: list[dict] = []
     for section, questions in sections_with_questions:
@@ -70,6 +72,25 @@ def _survey_structure_data(
     survey_data["sections"] = section_list
     survey_data["questions"] = all_questions
     return survey_data
+
+
+def _survey_read(survey: Survey, permissions: frozenset[str]) -> SurveyRead:
+    survey_read = SurveyRead.model_validate(survey)
+    survey_read.responses_count = survey_privacy.project_response_count(
+        survey.responses_count, permissions
+    )
+    return survey_read
+
+
+def _ensure_response_count_sort_is_authorized(
+    params: SurveyListQueryParams, permissions: frozenset[str]
+) -> None:
+    is_count_sort = params.sort_by == "responses_count"
+    if is_count_sort and not survey_privacy.has_exact_response_count_capability(permissions):
+        raise AppError(
+            "Sorting by responses_count requires an exact response-count capability.",
+            status_code=status.HTTP_403_FORBIDDEN,
+        )
 
 
 @router.put(
@@ -98,7 +119,7 @@ async def replace_survey_structure(
         session, survey.survey_id
     )
     return success_response(
-        _survey_structure_data(updated_survey, sections),
+        _survey_structure_data(updated_survey, sections, principal.permissions),
         message="Survey structure saved.",
     )
 
@@ -114,8 +135,9 @@ async def list_surveys(
     params: SurveyListParams,
     principal: Principal = Depends(require_permissions("surveys.read")),
 ) -> APIResponse[list[SurveyRead]]:
+    _ensure_response_count_sort_is_authorized(params, principal.permissions)
     surveys, total = await survey_service.list_surveys(session, params)
-    response_surveys = [SurveyRead.model_validate(survey) for survey in surveys]
+    response_surveys = [_survey_read(survey, principal.permissions) for survey in surveys]
     return success_response(
         response_surveys,
         meta=list_meta_response(
@@ -146,7 +168,7 @@ async def create_survey(
         session, payload, principal.user.id, ip_address=ip_address
     )
     return success_response(
-        SurveyRead.model_validate(survey), message="Survey created."
+        _survey_read(survey, principal.permissions), message="Survey created."
     )
 
 
@@ -173,7 +195,7 @@ async def create_survey_with_structure(
     created_survey, sections = await survey_service.get_survey_with_sections(
         session, survey.survey_id
     )
-    survey_data = _survey_structure_data(created_survey, sections)
+    survey_data = _survey_structure_data(created_survey, sections, principal.permissions)
     return success_response(survey_data, message="Survey created.")
 
 
@@ -192,7 +214,7 @@ async def get_survey(
     survey, sections_with_questions = await survey_service.get_survey_with_sections(
         session, survey_id
     )
-    survey_data = _survey_structure_data(survey, sections_with_questions)
+    survey_data = _survey_structure_data(survey, sections_with_questions, principal.permissions)
     return success_response(survey_data)
 
 
@@ -215,7 +237,7 @@ async def update_survey(
         session, survey_id, payload, principal.user.id, ip_address=ip_address
     )
     return success_response(
-        SurveyRead.model_validate(survey), message="Survey updated."
+        _survey_read(survey, principal.permissions), message="Survey updated."
     )
 
 
@@ -238,7 +260,7 @@ async def delete_survey(
         session, survey_id, payload, principal.user.id, ip_address=ip_address
     )
     return success_response(
-        SurveyRead.model_validate(survey), message="Survey archived."
+        _survey_read(survey, principal.permissions), message="Survey archived."
     )
 
 
@@ -261,5 +283,5 @@ async def restore_survey(
         session, survey_id, payload, principal.user.id, ip_address=ip_address
     )
     return success_response(
-        SurveyRead.model_validate(survey), message="Survey restored."
+        _survey_read(survey, principal.permissions), message="Survey restored."
     )

@@ -18,7 +18,7 @@ from services.audit_service import AuditEvent, commit_with_audit
 from services.base_service import utc_now
 from services.distribution_service import revoke_for_structure_change
 from services.question_validation import validate_question_definition
-from services.survey_service import get_survey_for_structure_edit
+from services.survey_service import get_survey_for_structure_edit, structure_edit_conflict_error
 
 
 def _serialize_options(options: list[str] | None) -> str | None:
@@ -52,16 +52,7 @@ async def replace_structure(
 
     survey = await get_survey_for_structure_edit(session, survey_id)
     if payload.expected_updated_at != survey.updated_at:
-        raise AppError(
-            "Survey structure was updated by another editor. Reload and try again.",
-            status_code=status.HTTP_409_CONFLICT,
-            errors=[
-                {
-                    "code": "stale_structure",
-                    "message": "Survey structure was updated by another editor.",
-                }
-            ],
-        )
+        raise structure_edit_conflict_error()
     sections_result = await session.exec(
         select(SurveySection).where(
             col(SurveySection.survey_id) == survey.id,

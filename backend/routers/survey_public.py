@@ -1,11 +1,12 @@
 from uuid import UUID
 
-from fastapi import APIRouter, Header, Request, Response, status
+from fastapi import APIRouter, Depends, Header, Response, status
 from sqlmodel import col, select
 
 from core.config import settings
 from core.deps import AsyncDBSession
 from core.exceptions import AppError
+from core.rate_limit import public_survey_read_rate_limit, public_survey_submit_rate_limit
 from core.responses import success_response
 from models.survey import Survey
 from models.survey_question import SurveyQuestion
@@ -13,8 +14,8 @@ from models.survey_section import SurveySection
 from schemas.common import APIResponse
 from schemas.survey_public import PublicSurvey, PublicSurveySection
 from schemas.survey_question import SurveyQuestionRead
-from schemas.survey_response import SurveyResponseRead, SurveyResponseSubmit
-from services import distribution_service, response_service
+from schemas.survey_response import SurveyResponseAcknowledgement, SurveyResponseSubmit
+from services import distribution_service, response_service, survey_consent
 
 router = APIRouter()
 
@@ -22,6 +23,7 @@ router = APIRouter()
 @router.get(
     "/{token}",
     response_model=APIResponse[PublicSurvey],
+    dependencies=[Depends(public_survey_read_rate_limit)],
     summary="Get Public Survey",
     description="Retrieve a survey by its distribution token for alumni to fill out.",
 )
@@ -96,13 +98,15 @@ async def get_public_survey(
         description=survey.description,
         questions=all_public_questions,
         sections=public_sections,
+        consent=survey_consent.get_public_consent_policy(),
     )
     return success_response(public_survey)
 
 
 @router.post(
     "/{token}/respond",
-    response_model=APIResponse[SurveyResponseRead],
+    response_model=APIResponse[SurveyResponseAcknowledgement],
+    dependencies=[Depends(public_survey_submit_rate_limit)],
     status_code=status.HTTP_201_CREATED,
     summary="Submit Survey Response",
     description="Submit answers for a survey identified by distribution token.",
@@ -111,11 +115,9 @@ async def submit_response(
     token: str,
     payload: SurveyResponseSubmit,
     session: AsyncDBSession,
-    request: Request,
     http_response: Response,
     idempotency_header: str | None = Header(default=None, alias="Idempotency-Key"),
-) -> APIResponse[SurveyResponseRead]:
-    ip_address = request.client.host if request.client else None
+) -> APIResponse[SurveyResponseAcknowledgement]:
     idempotency_key = None
     if idempotency_header is None:
         raise AppError(
@@ -130,17 +132,17 @@ async def submit_response(
             status_code=status.HTTP_400_BAD_REQUEST,
         ) from exc
 
-    response, replayed = await response_service.submit_response(
+    _response, replayed = await response_service.submit_response(
         session,
         token,
         payload.answers,
         idempotency_key=idempotency_key,
         actor_id=settings.SYSTEM_ACTOR_ID,
-        ip_address=ip_address,
+        consent_version=payload.consent.version,
     )
     if replayed:
         http_response.status_code = status.HTTP_200_OK
     return success_response(
-        SurveyResponseRead.model_validate(response),
+        SurveyResponseAcknowledgement(accepted=True),
         message="Response submitted.",
     )

@@ -89,7 +89,7 @@ class SurveyRead(SurveyBase):
 
     id: UUID
     survey_id: str
-    responses_count: int
+    responses_count: int | None
     created_at: datetime
     updated_at: datetime
     is_deleted: bool

@@ -160,7 +160,7 @@ async def test_revoke_sessions_audits_successful_revocation(client, monkeypatch)
     assert len(audits) == 1
 
 
-async def test_invite_rejects_legacy_password_and_role_fields(client):
+async def test_invite_rejects_unsupported_password_and_scalar_role_fields(client):
     response = await client.post(
         "/api/v1/users/",
         json={**user_payload(), "password": "secret", "role": "admin"},

@@ -1,15 +1,57 @@
 import { describe, expect, it } from "vitest"
 
-import { getSurveyCapabilities, getSurveyResponseResourceId } from "./SurveyManagement"
+import {
+  buildEraseAllResponsesPayload,
+  canSortSurveysByResponseCount,
+  formatSurveyResponseCount,
+  getSurveyCapabilities,
+  getSurveyResponseResourceId,
+} from "./SurveyManagement"
+
+describe("survey response count privacy helpers", () => {
+  it("labels suppressed counts for aggregate-capable users", () => {
+    expect(formatSurveyResponseCount(null, true)).toBe("Suppressed")
+  })
+
+  it("labels unavailable counts for users without aggregate access", () => {
+    expect(formatSurveyResponseCount(null, false)).toBe("Unavailable")
+  })
+
+  it("does not expose response sorting without an exact-count capability", () => {
+    expect(canSortSurveysByResponseCount({ readRaw: false, export: false, erase: false })).toBe(false)
+    expect(canSortSurveysByResponseCount({ readRaw: true, export: false, erase: false })).toBe(true)
+    expect(canSortSurveysByResponseCount({ readRaw: false, export: true, erase: false })).toBe(true)
+    expect(canSortSurveysByResponseCount({ readRaw: false, export: false, erase: true })).toBe(true)
+  })
+
+  it("does not create an erase-all payload from a suppressed count", () => {
+    expect(buildEraseAllResponsesPayload(null)).toBeNull()
+    expect(buildEraseAllResponsesPayload(5)).toEqual({
+      scope: "all",
+      expected_response_count: 5,
+      confirmation: "ERASE_ALL_RESPONSES",
+    })
+  })
+})
 
 describe("getSurveyCapabilities", () => {
+  it("allows a read-only user to reveal archived survey rows without management", () => {
+    expect(getSurveyCapabilities(["surveys.read", "survey_responses.erase"])).toMatchObject({
+      read: true,
+      manage: false,
+      erase: true,
+    })
+  })
+
   it("maps each survey capability to its exact permission", () => {
     expect(getSurveyCapabilities([
+      "surveys.read",
       "surveys.manage",
       "survey_distributions.manage",
       "survey_responses.read_aggregates",
       "survey_responses.export",
     ])).toEqual({
+      read: true,
       manage: true,
       distributionManage: true,
       readAggregates: true,
@@ -22,11 +64,12 @@ describe("getSurveyCapabilities", () => {
   it("does not grant capabilities for near-match permissions", () => {
     expect(getSurveyCapabilities([
       "surveys.manage.any",
-      "survey_distributions.manage.owner",
-      "survey_responses.read_raw_member",
+      "survey_distributions.manage.extra",
+      "survey_responses.read_raw.extra",
       "survey_responses.exported",
-      "survey_responses.erase.owner",
+      "survey_responses.erase.extra",
     ])).toEqual({
+      read: false,
       manage: false,
       distributionManage: false,
       readAggregates: false,

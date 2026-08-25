@@ -56,8 +56,7 @@ checks, persistence transforms, transaction boundaries, and domain errors.
 - Supabase Auth owns passwords. Login and password-change services forward credentials to
   Supabase and do not persist them in the local user table.
 - Never return, log, audit, or include credentials/tokens in change dictionaries.
-- `utils.security` remains a reusable Argon2 primitive but is not used for current user
-  persistence.
+- Supabase Auth remains the sole password system; no local password hashing utility is used.
 
 ## Async & Auditing Rules
 - Database and network service operations should be asynchronous and use `AsyncSession`.
@@ -73,10 +72,10 @@ checks, persistence transforms, transaction boundaries, and domain errors.
 - Mutations that can touch a survey lifecycle acquire locks in one order: survey first,
   distributions ordered by UUID, then responses ordered by UUID. Resolve public token
   references without a lock, then acquire the parent survey lock before a distribution lock.
-- Keep survey access global and capability-based; do not introduce ownership or membership
-  checks into service queries. Raw reads, exports, aggregates, and erasure remain distinct
-  operations.
-- Aggregate responses use conservative `k=5` suppression for supported question types. Response
+- Keep survey access global and capability-based. Raw reads, exports, aggregates, and erasure
+  remain distinct operations.
+- `survey_privacy.py` centralizes the `k=5` threshold and permission-aware response-count
+  projection. Aggregate responses use the same threshold for supported question types. Response
   erasure clears answer/linkage data, stores minimal tombstone/receipt state, and requires a
   UUID idempotency key; all-scope erasure is valid only after archive.
 

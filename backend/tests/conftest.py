@@ -1,4 +1,5 @@
 import asyncio
+import os
 import socket
 import sys
 import threading
@@ -19,6 +20,18 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 PROJECT_ROOT = ROOT_DIR.parent
 sys.path.insert(0, str(ROOT_DIR))
 load_dotenv(PROJECT_ROOT / ".env", override=True)
+# The normal test suite must never depend on or mutate an external rate-limit store.
+os.environ["RATE_LIMIT_ENABLED"] = "false"
+os.environ["UPSTASH_REDIS_REST_URL"] = ""
+os.environ["UPSTASH_REDIS_REST_TOKEN"] = ""
+# Public contract tests use a deterministic policy instead of developer-local copy.
+os.environ["PUBLIC_SURVEY_CONSENT_VERSION"] = "2026-08-25"
+os.environ["PUBLIC_SURVEY_PRIVACY_NOTICE"] = "See the PEII privacy notice before responding."
+os.environ["PUBLIC_SURVEY_PURPOSE"] = "Program evaluation and research."
+os.environ["PUBLIC_SURVEY_RETENTION"] = (
+    "Responses are retained according to the approved policy."
+)
+os.environ["PUBLIC_SURVEY_CONTACT"] = "privacy@example.gov.ph"
 
 from core.database import get_async_session, get_session  # noqa: E402
 from core.deps import Principal, get_current_principal  # noqa: E402

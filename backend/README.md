@@ -18,11 +18,10 @@ python3.14 -m venv .venv
 ./.venv/bin/pip install -r requirements.txt
 ```
 
-3. Apply migrations and initialize RBAC/admin data:
+3. Apply the canonical first-release baseline and initialize the administrator:
 
 ```bash
 ./.venv/bin/alembic upgrade head
-./.venv/bin/python scripts/seed_rbac.py
 ./.venv/bin/python scripts/bootstrap_admin.py
 ```
 
@@ -32,7 +31,7 @@ links or invites that identity and grants the seeded `admin` role.
 4. Start the development server:
 
 ```bash
-./.venv/bin/uvicorn main:app --reload
+./.venv/bin/uvicorn main:app --reload --no-access-log --no-proxy-headers
 ```
 
 The backend loads the root `.env` automatically.
@@ -80,17 +79,19 @@ Create a new migration after model changes:
 ./.venv/bin/alembic revision --autogenerate -m "describe change"
 ```
 
-The current migration head is `20260825_0001`. For production, run
-`./.venv/bin/alembic upgrade head` once as the managed-service release job before API
-replicas are promoted. Do not run migrations independently in every replica. Do not rewrite
-the older collaboration revisions; revision `81568591615f` has an unusable downgrade.
-Database rollback therefore requires a reviewed forward-fix or a validated backup/PITR
-restore, not an ad hoc downgrade.
+The fresh-database baseline is `20260825_v1`; the current migration head is the Phase 2
+compatibility revision `f77a807cf2f9_expand_distribution_security`. For production, run
+`./.venv/bin/alembic upgrade head` once as the managed-service release job before API replicas
+are promoted. Do not run migrations independently in every replica. The expand revision adds
+SHA-256 token digests, 8-character prefixes, and consent evidence while retaining plaintext
+tokens for the compatibility window. Follow the exact expand -> dual-write/digest-first ->
+reconcile -> digest-only app -> later contract/drop gate sequence in the deployment roadmap;
+plaintext has not yet been removed.
 
 ## Survey Access And Lifecycle Policy
 
-- Survey access is global RBAC, not unrestricted authentication and not survey ownership or
-  membership. A permitted principal can act on any survey in the shared workspace, but every
+- Survey access is global RBAC, not unrestricted authentication. A permitted principal can act
+  on any survey in the shared workspace, but every
   operation still requires its explicit capability.
 - The seven survey capabilities are `surveys.read`, `surveys.manage`,
   `survey_distributions.manage`, `survey_responses.read_aggregates`,
@@ -102,19 +103,30 @@ restore, not an ad hoc downgrade.
   tokens; a newly issued or rotated token is returned only once. Archiving a survey revokes
   unrevoked distributions. Restoring it leaves it inactive, so activation and a new link are
   explicit follow-up actions.
+- Public distribution links are shared bearer links and do not guarantee respondent uniqueness;
+  idempotency protects retries for one distribution/key pair only. Consent is a global,
+  versioned contract, and accepted responses retain an immutable notice snapshot. The public
+  acknowledgement is minimal (`{"accepted": true}`), and successful respondent IP addresses
+  are not stored in response audits. Do not promise confidentiality or respondent anonymity.
+- Production requires managed Redis, configured either with a Redis-compatible `REDIS_URL`
+  or both `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN`, with
+  `RATE_LIMIT_ENABLED=true` and
+  `RATE_LIMIT_READ_FAILURE_POLICY=fail_closed`, approved consent text/contact/retention values,
+  configured trusted ingress CIDRs, and verified provider log redaction. Real respondents remain
+  blocked until all of these are recorded in the production runbook.
+- `RATE_LIMIT_INCLUDE_CLIENT_IP` remains false unless the complete forwarding chain has been
+  verified; enable it only after confirming that the app-owned resolver receives the expected
+  trusted proxy peer and headers.
 - Aggregate responses use conservative `k=5` suppression and only supported categorical,
   boolean, multiple-choice, scale, ranking, and matrix question types. Raw responses and
   long-format CSV export are separate routes and permissions. Selected erasure or all-response
   erasure writes minimal tombstones and is idempotent; all-scope erasure requires an archived
   survey.
 
-Retention and consent policy are documented in `../docs/privacy-and-retention.md`.
-
-The legacy collaboration bridge is run from `backend/`. Start with a dry run from the
-supported revision `5b37d61c76ff`; unknown legacy roles require a role-mapping JSON file.
-Only after a verified backup/PITR point should apply mode be used with
-`--apply --confirm-backup`. Reconcile any reported null `auth_user_id` values with Supabase
-Auth before relying on the migrated users.
+See [production decisions](../docs/production-decisions.md),
+[privacy and retention](../docs/privacy-and-retention.md), and the
+[deployment roadmap](../docs/deployment-roadmap.md) for the canonical first-release
+deployment, RBAC, privacy, validation, backup, and rollback guidance.
 
 ## Validation
 
@@ -133,20 +145,6 @@ isolated PostgreSQL integration tests explicitly with:
 TEST_DATABASE_URL=postgresql+psycopg2://user:password@localhost:5432/peii_test \
   env DEBUG=false ./.venv/bin/pytest -q -m integration --require-postgres
 ```
-
-To bridge a legacy collaboration database, run from `backend/` (with the application
-quiesced):
-
-```bash
-./.venv/bin/python scripts/bridge_collaboration_upgrade.py
-./.venv/bin/python scripts/bridge_collaboration_upgrade.py \
-  --role-map /path/to/legacy-role-map.json \
-  --apply --confirm-backup
-```
-
-The first command is read-only. The second requires a verified backup/PITR point and is
-supported only when the database starts at `5b37d61c76ff`; review the JSON report and any
-`auth_user_id` reconciliation warnings before enabling access.
 
 ## Run with Docker
 

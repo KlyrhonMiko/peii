@@ -1,11 +1,15 @@
 import secrets
-from datetime import UTC, datetime
+from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
+from hashlib import sha256
 from uuid import UUID
 
 from fastapi import status
+from sqlalchemy import or_
 from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from core.config import settings
 from core.exceptions import AppError
 from models.base_model import utc_now
 from models.survey import Survey
@@ -14,6 +18,19 @@ from schemas.survey import SurveyStatus
 from schemas.survey_distribution import DistributionStatus, SurveyDistributionCreate
 from services.audit_service import AuditEvent, commit_with_audit
 from services.survey_service import get_survey_readiness_errors
+
+
+@dataclass(frozen=True, slots=True)
+class DistributionSecretResult:
+    distribution: SurveyDistribution
+    token: str
+
+
+@dataclass(frozen=True, slots=True)
+class _GeneratedToken:
+    plaintext: str
+    digest: str
+    prefix: str
 
 
 def _public_token_error() -> AppError:
@@ -25,9 +42,15 @@ def _public_token_error() -> AppError:
 
 def _normalize_expiry(expires_at: datetime) -> datetime:
     normalized = expires_at.astimezone(UTC).replace(tzinfo=None)
-    if normalized <= utc_now():
+    now = utc_now()
+    if normalized <= now:
         raise AppError(
             "Distribution expiry must be in the future.",
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+    if normalized > now + timedelta(days=settings.SURVEY_DISTRIBUTION_MAX_EXPIRY_DAYS):
+        raise AppError(
+            "Distribution expiry exceeds the configured maximum.",
             status_code=status.HTTP_400_BAD_REQUEST,
         )
     return normalized
@@ -41,7 +64,7 @@ def get_distribution_status(
     current_time = now or utc_now()
     if distribution.is_deleted or distribution.revoked_at is not None:
         return "revoked"
-    if distribution.expires_at is not None and distribution.expires_at <= current_time:
+    if distribution.expires_at <= current_time:
         return "expired"
     if survey_status != "Active":
         return "suspended"
@@ -88,14 +111,20 @@ async def _validate_survey_for_distribution(session: AsyncSession, survey_id: UU
     return survey
 
 
-async def _generate_token(session: AsyncSession) -> str:
+async def _generate_token(session: AsyncSession) -> _GeneratedToken:
     for _ in range(3):
         token = secrets.token_urlsafe(32)
+        digest = sha256(token.encode("utf-8")).hexdigest()
         result = await session.exec(
-            select(SurveyDistribution.id).where(col(SurveyDistribution.token) == token)
+            select(SurveyDistribution.id).where(
+                or_(
+                    col(SurveyDistribution.token) == token,
+                    col(SurveyDistribution.token_digest) == digest,
+                )
+            )
         )
         if result.first() is None:
-            return token
+            return _GeneratedToken(token, digest, token[:8])
     raise AppError(
         "Unable to generate a unique distribution token.",
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -108,12 +137,14 @@ async def create_distribution(
     payload: SurveyDistributionCreate,
     performed_by: UUID,
     ip_address: str | None = None,
-) -> SurveyDistribution:
+) -> DistributionSecretResult:
     await _validate_survey_for_distribution(session, survey_id)
-    token = await _generate_token(session)
+    generated_token = await _generate_token(session)
     distribution = SurveyDistribution(
         survey_id=survey_id,
-        token=token,
+        token=generated_token.plaintext,
+        token_digest=generated_token.digest,
+        token_prefix=generated_token.prefix,
         expires_at=_normalize_expiry(payload.expires_at),
         performed_by=performed_by,
     )
@@ -131,7 +162,7 @@ async def create_distribution(
         ],
     )
     await session.refresh(distribution)
-    return distribution
+    return DistributionSecretResult(distribution=distribution, token=generated_token.plaintext)
 
 
 async def list_distributions(
@@ -212,7 +243,7 @@ async def rotate_distribution(
     payload: SurveyDistributionCreate,
     performed_by: UUID,
     ip_address: str | None = None,
-) -> tuple[SurveyDistribution, SurveyStatus | str]:
+) -> tuple[DistributionSecretResult, SurveyStatus | str]:
     survey = await _validate_survey_for_distribution(session, survey_id)
     result = await session.exec(
         select(SurveyDistribution)
@@ -227,9 +258,12 @@ async def rotate_distribution(
     if not previous:
         raise AppError("Distribution not found.", status_code=status.HTTP_404_NOT_FOUND)
 
+    generated_token = await _generate_token(session)
     replacement = SurveyDistribution(
         survey_id=survey_id,
-        token=await _generate_token(session),
+        token=generated_token.plaintext,
+        token_digest=generated_token.digest,
+        token_prefix=generated_token.prefix,
         expires_at=_normalize_expiry(payload.expires_at),
         performed_by=performed_by,
     )
@@ -262,7 +296,10 @@ async def rotate_distribution(
         ],
     )
     await session.refresh(replacement)
-    return replacement, survey.status
+    return DistributionSecretResult(
+        distribution=replacement,
+        token=generated_token.plaintext,
+    ), survey.status
 
 
 async def get_distribution_by_token(
@@ -318,14 +355,24 @@ async def get_distribution_and_survey_by_token(
 async def get_distribution_token_reference(
     session: AsyncSession, token: str
 ) -> SurveyDistribution:
-    """Look up a token owner without acquiring a row lock."""
+    """Look up a token reference without acquiring a row lock."""
+    token_digest = sha256(token.encode("utf-8")).hexdigest()
     result = await session.exec(
         select(SurveyDistribution).where(
-            col(SurveyDistribution.token) == token,
+            col(SurveyDistribution.token_digest) == token_digest,
             col(SurveyDistribution.is_deleted).is_(False),
         )
     )
     distribution = result.first()
+    if distribution is None:
+        result = await session.exec(
+            select(SurveyDistribution).where(
+                col(SurveyDistribution.token) == token,
+                col(SurveyDistribution.token_digest).is_(None),
+                col(SurveyDistribution.is_deleted).is_(False),
+            )
+        )
+        distribution = result.first()
     if not distribution:
         raise _public_token_error()
     return distribution

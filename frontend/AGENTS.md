@@ -54,7 +54,7 @@ No tracked pre-commit configuration currently runs frontend checks automatically
   demonstrably wrong for this repo and the config change explains why.
 
 ## Stack Contracts
-- `package.json` declares Next 16.2, React 19.2, Tailwind 4, Recharts, Base UI, Supabase
+- `package.json` declares Next 16.3, React 19.2, Tailwind 4, Recharts, Base UI, Supabase
   SSR/client libraries, Motion, lucide icons, shadcn, and Vitest.
 - `components.json` uses `style: "base-nova"`, `rsc: true`, Tailwind v4 CSS variables,
   Base UI composition, and lucide as the icon library.
