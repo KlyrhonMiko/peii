@@ -29,16 +29,3 @@ analytics, survey management/detail/settings, and model routes.
   shadows, and indigo/slate accents.
 - Pass explicit capability data from the route. Do not treat portal authentication as survey
   authorization; the shared survey workspace is global RBAC without ownership or membership.
-
-## Data And Charts
-- If chart or summary-card data becomes dynamic, define explicit data types.
-- Move data shaping into typed helpers, server loaders, or service functions rather than
-  burying transformations inside JSX.
-- Keep chart dimensions stable so responsive containers do not collapse.
-- Isolate interactive controls when practical. The current dashboard and analytics routes
-  are client components because they own filter state consumed by metrics and charts.
-
-## Styling
-- Prefer shared card and chart components for repeated analytics surfaces.
-- Keep operational density high; avoid marketing-style sections inside the portal.
-- Use semantic theme tokens where practical, especially when touching shared components.
