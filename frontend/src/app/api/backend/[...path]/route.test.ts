@@ -192,7 +192,7 @@ describe("backend BFF", () => {
     )
 
     expect(response.status).toBe(200)
-    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit]
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
     const headers = new Headers(init.headers)
     expect(url).toBe("http://backend:8000/api/v1/surveys/survey-id/responses/erase")
     expect(headers.get("idempotency-key")).toBe("erase-request-key")
