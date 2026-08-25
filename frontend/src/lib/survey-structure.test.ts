@@ -39,12 +39,12 @@ describe("validateSurveyStructure", () => {
   it("rejects blank and all-deleted option structures with actionable messages", () => {
     expect(validateSurveyStructure([{
       title: "Choices",
-      questions: [{ type: "single_choice", text: "Pick one", options: ["", "  "], config: null }],
+      questions: [{ type: "single_choice", options: ["", "  "], config: null }],
     }])).toContain("needs at least one non-blank option")
 
     expect(validateSurveyStructure([{
       title: "Matrix",
-      questions: [{ type: "matrix", text: "Rate", options: [], config: { columns: [] } }],
+      questions: [{ type: "matrix", options: [], config: { columns: [] } }],
     }])).toContain("needs at least one non-blank row and column")
   })
 
@@ -52,10 +52,10 @@ describe("validateSurveyStructure", () => {
     expect(validateSurveyStructure([{
       title: "Valid",
       questions: [
-        { type: "single_choice", text: "Pick one", options: ["A", "B"], config: null },
-        { type: "matrix", text: "Rate", options: ["Row"], config: { columns: ["Poor", "Good"] } },
-        { type: "scale", text: "Score", options: null, config: { min: 1, max: 4 } },
-        { type: "text", text: "Explain", options: null, config: null },
+        { type: "single_choice", options: ["A", "B"], config: null },
+        { type: "matrix", options: ["Row"], config: { columns: ["Poor", "Good"] } },
+        { type: "scale", options: null, config: { min: 1, max: 4 } },
+        { type: "text", options: null, config: null },
       ],
     }])).toBeNull()
   })

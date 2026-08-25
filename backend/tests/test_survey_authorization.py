@@ -1,3 +1,4 @@
+from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 import pytest
@@ -7,6 +8,7 @@ from main import app
 from models.user import User
 
 pytestmark = pytest.mark.anyio
+EXPIRY = (datetime.now(UTC) + timedelta(days=29)).isoformat()
 
 
 def scoped_principal(*permissions: str) -> Principal:
@@ -118,7 +120,7 @@ async def test_distribution_list_does_not_expose_bearer_tokens(client):
     override_principal(scoped_principal("survey_distributions.manage"))
     distribution = await client.post(
         f"/api/v1/surveys/{survey_id}/distributions/",
-        json={"expires_at": "2030-01-01T00:00:00+00:00"},
+        json={"expires_at": EXPIRY},
     )
     assert distribution.status_code == 201
     assert "token" in distribution.json()["data"]
@@ -161,7 +163,7 @@ async def test_distribution_capability_is_not_substituted_by_survey_capabilities
     override_principal(scoped_principal("survey_distributions.manage"))
     distribution = await client.post(
         f"/api/v1/surveys/{survey_id}/distributions/",
-        json={"expires_at": "2030-01-01T00:00:00+00:00"},
+        json={"expires_at": EXPIRY},
     )
     listed = await client.get(f"/api/v1/surveys/{survey_id}/distributions/")
 

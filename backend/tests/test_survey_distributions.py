@@ -1,16 +1,56 @@
-import pytest
+from datetime import UTC, datetime, timedelta
+from hashlib import sha256
+from types import SimpleNamespace
+from uuid import UUID
 
+import pytest
+from sqlmodel import select
+
+from core.database import get_async_session
+from main import app
 from models.survey_distribution import SurveyDistribution
 from schemas.survey_distribution import SurveyDistributionRead
+from services import distribution_service
 
 pytestmark = pytest.mark.anyio
 EXPIRY = "2099-01-01T00:00:00+00:00"
+
+
+@pytest.fixture(autouse=True)
+def configured_distribution_expiry(monkeypatch):
+    # The integration step that adds these settings is intentionally separate.
+    monkeypatch.setattr(
+        distribution_service,
+        "settings",
+        SimpleNamespace(SURVEY_DISTRIBUTION_MAX_EXPIRY_DAYS=36500),
+    )
 
 
 def test_distribution_expiry_is_required_in_model_and_read_contract():
     table = getattr(SurveyDistribution, "__table__")
     assert table.c.expires_at.nullable is False
     assert SurveyDistributionRead.model_fields["expires_at"].is_required()
+
+
+def test_distribution_token_compatibility_columns_are_nullable_and_constrained():
+    table = getattr(SurveyDistribution, "__table__")
+    assert table.c.token_digest.nullable is True
+    assert table.c.token_digest.type.length == 64
+    assert table.c.token_digest.unique is True
+    assert table.c.token_prefix.nullable is True
+    assert table.c.token_prefix.type.length == 8
+
+
+async def _stored_distribution(distribution_id: str) -> SurveyDistribution:
+    session_generator = app.dependency_overrides[get_async_session]()
+    session = await anext(session_generator)
+    try:
+        result = await session.exec(
+            select(SurveyDistribution).where(SurveyDistribution.id == UUID(distribution_id))
+        )
+        return result.one()
+    finally:
+        await session_generator.aclose()
 
 
 async def _create_active_survey(client):
@@ -43,6 +83,73 @@ async def test_create_and_list_distributions(client):
     assert list_resp.status_code == 200
     assert list_resp.json()["data"][0]["status"] == "active"
     assert "token" not in list_resp.json()["data"][0]
+
+    stored = await _stored_distribution(dist_resp.json()["data"]["id"])
+    token = dist_resp.json()["data"]["token"]
+    assert stored.token == token
+    assert stored.token_digest == sha256(token.encode()).hexdigest()
+    assert stored.token_prefix == token[:8]
+
+
+async def test_legacy_plaintext_distribution_token_still_resolves(client):
+    survey_uuid = await _create_active_survey(client)
+    legacy_token = "legacy-plaintext-distribution-token"
+    session_generator = app.dependency_overrides[get_async_session]()
+    session = await anext(session_generator)
+    try:
+        session.add(
+            SurveyDistribution(
+                survey_id=UUID(survey_uuid),
+                token=legacy_token,
+                expires_at=datetime(2099, 1, 1),
+            )
+        )
+        await session.commit()
+        resolved = await distribution_service.get_distribution_by_token(session, legacy_token)
+    finally:
+        await session_generator.aclose()
+
+    assert resolved.token == legacy_token
+    assert resolved.token_digest is None
+
+
+async def test_create_and_rotate_return_secret_once_without_listing_it(client):
+    survey_uuid = await _create_active_survey(client)
+    created = await client.post(
+        f"/api/v1/surveys/{survey_uuid}/distributions/", json={"expires_at": EXPIRY}
+    )
+    first_token = created.json()["data"]["token"]
+    distribution_id = created.json()["data"]["id"]
+
+    listed = await client.get(f"/api/v1/surveys/{survey_uuid}/distributions/")
+    assert "token" not in listed.json()["data"][0]
+
+    rotated = await client.post(
+        f"/api/v1/surveys/{survey_uuid}/distributions/{distribution_id}/rotate",
+        json={"expires_at": EXPIRY},
+    )
+    second_token = rotated.json()["data"]["token"]
+    assert first_token != second_token
+    assert "token" not in (
+        await client.get(f"/api/v1/surveys/{survey_uuid}/distributions/")
+    ).json()["data"][0]
+
+
+async def test_distribution_rejects_expiry_beyond_configured_maximum(client, monkeypatch):
+    monkeypatch.setattr(
+        distribution_service.settings,
+        "SURVEY_DISTRIBUTION_MAX_EXPIRY_DAYS",
+        30,
+        raising=False,
+    )
+    survey_uuid = await _create_active_survey(client)
+    too_far = (datetime.now(UTC) + timedelta(days=31)).isoformat()
+    response = await client.post(
+        f"/api/v1/surveys/{survey_uuid}/distributions/",
+        json={"expires_at": too_far},
+    )
+    assert response.status_code == 400
+    assert "maximum" in response.json()["message"].lower()
 
 
 async def test_revoke_distribution(client):

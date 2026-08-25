@@ -6,6 +6,14 @@ from pydantic import BaseModel, ConfigDict, field_validator
 from models.question_type import QuestionType
 
 
+class PublicConsentContract(BaseModel):
+    version: str
+    notice: str
+    purpose: str
+    retention: str
+    contact: str
+
+
 class PublicSurveyQuestion(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -76,3 +84,4 @@ class PublicSurvey(BaseModel):
     description: str | None = None
     questions: list[PublicSurveyQuestion] = []
     sections: list[PublicSurveySection] = []
+    consent: PublicConsentContract

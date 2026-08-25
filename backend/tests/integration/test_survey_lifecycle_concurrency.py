@@ -11,6 +11,7 @@ from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from schemas.survey import SurveyDelete
+from services import survey_consent
 from services.response_service import submit_response
 from services.survey_service import soft_delete_survey
 from tests.integration.fixtures import PostgresTestDatabase, assert_current_schema
@@ -192,3 +193,99 @@ async def test_submit_and_archive_linearize_without_deadlock(
 async def _assert_async_current_schema(session: AsyncSession, expected_schema: str) -> None:
     result = await session.exec(select(text("current_schema()")))
     assert result.one() == expected_schema
+
+
+@pytest.mark.anyio
+async def test_concurrent_idempotent_submissions_persist_one_response_and_audit_pair(
+    postgres_database: PostgresTestDatabase,
+) -> None:
+    _populate_active_survey(postgres_database)
+    consent_policy = survey_consent.get_public_consent_policy()
+    idempotency_key = uuid4()
+    answers: dict[str, object] = {str(QUESTION_ID): "yes"}
+
+    async_url = postgres_database.url.set(drivername="postgresql+asyncpg")
+    async_engine = create_async_engine(
+        async_url,
+        connect_args={
+            "server_settings": {"search_path": postgres_database.schema},
+            "statement_cache_size": 0,
+            "prepared_statement_cache_size": 0,
+            "prepared_statement_name_func": lambda: f"__asyncpg_{uuid4()}__",
+        },
+    )
+    sessions = async_sessionmaker(async_engine, class_=AsyncSession, expire_on_commit=False)
+
+    async def submit() -> tuple[UUID, bool]:
+        async with sessions() as session:
+            await _assert_async_current_schema(session, postgres_database.schema)
+            response, replayed = await submit_response(
+                session,
+                TOKEN,
+                answers,
+                ACTOR_ID,
+                idempotency_key=idempotency_key,
+            )
+            return response.id, replayed
+
+    try:
+        results = await asyncio.wait_for(
+            asyncio.gather(submit(), submit()),
+            timeout=10,
+        )
+    finally:
+        await async_engine.dispose()
+
+    response_ids = {response_id for response_id, _replayed in results}
+    assert len(response_ids) == 1
+    assert sorted(replayed for _response_id, replayed in results) == [False, True]
+    response_id = response_ids.pop()
+
+    with postgres_database.engine.connect() as connection:
+        assert_current_schema(connection, postgres_database.schema)
+        survey_state = connection.execute(
+            text(
+                "SELECT responses_count FROM surveys "
+                "WHERE id = CAST(:id AS uuid)"
+            ),
+            {"id": str(SURVEY_ID)},
+        ).scalar_one()
+        response_rows = connection.execute(
+            text(
+                "SELECT id, consent_version, consent_notice_snapshot "
+                "FROM survey_responses WHERE survey_id = CAST(:id AS uuid)"
+            ),
+            {"id": str(SURVEY_ID)},
+        ).mappings().all()
+        audit_rows = connection.execute(
+            text(
+                "SELECT action, resource_type, resource_id, changes, ip_address "
+                "FROM audit_logs WHERE "
+                "(resource_type = 'survey_response' AND action = 'create') OR "
+                "(resource_type = 'survey' AND action = 'response_submitted')"
+            )
+        ).mappings().all()
+
+    assert survey_state == 1
+    assert len(response_rows) == 1
+    assert str(response_rows[0]["id"]) == str(response_id)
+    assert response_rows[0]["consent_version"] == consent_policy.version
+    assert response_rows[0]["consent_notice_snapshot"] == consent_policy.model_dump(mode="json")
+
+    assert len(audit_rows) == 2
+    audits_by_kind = {
+        (row["resource_type"], row["action"]): row for row in audit_rows
+    }
+    assert set(audits_by_kind) == {
+        ("survey_response", "create"),
+        ("survey", "response_submitted"),
+    }
+    assert audits_by_kind[("survey_response", "create")]["resource_id"] == str(response_id)
+    assert audits_by_kind[("survey_response", "create")]["changes"] == {
+        "distribution_id": str(DISTRIBUTION_ID)
+    }
+    assert audits_by_kind[("survey", "response_submitted")]["resource_id"] == "SURV-CONCUR"
+    assert audits_by_kind[("survey", "response_submitted")]["changes"] == {
+        "response_id": str(response_id)
+    }
+    assert all(row["ip_address"] is None for row in audit_rows)

@@ -12,6 +12,13 @@ class SurveyResponseBaseSchema(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class SurveyConsentSubmit(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    accepted: Literal[True]
+    version: str = Field(min_length=1, max_length=64)
+
+
 class SurveyResponseSubmit(BaseModel):
     model_config = ConfigDict(
         json_schema_extra={
@@ -21,11 +28,13 @@ class SurveyResponseSubmit(BaseModel):
                     "q2": "Below ₱250,000",
                     "q3": 4,
                 },
+                "consent": {"accepted": True, "version": "20260825_v1"},
             }
         }
     )
 
     answers: dict[str, Any]
+    consent: SurveyConsentSubmit
 
     @field_validator("answers")
     @classmethod
@@ -36,6 +45,10 @@ class SurveyResponseSubmit(BaseModel):
             except ValueError as exc:
                 raise ValueError("answer keys must be question UUIDs") from exc
         return value
+
+
+class SurveyResponseAcknowledgement(BaseModel):
+    accepted: Literal[True]
 
 
 class SurveyResponseRead(SurveyResponseBaseSchema):

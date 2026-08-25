@@ -6,9 +6,9 @@ database change log, not as scratch files.
 
 ## Revision Rules
 - Add future revisions only for forward changes after the first-release baseline.
-- The directory contains only the canonical first-release baseline `20260825_v1` plus this
-  guide. Future revisions may follow the baseline, but predecessor history must not be
-  reintroduced.
+- The directory contains the canonical first-release baseline `20260825_v1`, the Phase 2
+  compatibility revision `f77a807cf2f9_expand_distribution_security`, and this guide. Future
+  revisions may follow these revisions, but predecessor history must not be reintroduced.
 - Start model-driven migrations with Alembic autogenerate, then edit only after reviewing
   the generated diff.
 - Keep each revision focused on the schema change it represents.

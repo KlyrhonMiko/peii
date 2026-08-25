@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
 import pytest
@@ -12,6 +12,8 @@ from models.survey_distribution import SurveyDistribution
 from models.user import User
 
 pytestmark = pytest.mark.anyio
+EXPIRY = (datetime.now(UTC) + timedelta(days=29)).isoformat()
+CONSENT = {"accepted": True, "version": "2026-08-25"}
 
 
 def _override_permissions(*permissions: str) -> None:
@@ -259,11 +261,11 @@ async def test_structure_edit_requires_inactive_and_zero_responses(client):
     await _activate(client, survey_business_id)
     distribution = await client.post(
         f"/api/v1/surveys/{survey_uuid}/distributions/",
-        json={"expires_at": "2099-01-01T00:00:00+00:00"},
+        json={"expires_at": EXPIRY},
     )
     response = await client.post(
         f"/api/v1/survey/{distribution.json()['data']['token']}/respond",
-        json={"answers": {question_id: "answer"}},
+        json={"answers": {question_id: "answer"}, "consent": CONSENT},
         headers={"Idempotency-Key": "018f4a1a-7b3b-7d0e-913a-c5f1c5c1c5c2"},
     )
     assert response.status_code == 201
@@ -304,13 +306,13 @@ async def test_manage_only_structure_conflicts_do_not_reveal_response_presence(
     await _activate(client, response_business_id)
     distribution = await client.post(
         f"/api/v1/surveys/{response_uuid}/distributions/",
-        json={"expires_at": "2099-01-01T00:00:00+00:00"},
+        json={"expires_at": EXPIRY},
     )
     token = distribution.json()["data"]["token"]
     for _ in range(response_count):
         submitted = await client.post(
             f"/api/v1/survey/{token}/respond",
-            json={"answers": {question_id: "answer"}},
+            json={"answers": {question_id: "answer"}, "consent": CONSENT},
             headers={"Idempotency-Key": str(uuid4())},
         )
         assert submitted.status_code == 201
@@ -379,7 +381,7 @@ async def test_structure_change_revokes_distribution_token(client):
     await _activate(client, survey_business_id)
     distribution = await client.post(
         f"/api/v1/surveys/{survey_uuid}/distributions/",
-        json={"expires_at": "2099-01-01T00:00:00+00:00"},
+        json={"expires_at": EXPIRY},
     )
     token = distribution.json()["data"]["token"]
     await client.patch(f"/api/v1/surveys/{survey_business_id}", json={"status": "Inactive"})
@@ -409,13 +411,16 @@ async def test_response_rejects_unknown_and_missing_required_questions(client):
     await _activate(client, survey_business_id)
     distribution = await client.post(
         f"/api/v1/surveys/{survey_uuid}/distributions/",
-        json={"expires_at": "2099-01-01T00:00:00+00:00"},
+        json={"expires_at": EXPIRY},
     )
     token = distribution.json()["data"]["token"]
 
     unknown = await client.post(
         f"/api/v1/survey/{token}/respond",
-        json={"answers": {"00000000-0000-0000-0000-000000000000": "Yes"}},
+        json={
+            "answers": {"00000000-0000-0000-0000-000000000000": "Yes"},
+            "consent": CONSENT,
+        },
         headers={"Idempotency-Key": "018f4a1a-7b3b-7d0e-913a-c5f1c5c1c5c2"},
     )
     assert unknown.status_code == 422
@@ -423,7 +428,7 @@ async def test_response_rejects_unknown_and_missing_required_questions(client):
 
     missing = await client.post(
         f"/api/v1/survey/{token}/respond",
-        json={"answers": {}},
+        json={"answers": {}, "consent": CONSENT},
         headers={"Idempotency-Key": "018f4a1a-7b3b-7d0e-913a-c5f1c5c1c5c3"},
     )
     assert missing.status_code == 422
@@ -431,7 +436,7 @@ async def test_response_rejects_unknown_and_missing_required_questions(client):
 
     valid = await client.post(
         f"/api/v1/survey/{token}/respond",
-        json={"answers": {question_id: "Yes"}},
+        json={"answers": {question_id: "Yes"}, "consent": CONSENT},
         headers={"Idempotency-Key": "018f4a1a-7b3b-7d0e-913a-c5f1c5c1c5c4"},
     )
     assert valid.status_code == 201
@@ -442,7 +447,7 @@ async def test_invalid_active_survey_cannot_be_distributed_or_submitted(client):
 
     distribution = await client.post(
         f"/api/v1/surveys/{survey_uuid}/distributions/",
-        json={"expires_at": "2099-01-01T00:00:00+00:00"},
+        json={"expires_at": EXPIRY},
     )
     assert distribution.status_code == 409
     assert distribution.json()["message"] == "Survey is not ready for distribution."
@@ -465,7 +470,7 @@ async def test_invalid_active_survey_cannot_be_distributed_or_submitted(client):
     public_survey = await client.get("/api/v1/survey/empty-active-survey-token")
     response = await client.post(
         "/api/v1/survey/empty-active-survey-token/respond",
-        json={"answers": {}},
+        json={"answers": {}, "consent": CONSENT},
         headers={"Idempotency-Key": "018f4a1a-7b3b-7d0e-913a-c5f1c5c1c5c2"},
     )
     assert public_survey.status_code == 404

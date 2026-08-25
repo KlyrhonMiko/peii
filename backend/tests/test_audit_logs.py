@@ -1,6 +1,10 @@
+from datetime import UTC, datetime, timedelta
+
 import pytest
 
 pytestmark = pytest.mark.anyio
+CONSENT_VERSION = "2026-08-25"
+EXPIRY = (datetime.now(UTC) + timedelta(days=29)).isoformat()
 
 
 async def test_user_mutations_create_audit_logs(client):
@@ -180,7 +184,7 @@ async def test_all_mutation_families_create_audits(client):
 
     distribution = await client.post(
         f"/api/v1/surveys/{survey_uuid}/distributions/",
-        json={"expires_at": "2099-01-01T00:00:00+00:00"},
+        json={"expires_at": EXPIRY},
     )
     distribution_data = distribution.json()["data"]
     distribution_id = distribution_data["id"]
@@ -192,15 +196,21 @@ async def test_all_mutation_families_create_audits(client):
             "answers": {
                 second_question_id: "answer",
                 third_question.json()["data"]["id"]: "answer",
-            }
+            },
+            "consent": {"accepted": True, "version": CONSENT_VERSION},
         },
         headers={"Idempotency-Key": "018f4a1a-7b3b-7d0e-913a-c5f1c5c1c5c2"},
     )
-    response_id = response.json()["data"]["id"]
+    assert response.status_code == 201
+    response_audit = await client.get(
+        "/api/v1/audit-logs/?resource_type=survey_response&action=create"
+    )
+    response_id = response_audit.json()["data"][-1]["resource_id"]
     response_audits = await _audits_for(client, "survey_response", response_id, "create")
     assert len(response_audits) == 1
     assert response_audits[0]["changes"] == {"distribution_id": distribution_id}
     assert response_audits[0]["performed_by"] == "00000000-0000-0000-0000-000000000001"
+    assert response_audits[0]["ip_address"] is None
 
     await client.request("DELETE", f"/api/v1/surveys/{survey_uuid}/distributions/{distribution_id}")
     await client.request("DELETE", f"/api/v1/surveys/{survey_uuid}/distributions/{distribution_id}")

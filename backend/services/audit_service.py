@@ -15,6 +15,17 @@ from schemas.audit_log import AuditLogListQueryParams
 from utils.sorting import stable_order_by
 
 logger = get_logger(__name__)
+_PUBLIC_RESPONSE_SENSITIVE_KEYS = frozenset(
+    {
+        "answers",
+        "token",
+        "idempotency_key",
+        "idempotency_hash",
+        "consent",
+        "consent_notice_snapshot",
+        "notice",
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -43,15 +54,38 @@ def _json_safe(value: Any) -> Any:
     return str(value)
 
 
+def _sanitize_public_response_changes(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {
+            str(key): _sanitize_public_response_changes(item)
+            for key, item in value.items()
+            if str(key).casefold() not in _PUBLIC_RESPONSE_SENSITIVE_KEYS
+        }
+    if isinstance(value, (list, tuple, set)):
+        return [_sanitize_public_response_changes(item) for item in value]
+    return value
+
+
 def _audit_log_from_event(event: AuditEvent) -> AuditLog:
+    is_public_response_event = (
+        event.resource_type == "survey_response"
+        and event.action
+        in {"create", "consent_recorded_on_legacy_replay", "response_replay_hash_upgraded"}
+    ) or (event.resource_type == "survey" and event.action == "response_submitted")
+    changes = event.changes
+    ip_address = event.ip_address
+    if is_public_response_event:
+        changes = _sanitize_public_response_changes(changes)
+        ip_address = None
+
     return AuditLog(
         action=event.action,
         resource_type=event.resource_type,
         resource_id=event.resource_id,
         performed_by=event.performed_by,
         request_id=request_id_ctx.get(),
-        changes=_json_safe(event.changes) if event.changes is not None else None,
-        ip_address=event.ip_address,
+        changes=_json_safe(changes) if changes is not None else None,
+        ip_address=ip_address,
     )
 
 

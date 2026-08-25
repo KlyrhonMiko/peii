@@ -170,7 +170,7 @@ describe("backend BFF", () => {
     vi.stubEnv("APP_ORIGIN", "http://localhost:3000")
     mocks.getClaims.mockResolvedValue({ data: { claims: { sub: "user-id" } } })
     mocks.getSession.mockResolvedValue({ data: { session: { access_token: "access-token" } } })
-    const fetchMock = vi.fn(async () => new Response('{"data":{"erased_count":1}}'))
+    const fetchMock = vi.fn<typeof fetch>(async () => new Response('{"data":{"erased_count":1}}'))
     vi.stubGlobal("fetch", fetchMock)
     const body = JSON.stringify({
       scope: "selected",
@@ -192,7 +192,12 @@ describe("backend BFF", () => {
     )
 
     expect(response.status).toBe(200)
-    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit]
+    const call = fetchMock.mock.calls[0]
+    expect(call).toBeDefined()
+    if (!call) throw new Error("Expected the backend request to be forwarded")
+    const [url, init] = call
+    expect(init).toBeDefined()
+    if (!init) throw new Error("Expected forwarded request options")
     const headers = new Headers(init.headers)
     expect(url).toBe("http://backend:8000/api/v1/surveys/survey-id/responses/erase")
     expect(headers.get("idempotency-key")).toBe("erase-request-key")

@@ -1,3 +1,4 @@
+from datetime import datetime
 from uuid import UUID
 
 from sqlalchemy import JSON, Column, ForeignKeyConstraint, UniqueConstraint
@@ -29,6 +30,12 @@ class SurveyResponse(BaseModel, table=True):
     distribution_id: UUID | None = Field(default=None, index=True, nullable=True)
     idempotency_key: UUID | None = Field(default=None, index=True, nullable=True)
     idempotency_hash: str | None = Field(default=None, max_length=64, nullable=True)
+    consent_version: str | None = Field(default=None, max_length=64, nullable=True)
+    consented_at: datetime | None = Field(default=None, nullable=True)
+    consent_notice_snapshot: dict[str, object] | None = Field(
+        default=None,
+        sa_column=Column(JSON().with_variant(JSONB, "postgresql"), nullable=True),
+    )
     answers: dict[str, object] = Field(
         sa_column=Column(JSON().with_variant(JSONB, "postgresql"), nullable=False)
     )

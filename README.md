@@ -45,9 +45,10 @@ replica migrate independently. Docker deployment is out of scope.
 
 See [production decisions](docs/production-decisions.md),
 [privacy and retention](docs/privacy-and-retention.md), and the
-[deployment roadmap](docs/deployment-roadmap.md) for the required host, privacy, retention,
-recovery, release, and Phase 1A rollout policies. Provider, region, domain, consent, and
-rate-limit implementation details must be completed before public launch.
+[deployment roadmap](docs/deployment-roadmap.md) for the Phase 2 compatibility contract,
+token migration, privacy, recovery, release, and launch-gate policies. Real respondents remain
+blocked until the documented Redis, consent, trusted-ingress, and provider log-redaction checks
+are verified.
 
 ## Local Development
 
@@ -58,7 +59,7 @@ python3.14 -m venv .venv
 ./.venv/bin/pip install -r requirements.txt
 ./.venv/bin/alembic upgrade head
 ./.venv/bin/python scripts/bootstrap_admin.py
-./.venv/bin/uvicorn main:app --reload
+./.venv/bin/uvicorn main:app --reload --no-access-log --no-proxy-headers
 ```
 
 Start the frontend from `frontend/`:

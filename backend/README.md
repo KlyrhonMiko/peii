@@ -31,7 +31,7 @@ links or invites that identity and grants the seeded `admin` role.
 4. Start the development server:
 
 ```bash
-./.venv/bin/uvicorn main:app --reload
+./.venv/bin/uvicorn main:app --reload --no-access-log --no-proxy-headers
 ```
 
 The backend loads the root `.env` automatically.
@@ -79,11 +79,14 @@ Create a new migration after model changes:
 ./.venv/bin/alembic revision --autogenerate -m "describe change"
 ```
 
-The current migration head is the canonical first-release baseline `20260825_v1`. For production, run
-`./.venv/bin/alembic upgrade head` once as the managed-service release job before API
-replicas are promoted. Do not run migrations independently in every replica. The baseline is
-intended for a fresh database; future schema changes must be forward revisions after
-`20260825_v1`.
+The fresh-database baseline is `20260825_v1`; the current migration head is the Phase 2
+compatibility revision `f77a807cf2f9_expand_distribution_security`. For production, run
+`./.venv/bin/alembic upgrade head` once as the managed-service release job before API replicas
+are promoted. Do not run migrations independently in every replica. The expand revision adds
+SHA-256 token digests, 8-character prefixes, and consent evidence while retaining plaintext
+tokens for the compatibility window. Follow the exact expand -> dual-write/digest-first ->
+reconcile -> digest-only app -> later contract/drop gate sequence in the deployment roadmap;
+plaintext has not yet been removed.
 
 ## Survey Access And Lifecycle Policy
 
@@ -100,6 +103,20 @@ intended for a fresh database; future schema changes must be forward revisions a
   tokens; a newly issued or rotated token is returned only once. Archiving a survey revokes
   unrevoked distributions. Restoring it leaves it inactive, so activation and a new link are
   explicit follow-up actions.
+- Public distribution links are shared bearer links and do not guarantee respondent uniqueness;
+  idempotency protects retries for one distribution/key pair only. Consent is a global,
+  versioned contract, and accepted responses retain an immutable notice snapshot. The public
+  acknowledgement is minimal (`{"accepted": true}`), and successful respondent IP addresses
+  are not stored in response audits. Do not promise confidentiality or respondent anonymity.
+- Production requires managed Redis, configured either with a Redis-compatible `REDIS_URL`
+  or both `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN`, with
+  `RATE_LIMIT_ENABLED=true` and
+  `RATE_LIMIT_READ_FAILURE_POLICY=fail_closed`, approved consent text/contact/retention values,
+  configured trusted ingress CIDRs, and verified provider log redaction. Real respondents remain
+  blocked until all of these are recorded in the production runbook.
+- `RATE_LIMIT_INCLUDE_CLIENT_IP` remains false unless the complete forwarding chain has been
+  verified; enable it only after confirming that the app-owned resolver receives the expected
+  trusted proxy peer and headers.
 - Aggregate responses use conservative `k=5` suppression and only supported categorical,
   boolean, multiple-choice, scale, ranking, and matrix question types. Raw responses and
   long-format CSV export are separate routes and permissions. Selected erasure or all-response

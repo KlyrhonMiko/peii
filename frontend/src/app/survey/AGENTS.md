@@ -7,13 +7,14 @@ This guide covers `src/app/survey/` and dynamic alumni survey route segments.
 - `[alumniToken]/page.tsx` loads a public survey from `NEXT_PUBLIC_API_URL` without caching,
   handles unavailable/empty surveys, and passes the structure to `ClientSurveyForm`.
 - `[alumniToken]/loading.tsx` provides the accessible route loading state.
-- The token is currently displayed in the footer and should be treated as a domain input.
+- The token is a domain input used only for the public API request; never display it in the
+  page or in user-facing errors.
 
 ## Survey Rules
 - Type tokenized route params explicitly and actually use them.
 - Prefix intentionally unused params with `_`; unused variables fail lint.
 - Keep survey pages focused on the survey flow: instructions, form fields, validation,
-  consent/confidentiality copy, and submission actions.
+  consent notice, and submission actions. Do not make unsupported confidentiality claims.
 - Prefer accessible native controls or shared UI primitives before custom controls.
 - If survey logic grows, extract form sections, field groups, validation helpers, and
   submission handling rather than expanding one page indefinitely.

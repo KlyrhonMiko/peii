@@ -22,6 +22,12 @@ export async function loginAction(formData: FormData) {
     body: JSON.stringify({ identifier, password }),
     cache: "no-store",
   })
+  if (response.status === 429) {
+    redirectLoginError("rate-limited", response)
+  }
+  if (response.status === 503) {
+    redirectLoginError("unavailable", response)
+  }
   if (!response.ok) {
     redirect("/login?error=invalid")
   }
@@ -68,4 +74,17 @@ function isSessionEnvelope(
     typeof data.access_token === "string" &&
     typeof data.refresh_token === "string"
   )
+}
+
+function redirectLoginError(error: "rate-limited" | "unavailable", response: Response): never {
+  const params = new URLSearchParams({ error })
+  const retryAfter = parseRetryAfter(response.headers.get("Retry-After"))
+  if (retryAfter !== null) params.set("retryAfter", String(retryAfter))
+  redirect(`/login?${params.toString()}`)
+}
+
+function parseRetryAfter(value: string | null): number | null {
+  if (value === null || !/^\d+$/.test(value)) return null
+  const seconds = Number(value)
+  return Number.isSafeInteger(seconds) && seconds > 0 ? seconds : null
 }

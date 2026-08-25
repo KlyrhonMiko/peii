@@ -1,5 +1,6 @@
 import csv
 import io
+from datetime import UTC, datetime, timedelta
 from typing import cast
 from uuid import UUID, uuid4
 
@@ -13,8 +14,13 @@ from models.survey_question import SurveyQuestion
 from services import response_service
 
 pytestmark = pytest.mark.anyio
-EXPIRY = "2099-01-01T00:00:00+00:00"
+EXPIRY = (datetime.now(UTC) + timedelta(days=29)).isoformat()
 IDEMPOTENCY_KEY = "018f4a1a-7b3b-7d0e-913a-c5f1c5c1c5c2"
+CONSENT_VERSION = "2026-08-25"
+
+
+def _consent() -> dict[str, object]:
+    return {"accepted": True, "version": CONSENT_VERSION}
 
 
 async def _create_active_survey_with_questions(client):
@@ -110,7 +116,7 @@ def _override_permissions(*permissions: str) -> None:
 async def _submit(client, token, question_id, answer, key=None):
     return await client.post(
         f"/api/v1/survey/{token}/respond",
-        json={"answers": {question_id: answer}},
+        json={"answers": {question_id: answer}, "consent": _consent()},
         headers={"Idempotency-Key": key or str(uuid4())},
     )
 
@@ -124,6 +130,8 @@ async def test_get_public_survey_by_token(client):
     assert "survey_id" in data
     assert data["title"] == "Response Survey"
     assert len(data["questions"]) == 1
+    assert data["consent"]["version"] == CONSENT_VERSION
+    assert set(data["consent"]) == {"version", "notice", "purpose", "retention", "contact"}
 
 
 async def test_submit_response(client):
@@ -131,13 +139,11 @@ async def test_submit_response(client):
 
     resp = await client.post(
         f"/api/v1/survey/{token}/respond",
-        json={"answers": {question_id: "Full-Time"}},
+        json={"answers": {question_id: "Full-Time"}, "consent": _consent()},
         headers={"Idempotency-Key": IDEMPOTENCY_KEY},
     )
     assert resp.status_code == 201
-    assert resp.json()["data"]["distribution_id"] is not None
-    assert "alumni_token" not in resp.json()["data"]
-    assert "version_id" not in resp.json()["data"]
+    assert resp.json()["data"] == {"accepted": True}
 
 
 async def test_submit_response_requires_idempotency_key(client):
@@ -145,7 +151,7 @@ async def test_submit_response_requires_idempotency_key(client):
 
     response = await client.post(
         f"/api/v1/survey/{token}/respond",
-        json={"answers": {question_id: "Full-Time"}},
+        json={"answers": {question_id: "Full-Time"}, "consent": _consent()},
     )
 
     assert response.status_code == 400
@@ -157,7 +163,7 @@ async def test_submit_response_increments_count(client):
 
     resp = await client.post(
         f"/api/v1/survey/{token}/respond",
-        json={"answers": {question_id: "Part-Time"}},
+        json={"answers": {question_id: "Part-Time"}, "consent": _consent()},
         headers={"Idempotency-Key": IDEMPOTENCY_KEY},
     )
     assert resp.status_code == 201
@@ -170,7 +176,7 @@ async def test_submit_response_increments_count(client):
 async def test_submit_response_is_idempotent(client):
     survey_uuid, token, question_id = await _create_active_survey_with_questions(client)
     key = IDEMPOTENCY_KEY
-    payload = {"answers": {question_id: "Part-Time"}}
+    payload = {"answers": {question_id: "Part-Time"}, "consent": _consent()}
 
     first = await client.post(
         f"/api/v1/survey/{token}/respond",
@@ -184,14 +190,16 @@ async def test_submit_response_is_idempotent(client):
     )
     conflict = await client.post(
         f"/api/v1/survey/{token}/respond",
-        json={"answers": {question_id: "Full-Time"}},
+        json={"answers": {question_id: "Full-Time"}, "consent": _consent()},
         headers={"Idempotency-Key": key},
     )
 
     assert first.status_code == 201
     assert replay.status_code == 200
-    assert replay.json()["data"]["id"] == first.json()["data"]["id"]
+    assert first.json()["data"] == {"accepted": True}
+    assert replay.json()["data"] == {"accepted": True}
     assert conflict.status_code == 409
+    assert conflict.json()["errors"] == {"code": "idempotency_conflict"}
 
     get_resp = await client.get("/api/v1/surveys/?search=Response Survey")
     assert get_resp.json()["data"][0]["responses_count"] == 1
@@ -276,7 +284,7 @@ async def test_response_validates_each_answer_type(client):
     for invalid in invalid_answers:
         response = await client.post(
             f"/api/v1/survey/{token}/respond",
-            json={"answers": {**base_answers, **invalid}},
+            json={"answers": {**base_answers, **invalid}, "consent": _consent()},
             headers={"Idempotency-Key": IDEMPOTENCY_KEY},
         )
         assert response.status_code == 422
@@ -288,7 +296,8 @@ async def test_response_validates_each_answer_type(client):
                 questions["matrix"]: {"Row 1": "Yes"},
                 questions["scale"]: 2,
                 questions["boolean"]: True,
-            }
+            },
+            "consent": _consent(),
         },
         headers={"Idempotency-Key": IDEMPOTENCY_KEY},
     )
@@ -326,7 +335,7 @@ async def test_required_whitespace_answer_is_rejected(client):
 
     response = await client.post(
         f"/api/v1/survey/{distribution.json()['data']['token']}/respond",
-        json={"answers": {question_id: "   "}},
+        json={"answers": {question_id: "   "}, "consent": _consent()},
         headers={"Idempotency-Key": IDEMPOTENCY_KEY},
     )
     assert response.status_code == 422
@@ -349,7 +358,7 @@ async def test_revoked_token_rejects_read_and_submit(client):
     get_response = await client.get(f"/api/v1/survey/{token}")
     post_response = await client.post(
         f"/api/v1/survey/{token}/respond",
-        json={"answers": {question_id: "Full-Time"}},
+        json={"answers": {question_id: "Full-Time"}, "consent": _consent()},
         headers={"Idempotency-Key": IDEMPOTENCY_KEY},
     )
     assert get_response.status_code == 404
@@ -382,7 +391,7 @@ async def test_expired_token_rejects_public_access(client, monkeypatch):
     ).status_code == 200
     distribution_response = await client.post(
         f"/api/v1/surveys/{survey_uuid}/distributions/",
-        json={"expires_at": "2099-01-01T00:00:00+00:00"},
+        json={"expires_at": EXPIRY},
     )
     token = distribution_response.json()["data"]["token"]
 
@@ -396,7 +405,10 @@ async def test_expired_token_rejects_public_access(client, monkeypatch):
     assert response.status_code == 404
     submit = await client.post(
         f"/api/v1/survey/{token}/respond",
-        json={"answers": {question_response.json()["data"]["id"]: "answer"}},
+        json={
+            "answers": {question_response.json()["data"]["id"]: "answer"},
+            "consent": _consent(),
+        },
         headers={"Idempotency-Key": IDEMPOTENCY_KEY},
     )
     assert submit.status_code == 404
@@ -538,7 +550,7 @@ async def test_aggregate_all_supported_shapes_and_suppression(client):
     for _index in range(5):
         response = await client.post(
             f"/api/v1/survey/{token}/respond",
-            json={"answers": answers},
+            json={"answers": answers, "consent": _consent()},
             headers={"Idempotency-Key": str(uuid4())},
         )
         assert response.status_code == 201
@@ -604,7 +616,7 @@ async def test_aggregate_all_supported_shapes_and_suppression(client):
     for _index in range(4):
         response = await client.post(
             f"/api/v1/survey/{suppressed_token}/respond",
-            json={"answers": suppressed_answers},
+            json={"answers": suppressed_answers, "consent": _consent()},
             headers={"Idempotency-Key": str(uuid4())},
         )
         assert response.status_code == 201
@@ -716,7 +728,8 @@ async def test_export_is_long_form_canonical_and_formula_safe(client):
             "answers": {
                 questions["dangerous"]: "=2+2",
                 questions["nul"]: "safe",
-            }
+            },
+            "consent": _consent(),
         },
     )
     assert submitted.status_code == 201
@@ -752,8 +765,10 @@ async def test_selected_erasure_is_atomic_and_idempotent(client):
         client,
         {"text": {"question_text": "Text", "question_type": "text"}},
     )
-    response = await _submit(client, token, questions["text"], "answer")
-    response_id = response.json()["data"]["id"]
+    await _submit(client, token, questions["text"], "answer")
+    response_id = (
+        await client.get(f"/api/v1/surveys/{survey['id']}/responses/")
+    ).json()["data"][0]["id"]
     key = str(uuid4())
     invalid = await client.post(
         f"/api/v1/surveys/{survey['id']}/responses/erase",

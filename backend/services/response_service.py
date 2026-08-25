@@ -29,7 +29,7 @@ from schemas.survey_response import (
     SurveyResponseAggregate,
     SurveyResponseListQueryParams,
 )
-from services import survey_privacy
+from services import survey_consent, survey_privacy
 from services.audit_service import AuditEvent, commit_with_audit
 from services.base_service import utc_now
 from services.distribution_service import get_distribution_and_survey_by_token
@@ -213,7 +213,15 @@ async def submit_response(
     actor_id: UUID,
     idempotency_key: UUID | None = None,
     ip_address: str | None = None,
+    consent_version: str | None = None,
 ) -> tuple[SurveyResponse, bool]:
+    # Public HTTP callers must supply the current version.  A missing value is
+    # defaulted only for existing internal service callers, preserving their
+    # behavior while the public request schema remains strict.
+    if consent_version is None:
+        consent_version = survey_consent.get_public_consent_policy().version
+    consent_policy = survey_consent.require_current_consent(consent_version)
+
     try:
         answers_json = json.dumps(answers, allow_nan=False)
     except (TypeError, ValueError) as exc:
@@ -239,22 +247,89 @@ async def submit_response(
     answers_hash = None
     if idempotency_key is not None:
         answers_hash = hashlib.sha256(
+            json.dumps(
+                {"answers": answers, "consent_version": consent_version},
+                sort_keys=True,
+                separators=(",", ":"),
+                allow_nan=False,
+            ).encode()
+        ).hexdigest()
+        legacy_answers_hash = hashlib.sha256(
             json.dumps(answers, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()
         ).hexdigest()
         existing_result = await session.exec(
             select(SurveyResponse).where(
                 col(SurveyResponse.distribution_id) == distribution.id,
                 col(SurveyResponse.idempotency_key) == idempotency_key,
-            )
+            ).with_for_update()
         )
         existing = existing_result.first()
         if existing is not None:
+            consent_fields = (
+                existing.consent_version,
+                existing.consented_at,
+                existing.consent_notice_snapshot,
+            )
+            all_consent_fields_null = all(field is None for field in consent_fields)
+            all_consent_fields_present = all(field is not None for field in consent_fields)
+            if not all_consent_fields_null and not all_consent_fields_present:
+                raise AppError(
+                    "Existing response consent evidence is incomplete.",
+                    status_code=status.HTTP_409_CONFLICT,
+                    errors={"code": "invalid_consent_evidence"},
+                )
+
+            if all_consent_fields_present and (
+                existing.consent_version != consent_version
+                or existing.consent_notice_snapshot != consent_policy.model_dump(mode="json")
+            ):
+                raise AppError(
+                    "Existing response consent evidence is inconsistent.",
+                    status_code=status.HTTP_409_CONFLICT,
+                    errors={"code": "invalid_consent_evidence"},
+                )
+
+            if existing.idempotency_hash == answers_hash:
+                if not all_consent_fields_present:
+                    raise AppError(
+                        "Existing response consent evidence is incomplete.",
+                        status_code=status.HTTP_409_CONFLICT,
+                        errors={"code": "invalid_consent_evidence"},
+                    )
+                return existing, True
+
+            if existing.idempotency_hash == legacy_answers_hash:
+                existing.idempotency_hash = answers_hash
+                if all_consent_fields_null:
+                    existing.consent_version = consent_version
+                    existing.consented_at = utc_now()
+                    existing.consent_notice_snapshot = consent_policy.model_dump(mode="json")
+                    replay_action = "consent_recorded_on_legacy_replay"
+                else:
+                    replay_action = "response_replay_hash_upgraded"
+                session.add(existing)
+                await commit_with_audit(
+                    session,
+                    [
+                        AuditEvent(
+                            action=replay_action,
+                            resource_type="survey_response",
+                            resource_id=str(existing.id),
+                            performed_by=actor_id,
+                            changes=None,
+                            ip_address=None,
+                        )
+                    ],
+                )
+                await session.refresh(existing)
+                return existing, True
+
             if existing.idempotency_hash != answers_hash:
                 raise AppError(
-                    "Idempotency-Key was already used with different answers.",
+                    "Idempotency-Key was already used with different answers or consent version.",
                     status_code=status.HTTP_409_CONFLICT,
+                    errors={"code": "idempotency_conflict"},
                 )
-            return existing, True
 
     if survey.is_deleted or survey.status != "Active":
         raise AppError(
@@ -268,6 +343,9 @@ async def submit_response(
         distribution_id=distribution.id,
         idempotency_key=idempotency_key,
         idempotency_hash=answers_hash,
+        consent_version=consent_version,
+        consented_at=utc_now(),
+        consent_notice_snapshot=consent_policy.model_dump(mode="json"),
         answers=answers,
         performed_by=actor_id,
     )
@@ -291,7 +369,7 @@ async def submit_response(
                 resource_id=str(response.id),
                 performed_by=actor_id,
                 changes={"distribution_id": str(distribution.id)},
-                ip_address=ip_address,
+                ip_address=None,
             ),
             AuditEvent(
                 action="response_submitted",
@@ -299,7 +377,7 @@ async def submit_response(
                 resource_id=survey.survey_id,
                 performed_by=actor_id,
                 changes={"response_id": str(response.id)},
-                ip_address=ip_address,
+                ip_address=None,
             ),
         ],
     )
@@ -733,6 +811,7 @@ async def erase_responses(
             raise AppError(
                 "Idempotency-Key was already used with a different erasure request.",
                 status_code=status.HTTP_409_CONFLICT,
+                errors={"code": "idempotency_conflict"},
             )
         return ResponseErasureResult.model_validate(
             {
@@ -789,6 +868,9 @@ async def erase_responses(
         response.distribution_id = None
         response.idempotency_key = None
         response.idempotency_hash = None
+        response.consent_version = None
+        response.consented_at = None
+        response.consent_notice_snapshot = None
         response.is_deleted = True
         response.deleted_at = now
         response.updated_at = now

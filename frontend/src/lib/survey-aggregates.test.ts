@@ -7,7 +7,7 @@ const question = (type: string, options?: string[]): SurveyQuestion => ({
   id: "question-id",
   text: "Question",
   type,
-  options,
+  ...(options === undefined ? {} : { options }),
 })
 
 const aggregate = (

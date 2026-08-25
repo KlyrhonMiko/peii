@@ -15,5 +15,13 @@ class SurveyDistribution(BaseModel, table=True):
 
     survey_id: UUID = Field(foreign_key="surveys.id", index=True, nullable=False)
     token: str = Field(unique=True, index=True, max_length=64)
+    token_digest: str | None = Field(
+        default=None,
+        index=True,
+        unique=True,
+        max_length=64,
+        nullable=True,
+    )
+    token_prefix: str | None = Field(default=None, index=True, max_length=8, nullable=True)
     expires_at: datetime = Field(index=True, nullable=False)
     revoked_at: datetime | None = Field(default=None, nullable=True)

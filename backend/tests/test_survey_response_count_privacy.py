@@ -1,3 +1,4 @@
+from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
 import pytest
@@ -9,6 +10,8 @@ from models.survey_question import SurveyQuestion
 from services import response_service, survey_privacy
 
 pytestmark = pytest.mark.anyio
+EXPIRY = (datetime.now(UTC) + timedelta(days=29)).isoformat()
+CONSENT = {"accepted": True, "version": "2026-08-25"}
 
 
 def _override_permissions(*permissions: str) -> None:
@@ -54,14 +57,14 @@ async def _create_counted_survey(client, response_count: int) -> dict[str, str]:
     assert activated.status_code == 200
     distribution_response = await client.post(
         f"/api/v1/surveys/{survey['id']}/distributions/",
-        json={"expires_at": "2099-01-01T00:00:00+00:00"},
+        json={"expires_at": EXPIRY},
     )
     token = distribution_response.json()["data"]["token"]
     question_id = question_response.json()["data"]["id"]
     for _ in range(response_count):
         submitted = await client.post(
             f"/api/v1/survey/{token}/respond",
-            json={"answers": {question_id: "answer"}},
+            json={"answers": {question_id: "answer"}, "consent": CONSENT},
             headers={"Idempotency-Key": str(uuid4())},
         )
         assert submitted.status_code == 201

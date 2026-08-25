@@ -1,8 +1,7 @@
 "use client"
 
-import { useRef, useState } from "react"
+import { type FormEvent, type ComponentType, useEffect, useRef, useState } from "react"
 import { Button } from "@/components/ui/button"
-import { SurveySelect } from "@/components/SurveySelect"
 import {
   Dialog,
   DialogContent,
@@ -25,41 +24,34 @@ import {
   Circle,
   ArrowLeft,
   ArrowRight,
-  ShieldCheck,
   Loader2,
   CheckCircle,
   AlertCircle,
 } from "lucide-react"
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL
-if (!API_BASE) throw new Error("NEXT_PUBLIC_API_URL is not configured")
+import {
+  createPublicSurveySubmission,
+  publicSurveyErrorCode,
+  parsePublicSurveyAccepted,
+  parseRetryAfter,
+  type PublicAnswerValue,
+  type PublicAnswers,
+  type PublicSurveyConsent,
+  type PublicSurveyQuestion,
+  type PublicSurveySection,
+} from "@/lib/public-survey"
 
-interface PublicQuestion {
-  id: string
-  question_text: string
-  question_type: string
-  options: string[] | null
-  config: Record<string, unknown> | null
-  order_index: number
-  is_required: boolean
-}
-
-interface PublicSection {
-  id: string
-  title: string
-  description: string | null
-  order_index: number
-  questions: PublicQuestion[]
-}
+const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? ""
 
 interface ClientSurveyFormProps {
   title: string
   description: string | null
-  sections: PublicSection[]
+  consent: PublicSurveyConsent
+  sections: PublicSurveySection[]
   token: string
 }
 
-const TYPE_ICON: Record<string, React.ComponentType<{ className?: string }>> = {
+const TYPE_ICON: Record<string, ComponentType<{ className?: string }>> = {
   single_choice: Circle,
   multiple_choice: ListChecks,
   text: Type,
@@ -85,54 +77,69 @@ const TYPE_LABEL: Record<string, string> = {
   boolean: "Yes/No",
 }
 
-type AnswerValue = string | string[] | number | boolean | Record<string, string>
-type Answers = Record<string, AnswerValue>
-
-function isBlankAnswer(value: AnswerValue | undefined): boolean {
-  return value === undefined || value === null || (
-    typeof value === "string" && !value.trim()
-  ) || (Array.isArray(value) && value.length === 0) || (
-    typeof value === "object" && !Array.isArray(value) && Object.keys(value).length === 0
-  )
+function isBlankAnswer(value: PublicAnswerValue | undefined): boolean {
+  return value === undefined ||
+    (typeof value === "string" && !value.trim()) ||
+    (Array.isArray(value) && value.length === 0) ||
+    (typeof value === "object" && !Array.isArray(value) && Object.keys(value).length === 0)
 }
 
-function matrixValidationError(question: PublicQuestion, value: AnswerValue | undefined): string | null {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return "Complete every matrix row"
-  }
+function isAnswerMap(value: PublicAnswerValue | undefined): value is Record<string, string> {
+  return typeof value === "object" && value !== null && !Array.isArray(value) &&
+    Object.values(value).every((answer) => typeof answer === "string")
+}
+
+function matrixValidationError(
+  question: PublicSurveyQuestion,
+  value: PublicAnswerValue | undefined,
+): string | null {
+  if (!isAnswerMap(value)) return "Complete every matrix row"
   const rows = question.options ?? []
   const configuredColumns = question.config?.columns
   const columns = Array.isArray(configuredColumns)
     ? configuredColumns.filter((column): column is string => typeof column === "string")
     : ["Poor", "Fair", "Good", "Excellent"]
-  const answers = value
   if (
-    Object.keys(answers).length !== rows.length ||
-    rows.some((row) => !Object.hasOwn(answers, row)) ||
-    Object.values(answers).some((answer) => !columns.includes(answer))
+    Object.keys(value).length !== rows.length ||
+    rows.some((row) => !Object.hasOwn(value, row)) ||
+    Object.values(value).some((answer) => !columns.includes(answer))
   ) {
     return "Complete every matrix row"
   }
   return null
 }
 
-
-
 export function ClientSurveyForm({
   title,
   description,
+  consent,
   sections,
   token,
 }: ClientSurveyFormProps) {
   const [sectionIdx, setSectionIdx] = useState(0)
-  const [answers, setAnswers] = useState<Answers>({})
+  const [answers, setAnswers] = useState<PublicAnswers>({})
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [validationAlertOpen, setValidationAlertOpen] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [submitted, setSubmitted] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
+  const [consentAccepted, setConsentAccepted] = useState(false)
+  const [consentTouched, setConsentTouched] = useState(false)
+  const [staleConsent, setStaleConsent] = useState(false)
+  const [retryAt, setRetryAt] = useState<number | null>(null)
+  const [now, setNow] = useState(() => Date.now())
   const idempotencyKey = useRef<string | null>(null)
   const submittingRef = useRef(false)
+
+  useEffect(() => {
+    if (retryAt === null) return
+    const timer = window.setInterval(() => {
+      const current = Date.now()
+      setNow(current)
+      if (current >= retryAt) setRetryAt(null)
+    }, 250)
+    return () => window.clearInterval(timer)
+  }, [retryAt])
 
   const section = sections[sectionIdx]
   if (submitted) {
@@ -160,24 +167,26 @@ export function ClientSurveyForm({
 
   const isFirst = sectionIdx === 0
   const isLast = sectionIdx === sections.length - 1
+  const retryRemaining = retryAt === null ? 0 : Math.max(0, Math.ceil((retryAt - now) / 1000))
+  const retryBlocked = retryRemaining > 0
 
   const validateSection = () => {
     let isValid = true
     const newErrors: Record<string, string> = {}
-    for (const q of section.questions) {
-      const val = answers[q.id]
-      if (q.question_type === "matrix" && (q.is_required || !isBlankAnswer(val))) {
-        const matrixError = matrixValidationError(q, val)
+    for (const question of section.questions) {
+      const value = answers[question.id]
+      if (question.question_type === "matrix" && (question.is_required || !isBlankAnswer(value))) {
+        const matrixError = matrixValidationError(question, value)
         if (matrixError) {
-          newErrors[q.id] = matrixError
+          newErrors[question.id] = matrixError
           isValid = false
         }
         continue
       }
-      if (q.is_required) {
-        const rankingHasDefault = q.question_type === "ranking" && (q.options?.length ?? 0) > 0
-        if (!rankingHasDefault && isBlankAnswer(val)) {
-          newErrors[q.id] = "This question is required"
+      if (question.is_required) {
+        const rankingHasDefault = question.question_type === "ranking" && (question.options?.length ?? 0) > 0
+        if (!rankingHasDefault && isBlankAnswer(value)) {
+          newErrors[question.id] = "This question is required"
           isValid = false
         }
       }
@@ -192,49 +201,41 @@ export function ClientSurveyForm({
       setValidationAlertOpen(true)
       return
     }
-    if (!isLast) setSectionIdx((p) => p + 1)
-  }
-  const goPrev = () => {
-    if (submitting) return
-    if (!isFirst) setSectionIdx((p) => p - 1)
+    if (!isLast) setSectionIdx((previous) => previous + 1)
   }
 
-  const setAnswer = (qId: string, value: AnswerValue) => {
+  const goPrev = () => {
     if (submitting) return
-    setAnswers((prev) => ({ ...prev, [qId]: value }))
-    if (errors[qId]) {
-      setErrors((prev) => {
-        const next = { ...prev }
-        delete next[qId]
+    if (!isFirst) setSectionIdx((previous) => previous - 1)
+  }
+
+  const setAnswer = (questionId: string, value: PublicAnswerValue) => {
+    if (submitting) return
+    setAnswers((previous) => ({ ...previous, [questionId]: value }))
+    if (errors[questionId]) {
+      setErrors((previous) => {
+        const next = { ...previous }
+        delete next[questionId]
         return next
       })
     }
   }
 
-  const toggleMultiple = (qId: string, opt: string) => {
-    const current = (answers[qId] as string[] | undefined) ?? []
-    const nextList = current.includes(opt)
-      ? current.filter((v) => v !== opt)
-      : [...current, opt]
-    setAnswer(qId, nextList)
-  }
-
-  const onSubmitClick = () => {
-    if (submitting) return
-    if (!validateSection()) {
-      setValidationAlertOpen(true)
-      return
-    }
-    void handleSubmit()
+  const toggleMultiple = (questionId: string, option: string) => {
+    const current = (answers[questionId] as string[] | undefined) ?? []
+    const nextList = current.includes(option)
+      ? current.filter((value) => value !== option)
+      : [...current, option]
+    setAnswer(questionId, nextList)
   }
 
   const handleSubmit = async () => {
-    if (submittingRef.current || submitting) return
+    if (submittingRef.current || submitting || staleConsent || retryBlocked) return
     submittingRef.current = true
     setSubmitting(true)
     setSubmitError(null)
     try {
-      const submittedAnswers: Answers = { ...answers }
+      const submittedAnswers: PublicAnswers = { ...answers }
       for (const currentSection of sections) {
         for (const question of currentSection.questions) {
           if (
@@ -247,20 +248,60 @@ export function ClientSurveyForm({
         }
       }
       idempotencyKey.current ??= crypto.randomUUID()
-      const res = await fetch(`${API_BASE}/survey/${token}/respond`, {
+      const response = await fetch(`${API_BASE}/survey/${encodeURIComponent(token)}/respond`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           "Idempotency-Key": idempotencyKey.current,
         },
-        body: JSON.stringify({ answers: submittedAnswers }),
+        body: JSON.stringify(createPublicSurveySubmission(submittedAnswers, consent.version)),
       })
-      if (!res.ok) {
-        if (res.status < 500) idempotencyKey.current = null
-        const body = (await res.json()) as { message?: string }
-        setSubmitError(body.message ?? "We could not submit your response.")
+      if (!response.ok) {
+        let errorPayload: unknown = null
+        try {
+          errorPayload = await response.json()
+        } catch {
+          // Fall through to the generic status-specific message.
+        }
+        const errorCode = publicSurveyErrorCode(errorPayload)
+        if (response.status === 409 && errorCode === "stale_consent") {
+          idempotencyKey.current = null
+          setStaleConsent(true)
+          setSubmitError("This consent notice is out of date. Reload and review the notice before submitting again.")
+        } else if (response.status === 409 && errorCode === "idempotency_conflict") {
+          setSubmitError("We could not confirm whether your response was submitted. It may already be recorded; please do not create a duplicate response.")
+        } else if (response.status === 409) {
+          setSubmitError("We could not confirm whether your response was submitted. Please do not create a duplicate response.")
+        } else if (response.status === 429) {
+          const retryAfter = parseRetryAfter(response.headers.get("Retry-After"))
+          if (retryAfter !== null) setRetryAt(Date.now() + retryAfter * 1000)
+          setSubmitError(
+            retryAfter === null
+              ? "Too many attempts. Please try again later."
+              : `Too many attempts. Please try again in ${retryAfter} seconds.`,
+          )
+        } else {
+          if (response.status < 500) idempotencyKey.current = null
+          setSubmitError(
+            response.status >= 500
+              ? "We could not submit your response. Please try again."
+              : "We could not submit your response. Please review your answers and try again.",
+          )
+        }
         return
       }
+      let payload: unknown
+      try {
+        payload = await response.json()
+      } catch {
+        setSubmitError("We could not confirm your response. Please try again.")
+        return
+      }
+      if (parsePublicSurveyAccepted(payload) === null) {
+        setSubmitError("We could not confirm your response. Please try again.")
+        return
+      }
+      setRetryAt(null)
       setSubmitted(true)
     } catch {
       setSubmitError("We could not submit your response. Please try again.")
@@ -270,469 +311,298 @@ export function ClientSurveyForm({
     }
   }
 
+  const onSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    if (submitting || staleConsent || retryBlocked) return
+    if (!consentAccepted) {
+      setConsentTouched(true)
+      return
+    }
+    if (!isLast) {
+      goNext()
+      return
+    }
+    if (!validateSection()) {
+      setValidationAlertOpen(true)
+      return
+    }
+    void handleSubmit()
+  }
+
   return (
     <div className="min-h-screen bg-[#f0f2f5]">
       <div className="h-[240px] bg-gradient-to-br from-indigo-600 via-indigo-500 to-violet-500" />
 
-      <fieldset
-        disabled={submitting}
-        aria-busy={submitting}
-        className="contents"
-      >
-      <div className={`mx-auto w-full max-w-[640px] px-4 -mt-[200px] pb-12 ${submitting ? "pointer-events-none opacity-90" : ""}`}>
-        {/* Title card */}
-        <div className="relative mb-4 overflow-hidden rounded-xl border-t-[6px] border-t-indigo-500 bg-white shadow-sm ring-1 ring-black/[0.04]">
-          <div className="px-7 pb-6 pt-7">
-            <div className="mb-4 flex items-center gap-2">
-              <div className="flex size-9 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600">
-                <ClipboardList className="size-[18px]" />
-              </div>
-              <span className="text-xs font-semibold uppercase tracking-wider text-indigo-600">
-                Alumni Survey
-              </span>
-            </div>
-            <h1 className="text-2xl font-semibold tracking-tight text-slate-900">
-              {title}
-            </h1>
-            {description && (
-              <p className="mt-2 max-w-md text-[15px] leading-relaxed text-slate-500">
-                {description}
-              </p>
-            )}
-            <p className="mt-3 text-[11px] text-slate-400">
-              {Object.keys(answers).length} of{" "}
-              {sections.reduce((acc, s) => acc + s.questions.length, 0)} answered
-            </p>
-          </div>
-        </div>
-
-        {/* Progress bar */}
-        <div className="mb-4">
-          <div className="flex items-center justify-between text-xs text-slate-400 mb-2">
-            <span>
-              Section {sectionIdx + 1} of {sections.length}
-            </span>
-            <span>{Math.round(((sectionIdx + 1) / sections.length) * 100)}% complete</span>
-          </div>
-          <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-200">
-            <div
-              className="h-full rounded-full bg-indigo-500 transition-all duration-300"
-              style={{ width: `${((sectionIdx + 1) / sections.length) * 100}%` }}
-            />
-          </div>
-        </div>
-
-        {/* Section card */}
-        <div className="mb-4 rounded-xl border-l-4 border-l-violet-500 bg-white px-7 py-5 shadow-sm ring-1 ring-black/[0.04]">
-          <h2 className="text-lg font-semibold text-slate-900">
-            {section.title || `Section ${sectionIdx + 1}`}
-          </h2>
-          {section.description && (
-            <p className="mt-1 text-[14px] leading-relaxed text-slate-500">
-              {section.description}
-            </p>
-          )}
-        </div>
-
-        {/* Questions */}
-        <div className="space-y-3">
-          {section.questions.map((q, _) => (
-            <div
-              key={q.id}
-              className={`rounded-xl bg-white px-7 py-5 shadow-sm ring-1 transition-all ${
-                errors[q.id] ? "ring-red-400 bg-red-50/10" : "ring-black/[0.04]"
-              }`}
-            >
-              <div className="mb-1 flex items-center gap-2">
-                {(() => {
-                  const Icon = TYPE_ICON[q.question_type] ?? Type
-                  return <Icon className="size-4 text-indigo-500" />
-                })()}
-                <span className="text-[11px] font-medium uppercase tracking-wider text-indigo-500">
-                  {TYPE_LABEL[q.question_type] ?? q.question_type}
-                </span>
-              </div>
-              <p className="mb-4 text-sm font-medium text-slate-800">
-                {q.question_text}
-                {q.is_required && <span className="text-red-500 ml-1">*</span>}
-              </p>
-              {errors[q.id] && (
-                <p className="mb-4 text-[13px] font-semibold text-red-600 bg-red-50 px-3 py-2 rounded-lg border border-red-100">
-                  {errors[q.id]}
+      <fieldset disabled={submitting} aria-busy={submitting} className="contents">
+        <form onSubmit={onSubmit} noValidate>
+          <div className={`mx-auto w-full max-w-[640px] px-4 -mt-[200px] pb-12 ${submitting ? "pointer-events-none opacity-90" : ""}`}>
+            <div className="relative mb-4 overflow-hidden rounded-xl border-t-[6px] border-t-indigo-500 bg-white shadow-sm ring-1 ring-black/[0.04]">
+              <div className="px-7 pb-6 pt-7">
+                <div className="mb-4 flex items-center gap-2">
+                  <div className="flex size-9 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600">
+                    <ClipboardList className="size-[18px]" />
+                  </div>
+                  <span className="text-xs font-semibold uppercase tracking-wider text-indigo-600">
+                    Alumni Survey
+                  </span>
+                </div>
+                <h1 className="text-2xl font-semibold tracking-tight text-slate-900">{title}</h1>
+                {description && (
+                  <p className="mt-2 max-w-md text-[15px] leading-relaxed text-slate-500">{description}</p>
+                )}
+                <p className="mt-3 text-[11px] text-slate-400">
+                  {Object.keys(answers).length} of {sections.reduce((total, current) => total + current.questions.length, 0)} answered
                 </p>
-              )}
+              </div>
+            </div>
 
-              {q.question_type === "single_choice" && (
-                <SurveySelect
-                  id={`q-${q.id}`}
-                  name={`q-${q.id}`}
-                  options={q.options ?? []}
-                  placeholder="Select an option…"
-                  value={answers[q.id] as string | undefined}
-                  onChange={(val) => setAnswer(q.id, val)}
+            <div className="mb-4">
+              <div className="mb-2 flex items-center justify-between text-xs text-slate-400">
+                <span>Section {sectionIdx + 1} of {sections.length}</span>
+                <span>{Math.round(((sectionIdx + 1) / sections.length) * 100)}% complete</span>
+              </div>
+              <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-200">
+                <div
+                  className="h-full rounded-full bg-indigo-500 transition-all duration-300"
+                  style={{ width: `${((sectionIdx + 1) / sections.length) * 100}%` }}
                 />
-              )}
+              </div>
+            </div>
 
-              {q.question_type === "multiple_choice" && (
-                <div className="space-y-2">
-                  {(q.options ?? []).map((opt) => {
-                    const isSelected = ((answers[q.id] as string[] | undefined) ?? []).includes(opt)
-                    return (
-                      <label
-                        key={opt}
-                        className={`flex cursor-pointer items-center gap-3 rounded-lg border px-3.5 py-3 text-sm transition-all hover:border-indigo-200 hover:bg-slate-50 ${
-                          isSelected ? "border-indigo-200 bg-indigo-50/20 text-indigo-900" : "border-slate-100 bg-slate-50/20 text-slate-700"
-                        }`}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={isSelected}
-                          onChange={() => toggleMultiple(q.id, opt)}
-                          className="sr-only"
-                        />
-                        <div className={`flex size-4.5 shrink-0 items-center justify-center rounded border-2 transition-all ${
-                          isSelected ? "border-indigo-600 bg-indigo-600 text-white" : "border-slate-300 bg-white"
-                        }`}>
-                          {isSelected && <svg className="size-3 stroke-[3] stroke-white fill-none" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>}
-                        </div>
-                        <span className={isSelected ? "font-medium" : ""}>{opt}</span>
-                      </label>
-                    )
-                  })}
-                </div>
-              )}
+            <div className="mb-4 rounded-xl border-l-4 border-l-violet-500 bg-white px-7 py-5 shadow-sm ring-1 ring-black/[0.04]">
+              <h2 className="text-lg font-semibold text-slate-900">{section.title || `Section ${sectionIdx + 1}`}</h2>
+              {section.description && <p className="mt-1 text-[14px] leading-relaxed text-slate-500">{section.description}</p>}
+            </div>
 
-              {q.question_type === "text" && (
-                <div className="relative mt-2">
-                  <textarea
-                    rows={1}
-                    value={(answers[q.id] as string) ?? ""}
-                    onChange={(e) => {
-                      setAnswer(q.id, e.target.value)
-                      e.target.style.height = "auto"
-                      e.target.style.height = `${e.target.scrollHeight}px`
-                    }}
-                    className="w-full bg-transparent border-b border-slate-200 pb-1.5 pt-1 text-sm outline-none transition-colors focus:border-indigo-600 resize-none font-normal placeholder:text-slate-400"
-                    placeholder="Your answer"
-                  />
-                </div>
-              )}
-
-              {q.question_type === "number" && (
-                <div className="relative mt-2 max-w-[200px]">
-                  <input
-                    type="number"
-                    value={(answers[q.id] as number | undefined) ?? ""}
-                    onChange={(e) => setAnswer(q.id, e.target.value ? Number(e.target.value) : "")}
-                    className="w-full bg-transparent border-b border-slate-200 pb-1.5 pt-1 text-sm outline-none transition-colors focus:border-indigo-600 font-normal placeholder:text-slate-400"
-                    placeholder="Your answer"
-                  />
-                </div>
-              )}
-
-              {q.question_type === "scale" && (() => {
-                const min = (q.config?.min as number) ?? 1
-                const max = (q.config?.max as number) ?? (q.options?.length ?? 4)
-                const minLabel = q.config?.min_label as string | undefined
-                const maxLabel = q.config?.max_label as string | undefined
-                const range = Array.from({ length: max - min + 1 }, (_, i) => min + i)
+            <div className="space-y-3">
+              {section.questions.map((question) => {
+                const errorId = `${question.id}-error`
+                const hasError = Boolean(errors[question.id])
+                const fieldProps = {
+                  "aria-invalid": hasError,
+                  "aria-describedby": hasError ? errorId : undefined,
+                }
                 return (
-                  <div className="flex flex-col items-center justify-center py-4 bg-slate-50/30 rounded-xl px-4">
-                    <div className="flex items-end justify-between w-full max-w-[500px] gap-2.5">
-                      {minLabel && (
-                        <span className="text-xs text-slate-500 font-medium max-w-[120px] text-right mb-2 leading-tight">
-                          {minLabel}
-                        </span>
-                      )}
-                      <div className="flex items-start justify-center gap-2 sm:gap-4 flex-1">
-                        {range.map((num) => {
-                          const isSelected = answers[q.id] === num
+                  <fieldset
+                    key={question.id}
+                    aria-invalid={hasError}
+                    aria-describedby={hasError ? errorId : undefined}
+                    className={`rounded-xl bg-white px-7 py-5 shadow-sm ring-1 transition-all ${hasError ? "bg-red-50/10 ring-red-400" : "ring-black/[0.04]"}`}
+                  >
+                    <legend className="mb-4 block text-sm font-medium text-slate-800">
+                      {question.question_text}
+                      {question.is_required && <span className="ml-1 text-red-500" aria-hidden="true">*</span>}
+                      {question.is_required && <span className="sr-only"> (required)</span>}
+                    </legend>
+                    <div className="mb-1 flex items-center gap-2">
+                      {(() => {
+                        const Icon = TYPE_ICON[question.question_type] ?? Type
+                        return <Icon className="size-4 text-indigo-500" />
+                      })()}
+                      <span className="text-[11px] font-medium uppercase tracking-wider text-indigo-500">
+                        {TYPE_LABEL[question.question_type] ?? question.question_type}
+                      </span>
+                    </div>
+                    {hasError && <p id={errorId} role="alert" className="mb-4 rounded-lg border border-red-100 bg-red-50 px-3 py-2 text-[13px] font-semibold text-red-600">{errors[question.id]}</p>}
+
+                    {question.question_type === "single_choice" && (
+                      <select
+                        id={`q-${question.id}`}
+                        name={`q-${question.id}`}
+                        value={(answers[question.id] as string | undefined) ?? ""}
+                        onChange={(event) => setAnswer(question.id, event.target.value)}
+                        aria-label={question.question_text}
+                        {...fieldProps}
+                        className="h-11 w-full rounded-lg border border-slate-200 bg-white px-3.5 text-sm text-slate-700 outline-none transition-colors focus:border-indigo-600 focus:ring-2 focus:ring-indigo-500/10"
+                      >
+                        <option value="">Select an option…</option>
+                        {(question.options ?? []).map((option) => <option key={option} value={option}>{option}</option>)}
+                      </select>
+                    )}
+
+                    {question.question_type === "multiple_choice" && (
+                      <div className="space-y-2">
+                        {(question.options ?? []).map((option) => {
+                          const selected = ((answers[question.id] as string[] | undefined) ?? []).includes(option)
                           return (
-                            <label key={num} className="flex flex-col items-center gap-1.5 cursor-pointer group flex-1 max-w-[70px]">
-                              <span className="text-xs font-semibold text-slate-500 group-hover:text-indigo-600">{num}</span>
+                            <label key={option} className={`flex cursor-pointer items-center gap-3 rounded-lg border px-3.5 py-3 text-sm transition-all hover:border-indigo-200 hover:bg-slate-50 ${selected ? "border-indigo-200 bg-indigo-50/20 text-indigo-900" : "border-slate-100 bg-slate-50/20 text-slate-700"}`}>
                               <input
-                                type="radio"
-                                name={`scale-${q.id}`}
-                                value={num}
-                                checked={isSelected}
-                                onChange={() => setAnswer(q.id, num)}
-                                className="sr-only"
+                                type="checkbox"
+                                checked={selected}
+                                onChange={() => toggleMultiple(question.id, option)}
+                                aria-label={`${question.question_text}: ${option}`}
+                                {...fieldProps}
+                                className="size-4 accent-indigo-600"
                               />
-                              <div className={`flex size-6 shrink-0 items-center justify-center rounded-full border-2 transition-all ${
-                                isSelected ? "border-indigo-600 bg-indigo-50" : "border-slate-300 bg-white hover:border-indigo-400"
-                              }`}>
-                                {isSelected && <div className="size-2.5 rounded-full bg-indigo-600" />}
-                              </div>
-                              {q.options && q.options[num - min] && (
-                                <span className="text-[10px] text-slate-400 font-medium text-center mt-1 leading-tight select-none">
-                                  {q.options[num - min]}
-                                </span>
-                              )}
+                              <span className={selected ? "font-medium" : ""}>{option}</span>
                             </label>
                           )
                         })}
                       </div>
-                      {maxLabel && (
-                        <span className="text-xs text-slate-500 font-medium max-w-[120px] text-left mb-2 leading-tight">
-                          {maxLabel}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                )
-              })()}
+                    )}
 
-              {q.question_type === "ranking" && (() => {
-                const currentOrder = (answers[q.id] as string[] | undefined) ?? q.options ?? []
-                const handleMove = (idx: number, direction: "up" | "down") => {
-                  if (submitting) return
-                  const nextOrder = [...currentOrder]
-                  const targetIdx = direction === "up" ? idx - 1 : idx + 1
-                  if (targetIdx < 0 || targetIdx >= nextOrder.length) return
-                  const temp = nextOrder[idx]!
-                  nextOrder[idx] = nextOrder[targetIdx]!
-                  nextOrder[targetIdx] = temp
-                  setAnswer(q.id, nextOrder)
-                }
-                return (
-                  <div className="space-y-2.5">
-                    <p className="text-[11px] text-slate-400 italic mb-1">Rank the choices using the arrow buttons:</p>
-                    {currentOrder.map((opt, idx) => {
-                      const isFirst = idx === 0
-                      const isLast = idx === currentOrder.length - 1
+                    {question.question_type === "text" && (
+                      <textarea
+                        id={`q-${question.id}`}
+                        rows={1}
+                        value={(answers[question.id] as string) ?? ""}
+                        onChange={(event) => {
+                          setAnswer(question.id, event.target.value)
+                          event.target.style.height = "auto"
+                          event.target.style.height = `${event.target.scrollHeight}px`
+                        }}
+                        aria-label={question.question_text}
+                        {...fieldProps}
+                        className="mt-2 w-full resize-none border-b border-slate-200 bg-transparent pb-1.5 pt-1 text-sm font-normal outline-none transition-colors placeholder:text-slate-400 focus:border-indigo-600"
+                        placeholder="Your answer"
+                      />
+                    )}
+
+                    {question.question_type === "number" && (
+                      <input
+                        id={`q-${question.id}`}
+                        type="number"
+                        value={(answers[question.id] as number | string | undefined) ?? ""}
+                        onChange={(event) => setAnswer(question.id, event.target.value ? Number(event.target.value) : "")}
+                        aria-label={question.question_text}
+                        {...fieldProps}
+                        className="mt-2 w-full max-w-[200px] border-b border-slate-200 bg-transparent pb-1.5 pt-1 text-sm font-normal outline-none transition-colors placeholder:text-slate-400 focus:border-indigo-600"
+                        placeholder="Your answer"
+                      />
+                    )}
+
+                    {question.question_type === "scale" && (() => {
+                      const min = typeof question.config?.min === "number" ? question.config.min : 1
+                      const max = typeof question.config?.max === "number" ? question.config.max : (question.options?.length ?? 4)
+                      const minLabel = typeof question.config?.min_label === "string" ? question.config.min_label : undefined
+                      const maxLabel = typeof question.config?.max_label === "string" ? question.config.max_label : undefined
+                      const range = Array.from({ length: max - min + 1 }, (_, index) => min + index)
                       return (
-                        <div
-                          key={opt}
-                          className="flex items-center justify-between gap-3 rounded-lg border border-slate-100 bg-white p-3 shadow-sm hover:border-indigo-200 transition-all"
-                        >
-                          <div className="flex items-center gap-3">
-                            <span className="flex size-6 items-center justify-center rounded bg-slate-100 text-xs font-bold text-slate-500">
-                              {idx + 1}
-                            </span>
-                            <span className="text-sm font-medium text-slate-700">{opt}</span>
-                          </div>
-                          <div className="flex gap-1 shrink-0">
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              onClick={() => handleMove(idx, "up")}
-                              disabled={isFirst}
-                              className="h-8 w-8 text-slate-400 hover:text-indigo-600 hover:bg-slate-50 disabled:opacity-40 disabled:hover:text-slate-400 p-0"
-                            >
-                              <ArrowLeft className="size-4 rotate-90" />
-                            </Button>
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              onClick={() => handleMove(idx, "down")}
-                              disabled={isLast}
-                              className="h-8 w-8 text-slate-400 hover:text-indigo-600 hover:bg-slate-50 disabled:opacity-40 disabled:hover:text-slate-400 p-0"
-                            >
-                              <ArrowRight className="size-4 rotate-90" />
-                            </Button>
+                        <div className="flex flex-col items-center justify-center rounded-xl bg-slate-50/30 px-4 py-4">
+                          <div className="flex w-full max-w-[500px] items-end justify-between gap-2.5">
+                            {minLabel && <span className="mb-2 max-w-[120px] text-right text-xs font-medium leading-tight text-slate-500">{minLabel}</span>}
+                            <div className="flex flex-1 items-start justify-center gap-2 sm:gap-4">
+                              {range.map((number) => {
+                                const selected = answers[question.id] === number
+                                return (
+                                  <label key={number} className="group flex max-w-[70px] flex-1 cursor-pointer flex-col items-center gap-1.5">
+                                    <span className="text-xs font-semibold text-slate-500 group-hover:text-indigo-600">{number}</span>
+                                    <input type="radio" name={`scale-${question.id}`} value={number} checked={selected} onChange={() => setAnswer(question.id, number)} aria-label={`${question.question_text}: ${number}`} {...fieldProps} className="size-4 accent-indigo-600" />
+                                    {question.options && question.options[number - min] && <span className="mt-1 text-center text-[10px] font-medium leading-tight text-slate-400">{question.options[number - min]}</span>}
+                                  </label>
+                                )
+                              })}
+                            </div>
+                            {maxLabel && <span className="mb-2 max-w-[120px] text-left text-xs font-medium leading-tight text-slate-500">{maxLabel}</span>}
                           </div>
                         </div>
                       )
-                    })}
-                  </div>
-                )
-              })()}
+                    })()}
 
-              {q.question_type === "matrix" && (() => {
-                const columns = (q.config?.columns as string[]) ?? ["Poor", "Fair", "Good", "Excellent"]
-                const rows = q.options ?? []
-                return (
-                  <div className="overflow-x-auto -mx-7 px-7">
-                    <table className="w-full text-sm border-collapse min-w-[500px]">
-                      <thead>
-                        <tr className="border-b border-slate-200">
-                          <th className="py-2.5 pr-4 text-left text-xs font-medium text-slate-500 uppercase tracking-wider w-2/5" />
-                          {columns.map((col) => (
-                            <th key={col} className="px-3 py-2.5 text-center text-xs font-semibold text-slate-500 w-1/5 min-w-[80px]">
-                              {col}
-                            </th>
+                    {question.question_type === "ranking" && (() => {
+                      const currentOrder = (answers[question.id] as string[] | undefined) ?? question.options ?? []
+                      const handleMove = (index: number, direction: "up" | "down") => {
+                        const nextOrder = [...currentOrder]
+                        const targetIndex = direction === "up" ? index - 1 : index + 1
+                        if (targetIndex < 0 || targetIndex >= nextOrder.length) return
+                        const current = nextOrder[index]
+                        const target = nextOrder[targetIndex]
+                        if (current === undefined || target === undefined) return
+                        nextOrder[index] = target
+                        nextOrder[targetIndex] = current
+                        setAnswer(question.id, nextOrder)
+                      }
+                      return (
+                        <div className="space-y-2.5">
+                          <p className="mb-1 text-[11px] italic text-slate-400">Rank the choices using the arrow buttons:</p>
+                          {currentOrder.map((option, index) => (
+                            <div key={option} className="flex items-center justify-between gap-3 rounded-lg border border-slate-100 bg-white p-3 shadow-sm transition-all hover:border-indigo-200">
+                              <div className="flex items-center gap-3"><span className="flex size-6 items-center justify-center rounded bg-slate-100 text-xs font-bold text-slate-500">{index + 1}</span><span className="text-sm font-medium text-slate-700">{option}</span></div>
+                              <div className="flex gap-1">
+                                <Button type="button" variant="ghost" onClick={() => handleMove(index, "up")} disabled={index === 0} aria-label={`Move ${option} up`} className="h-8 w-8 p-0 text-slate-400 hover:bg-slate-50 hover:text-indigo-600 disabled:opacity-40"><ArrowLeft className="size-4 rotate-90" /></Button>
+                                <Button type="button" variant="ghost" onClick={() => handleMove(index, "down")} disabled={index === currentOrder.length - 1} aria-label={`Move ${option} down`} className="h-8 w-8 p-0 text-slate-400 hover:bg-slate-50 hover:text-indigo-600 disabled:opacity-40"><ArrowRight className="size-4 rotate-90" /></Button>
+                              </div>
+                            </div>
                           ))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {rows.map((row, rowIdx) => {
-                          const matrixAnswers = (answers[q.id] as Record<string, string> | undefined) ?? {}
-                          const currentVal = matrixAnswers[row]
-                          return (
-                            <tr
-                              key={rowIdx}
-                              className="border-b border-slate-100 last:border-0 hover:bg-slate-50/50 transition-colors"
-                            >
-                              <td className="py-3.5 pr-4 text-sm font-medium text-slate-700">{row}</td>
-                              {columns.map((col) => {
-                                const isSelected = currentVal === col
-                                return (
-                                  <td key={col} className="px-3 py-3.5 text-center">
-                                    <label className="inline-flex cursor-pointer p-2 items-center justify-center rounded-full hover:bg-indigo-50/50 transition-colors">
-                                      <input
-                                        type="radio"
-                                         name={`matrix-${q.id}-row-${rowIdx}`}
-                                        value={col}
-                                        checked={isSelected}
-                                         onChange={() => setAnswer(q.id, { ...matrixAnswers, [row]: col })}
-                                        className="sr-only"
-                                      />
-                                      <div className={`flex size-4.5 items-center justify-center rounded-full border-2 transition-all ${
-                                        isSelected ? "border-indigo-600 bg-indigo-50" : "border-slate-300 bg-white"
-                                      }`}>
-                                        {isSelected && <div className="size-2 rounded-full bg-indigo-600" />}
-                                      </div>
-                                    </label>
-                                  </td>
-                                )
-                              })}
-                            </tr>
-                          )
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                )
-              })()}
-
-              {q.question_type === "datetime" && (
-                <input
-                  type="date"
-                  value={(answers[q.id] as string) ?? ""}
-                  onChange={(e) => setAnswer(q.id, e.target.value)}
-                  className="h-10 w-48 rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none transition-colors focus:border-indigo-600 focus:ring-2 focus:ring-indigo-500/10"
-                />
-              )}
-
-              {q.question_type === "file" && (
-                <div className="flex flex-col items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-6 text-center">
-                  <Upload className="size-6 text-slate-400" />
-                  <p className="text-xs text-slate-500">
-                    File upload questions are not currently supported.
-                  </p>
-                </div>
-              )}
-
-              {q.question_type === "boolean" && (
-                <div className="flex gap-4">
-                  {["Yes", "No"].map((opt) => {
-                    const val = opt === "Yes"
-                    const isSelected = answers[q.id] === val
-                    return (
-                      <label
-                        key={opt}
-                        className={`flex flex-1 cursor-pointer items-center gap-3 rounded-lg border px-4 py-3 text-sm transition-all hover:border-indigo-200 hover:bg-slate-50 justify-center ${
-                          isSelected ? "border-indigo-200 bg-indigo-50/20 text-indigo-900" : "border-slate-100 bg-slate-50/20 text-slate-700"
-                        }`}
-                      >
-                        <input
-                          type="radio"
-                          name={`boolean-${q.id}`}
-                          value={String(val)}
-                          checked={isSelected}
-                          onChange={() => setAnswer(q.id, val)}
-                          className="sr-only"
-                        />
-                        <div className={`flex size-4.5 shrink-0 items-center justify-center rounded-full border-2 transition-all ${
-                          isSelected ? "border-indigo-600 bg-indigo-50" : "border-slate-300 bg-white"
-                        }`}>
-                          {isSelected && <div className="size-2 rounded-full bg-indigo-600" />}
                         </div>
-                        <span className={isSelected ? "font-medium" : ""}>{opt}</span>
-                      </label>
-                    )
-                  })}
-                </div>
-              )}
+                      )
+                    })()}
+
+                    {question.question_type === "matrix" && (() => {
+                      const configuredColumns = question.config?.columns
+                      const columns = Array.isArray(configuredColumns) ? configuredColumns.filter((column): column is string => typeof column === "string") : ["Poor", "Fair", "Good", "Excellent"]
+                      const rows = question.options ?? []
+                      const matrixAnswers = (answers[question.id] as Record<string, string> | undefined) ?? {}
+                      return (
+                        <div className="-mx-7 overflow-x-auto px-7">
+                          <table className="w-full min-w-[500px] border-collapse text-sm">
+                            <caption className="sr-only">{question.question_text}</caption>
+                            <thead><tr className="border-b border-slate-200"><th scope="col" className="w-2/5 py-2.5 pr-4 text-left text-xs font-medium uppercase tracking-wider text-slate-500" />{columns.map((column) => <th scope="col" key={column} className="w-1/5 min-w-[80px] px-3 py-2.5 text-center text-xs font-semibold text-slate-500">{column}</th>)}</tr></thead>
+                            <tbody>{rows.map((row, rowIndex) => <tr key={row} className="border-b border-slate-100 transition-colors last:border-0 hover:bg-slate-50/50"><th scope="row" className="py-3.5 pr-4 text-left text-sm font-medium text-slate-700">{row}</th>{columns.map((column) => <td key={column} className="px-3 py-3.5 text-center"><input type="radio" name={`matrix-${question.id}-row-${rowIndex}`} value={column} checked={matrixAnswers[row] === column} onChange={() => setAnswer(question.id, { ...matrixAnswers, [row]: column })} aria-label={`${row}: ${column}`} {...fieldProps} className="size-4 accent-indigo-600" /></td>)}</tr>)}</tbody>
+                          </table>
+                        </div>
+                      )
+                    })()}
+
+                    {question.question_type === "datetime" && <input id={`q-${question.id}`} type="date" value={(answers[question.id] as string) ?? ""} onChange={(event) => setAnswer(question.id, event.target.value)} aria-label={question.question_text} {...fieldProps} className="h-10 w-48 rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none transition-colors focus:border-indigo-600 focus:ring-2 focus:ring-indigo-500/10" />}
+
+                    {question.question_type === "file" && <div className="flex flex-col items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-6 text-center"><Upload className="size-6 text-slate-400" /><p className="text-xs text-slate-500">File upload questions are not currently supported.</p></div>}
+
+                    {question.question_type === "boolean" && <div className="flex gap-4">{["Yes", "No"].map((option) => { const value = option === "Yes"; const selected = answers[question.id] === value; return <label key={option} className={`flex flex-1 cursor-pointer items-center justify-center gap-3 rounded-lg border px-4 py-3 text-sm transition-all hover:border-indigo-200 hover:bg-slate-50 ${selected ? "border-indigo-200 bg-indigo-50/20 text-indigo-900" : "border-slate-100 bg-slate-50/20 text-slate-700"}`}><input type="radio" name={`boolean-${question.id}`} value={String(value)} checked={selected} onChange={() => setAnswer(question.id, value)} aria-label={`${question.question_text}: ${option}`} {...fieldProps} className="size-4 accent-indigo-600" /><span className={selected ? "font-medium" : ""}>{option}</span></label> })}</div>}
+                  </fieldset>
+                )
+              })}
             </div>
-          ))}
-        </div>
 
-        {submitting && (
-          <div className="mt-5 flex items-center gap-2 text-xs text-slate-500" role="status" aria-live="polite">
-            <Loader2 className="size-3.5 animate-spin" />
-            <span>Submitting your response...</span>
-          </div>
-        )}
-        {submitError && (
-          <div className="mt-5 flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2.5 text-sm text-red-700" role="alert">
-            <AlertCircle className="mt-0.5 size-4 shrink-0" />
-            <span>{submitError}</span>
-          </div>
-        )}
+            <section aria-labelledby="consent-heading" className="mt-4 rounded-xl border border-slate-200 bg-white px-7 py-5 shadow-sm ring-1 ring-black/[0.04]">
+              <h2 id="consent-heading" className="text-base font-semibold text-slate-900">Consent and data notice</h2>
+              <dl className="mt-3 grid gap-3 text-sm text-slate-600">
+                <div><dt className="font-semibold text-slate-800">Notice</dt><dd>{consent.notice}</dd></div>
+                <div><dt className="font-semibold text-slate-800">Purpose</dt><dd>{consent.purpose}</dd></div>
+                <div><dt className="font-semibold text-slate-800">Retention</dt><dd>{consent.retention}</dd></div>
+                <div><dt className="font-semibold text-slate-800">Contact</dt><dd>{consent.contact}</dd></div>
+              </dl>
+              <div className="mt-4">
+                <label htmlFor="survey-consent" className="flex cursor-pointer items-start gap-3 text-sm font-medium text-slate-800">
+                  <input
+                    id="survey-consent"
+                    name="consent"
+                    type="checkbox"
+                    required
+                    checked={consentAccepted}
+                    onChange={(event) => { setConsentAccepted(event.target.checked); setConsentTouched(true) }}
+                    aria-invalid={consentTouched && !consentAccepted}
+                    aria-describedby={consentTouched && !consentAccepted ? "consent-error" : undefined}
+                    className="mt-0.5 size-4 accent-indigo-600"
+                  />
+                  <span>Consent: I have read and agree to this data notice.</span>
+                </label>
+                {consentTouched && !consentAccepted && <p id="consent-error" role="alert" className="mt-2 text-sm font-medium text-red-600">Consent is required before submitting.</p>}
+              </div>
+            </section>
 
-        {/* Navigation */}
-        <div className="mt-6 flex items-center justify-between">
-          <div className="flex items-center gap-1.5 text-xs text-slate-400">
-            <ShieldCheck className="size-3.5" />
-            <span>Your responses are confidential</span>
-          </div>
-          <div className="flex gap-2">
-            {!isFirst && (
-              <Button
-                variant="outline"
-                onClick={goPrev}
-                className="h-10 gap-2 rounded-lg px-5 text-sm"
-              >
-                <ArrowLeft className="size-4" data-icon="inline-start" />
-                Previous
-              </Button>
-            )}
-            {!isLast ? (
-              <Button
-                onClick={goNext}
-                className="h-10 gap-2 rounded-lg bg-indigo-600 px-6 text-sm font-medium text-white shadow-sm transition-all hover:bg-indigo-700 hover:shadow-md"
-              >
-                Next
-                <ArrowRight className="size-4" data-icon="inline-end" />
-              </Button>
-            ) : (
-              <Button
-                onClick={onSubmitClick}
-                disabled={submitting}
-                className="h-10 gap-2 rounded-lg bg-emerald-600 px-6 text-sm font-medium text-white shadow-sm transition-all hover:bg-emerald-700 hover:shadow-md"
-              >
-                {submitting ? (
-                  <Loader2 className="size-4 animate-spin" />
-                ) : (
-                  <>
-                    Submit
-                    <ArrowRight className="size-4" data-icon="inline-end" />
-                  </>
-                )}
-              </Button>
-            )}
-          </div>
-        </div>
+            {submitting && <div className="mt-5 flex items-center gap-2 text-xs text-slate-500" role="status" aria-live="polite"><Loader2 className="size-3.5 animate-spin" /><span>Submitting your response...</span></div>}
+            {submitError && <div className="mt-5 flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2.5 text-sm text-red-700" role="alert" aria-live="assertive"><AlertCircle className="mt-0.5 size-4 shrink-0" /><span>{submitError}</span></div>}
 
-        {/* Footer */}
-        <footer className="mt-8 text-center">
-          <p className="text-xs text-slate-400">
-            Pasig Education Impact Index
-          </p>
-          <p className="mt-0.5 text-[11px] text-slate-300">
-            Token&ensp;{token}
-          </p>
-        </footer>
-      </div>
+            <div className="mt-6 flex items-center justify-between">
+              <div className="text-xs text-slate-400">Consent notice version {consent.version}</div>
+              <div className="flex gap-2">
+                {!isFirst && <Button type="button" variant="outline" onClick={goPrev} className="h-10 gap-2 rounded-lg px-5 text-sm"><ArrowLeft className="size-4" data-icon="inline-start" />Previous</Button>}
+                {!isLast ? <Button type="button" onClick={goNext} className="h-10 gap-2 rounded-lg bg-indigo-600 px-6 text-sm font-medium text-white shadow-sm transition-all hover:bg-indigo-700 hover:shadow-md">Next<ArrowRight className="size-4" data-icon="inline-end" /></Button> : <Button type="submit" disabled={submitting || !consentAccepted || staleConsent || retryBlocked} className="h-10 gap-2 rounded-lg bg-emerald-600 px-6 text-sm font-medium text-white shadow-sm transition-all hover:bg-emerald-700 hover:shadow-md">{submitting ? <Loader2 className="size-4 animate-spin" /> : <>Submit<ArrowRight className="size-4" data-icon="inline-end" /></>}</Button>}
+              </div>
+            </div>
+            {retryBlocked && <p className="mt-2 text-right text-xs text-slate-500" role="status" aria-live="polite">Please wait {retryRemaining} seconds before trying again.</p>}
+          </div>
+        </form>
       </fieldset>
 
       <Dialog open={validationAlertOpen} onOpenChange={(open) => !submitting && setValidationAlertOpen(open)}>
         <DialogContent className="sm:max-w-[400px]">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-rose-600">
-              <AlertCircle className="size-5" />
-              Missing Information
-            </DialogTitle>
-            <DialogDescription className="pt-2 text-[14.5px] leading-relaxed text-slate-600">
-              Please complete all required questions before proceeding to the next section. Missing fields have been highlighted in red.
-            </DialogDescription>
+            <DialogTitle className="flex items-center gap-2 text-rose-600"><AlertCircle className="size-5" />Missing Information</DialogTitle>
+            <DialogDescription className="pt-2 text-[14.5px] leading-relaxed text-slate-600">Please complete all required questions before proceeding to the next section. Missing fields have been highlighted in red.</DialogDescription>
           </DialogHeader>
-          <DialogFooter className="mt-2">
-            <Button disabled={submitting} onClick={() => setValidationAlertOpen(false)} className="bg-indigo-600 hover:bg-indigo-700 text-white border-0 shadow-sm">
-              Got it
-            </Button>
-          </DialogFooter>
+          <DialogFooter className="mt-2"><Button type="button" disabled={submitting} onClick={() => setValidationAlertOpen(false)} className="border-0 bg-indigo-600 text-white shadow-sm hover:bg-indigo-700">Got it</Button></DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

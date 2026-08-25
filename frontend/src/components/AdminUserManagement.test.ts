@@ -4,6 +4,7 @@ import { invitationStatus } from "./AdminUserManagement"
 import type { UserRecord } from "@/lib/users"
 
 const user: UserRecord = {
+  id: "ID-1",
   user_id: "USER-1",
   email: "user@example.com",
   username: "user",
