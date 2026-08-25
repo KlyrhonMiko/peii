@@ -16,7 +16,7 @@ class SurveyResponse(BaseModel, table=True):
                 "survey_distributions.id",
                 "survey_distributions.survey_id",
             ],
-            name="fk_survey_responses_distribution_owner",
+            name="fk_survey_responses_distribution_survey",
         ),
         UniqueConstraint(
             "distribution_id",

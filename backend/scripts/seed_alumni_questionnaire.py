@@ -496,7 +496,6 @@ def _fmt(val: object) -> str:
 
 
 async def main() -> None:
-    print(f"DB: {settings.database_url}\n")
     _create_tables()
 
     async with async_session_factory() as session:

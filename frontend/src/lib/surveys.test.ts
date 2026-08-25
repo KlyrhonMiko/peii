@@ -14,9 +14,31 @@ import {
   eraseResponses,
   exportResponses,
   fetchResponseAggregates,
+  mapSurvey,
   mapDistribution,
   rotateDistribution,
 } from "./surveys"
+
+describe("mapSurvey", () => {
+  it("preserves a privacy-suppressed response count as null", () => {
+    const survey = mapSurvey({
+      id: "survey-uuid",
+      survey_id: "SURV-001",
+      title: "Alumni survey",
+      description: null,
+      status: "Active",
+      target_cohort: null,
+      responses_count: null,
+      created_at: "2026-01-01T00:00:00Z",
+      updated_at: "2026-01-01T00:00:00Z",
+      is_deleted: false,
+      deleted_at: null,
+      performed_by: null,
+    })
+
+    expect(survey.responses).toBeNull()
+  })
+})
 
 describe("mapDistribution", () => {
   it("maps tokenless distribution metadata", () => {

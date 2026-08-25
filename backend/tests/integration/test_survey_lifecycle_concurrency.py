@@ -2,17 +2,18 @@ from __future__ import annotations
 
 import asyncio
 import json
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import pytest
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from schemas.survey import SurveyDelete
 from services.response_service import submit_response
 from services.survey_service import soft_delete_survey
-from tests.integration.fixtures import PostgresTestDatabase, migrate_to
+from tests.integration.fixtures import PostgresTestDatabase, assert_current_schema
 
 pytestmark = pytest.mark.integration
 
@@ -27,6 +28,7 @@ TOKEN = "integration-concurrency-token"
 def _populate_active_survey(database: PostgresTestDatabase) -> None:
     timestamp = "2026-08-25 00:00:00"
     with database.engine.begin() as connection:
+        assert_current_schema(connection, database.schema)
         connection.execute(
             text(
                 "INSERT INTO users "
@@ -86,13 +88,14 @@ def _populate_active_survey(database: PostgresTestDatabase) -> None:
                 "INSERT INTO survey_distributions "
                 "(id, created_at, updated_at, is_deleted, deleted_at, performed_by, survey_id, "
                 "token, expires_at, revoked_at) VALUES (:id, :ts, :ts, false, NULL, :actor, "
-                ":survey, :token, NULL, NULL)"
+                ":survey, :token, :expires_at, NULL)"
             ),
             {
                 "id": str(DISTRIBUTION_ID),
                 "survey": str(SURVEY_ID),
                 "actor": str(ACTOR_ID),
                 "token": TOKEN,
+                "expires_at": "2099-01-01 00:00:00",
                 "ts": timestamp,
             },
         )
@@ -102,21 +105,24 @@ def _populate_active_survey(database: PostgresTestDatabase) -> None:
 async def test_submit_and_archive_linearize_without_deadlock(
     postgres_database: PostgresTestDatabase,
 ) -> None:
-    # The fixture creates an isolated schema at the legacy revision; move this
-    # test's schema to the application head before exercising real services.
-    migrate_to(postgres_database.url, "20260825_0001")
     _populate_active_survey(postgres_database)
 
-    async_url = postgres_database.url.replace("postgresql+psycopg2://", "postgresql+asyncpg://")
+    async_url = postgres_database.url.set(drivername="postgresql+asyncpg")
     async_engine = create_async_engine(
         async_url,
-        connect_args={"statement_cache_size": 0, "prepared_statement_cache_size": 0},
+        connect_args={
+            "server_settings": {"search_path": postgres_database.schema},
+            "statement_cache_size": 0,
+            "prepared_statement_cache_size": 0,
+            "prepared_statement_name_func": lambda: f"__asyncpg_{uuid4()}__",
+        },
     )
     sessions = async_sessionmaker(async_engine, class_=AsyncSession, expire_on_commit=False)
 
     async def submit() -> object:
         async with sessions() as session:
             try:
+                await _assert_async_current_schema(session, postgres_database.schema)
                 response, replayed = await submit_response(
                     session,
                     TOKEN,
@@ -130,6 +136,7 @@ async def test_submit_and_archive_linearize_without_deadlock(
     async def archive() -> object:
         async with sessions() as session:
             try:
+                await _assert_async_current_schema(session, postgres_database.schema)
                 return await soft_delete_survey(
                     session, "SURV-CONCUR", SurveyDelete(), ACTOR_ID
                 )
@@ -137,6 +144,9 @@ async def test_submit_and_archive_linearize_without_deadlock(
                 return exc
 
     try:
+        async with async_engine.connect() as async_connection:
+            result = await async_connection.execute(text("SELECT current_schema()"))
+            assert result.scalar_one_or_none() == postgres_database.schema
         submit_result, archive_result = await asyncio.wait_for(
             asyncio.gather(submit(), archive()), timeout=10
         )
@@ -147,19 +157,20 @@ async def test_submit_and_archive_linearize_without_deadlock(
     assert not isinstance(archive_result, asyncio.TimeoutError)
     assert not isinstance(archive_result, Exception)
 
-    with postgres_database.engine.connect() as connection:
-        state = connection.execute(
+    with postgres_database.engine.connect() as sync_connection:
+        assert_current_schema(sync_connection, postgres_database.schema)
+        state = sync_connection.execute(
             text(
                 "SELECT is_deleted, status, responses_count FROM surveys "
                 "WHERE id = CAST(:id AS uuid)"
             ),
             {"id": str(SURVEY_ID)},
         ).one()
-        response_count = connection.execute(
+        response_count = sync_connection.execute(
             text("SELECT count(*) FROM survey_responses WHERE survey_id = CAST(:id AS uuid)"),
             {"id": str(SURVEY_ID)},
         ).scalar_one()
-        revoked_count = connection.execute(
+        revoked_count = sync_connection.execute(
             text(
                 "SELECT count(*) FROM survey_distributions "
                 "WHERE id = CAST(:id AS uuid) AND revoked_at IS NOT NULL"
@@ -176,3 +187,8 @@ async def test_submit_and_archive_linearize_without_deadlock(
         assert not isinstance(submit_result, Exception)
     else:
         assert isinstance(submit_result, Exception)
+
+
+async def _assert_async_current_schema(session: AsyncSession, expected_schema: str) -> None:
+    result = await session.exec(select(text("current_schema()")))
+    assert result.one() == expected_schema

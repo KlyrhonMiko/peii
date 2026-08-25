@@ -69,7 +69,10 @@ import type {
   SurveyStructurePayload,
   SurveyResponse,
   SurveyResponseAggregate,
+  EraseAllResponsesPayload,
 } from "@/lib/surveys"
+import { buildAggregatePresentation, buildRawAggregate } from "@/lib/survey-aggregates"
+import { normalizeQuestionStructure, validateSurveyStructure } from "@/lib/survey-structure"
 import { SurveyDistributionManager } from "@/components/SurveyDistributionManager"
 
 const ALUMNI_QUESTIONNAIRE = [
@@ -318,18 +321,6 @@ function moveInArray<T>(items: T[], from: number, to: number): T[] {
 
 type ResponseCountMap = Record<string, Record<string, number>>
 
-function countsFromAggregates(aggregates: SurveyResponseAggregate[]): ResponseCountMap {
-  return aggregates.reduce<ResponseCountMap>((counts, aggregate) => {
-    counts[aggregate.question_id] = Object.fromEntries(
-      aggregate.cells.map((cell) => [
-        cell.row === null ? String(cell.value) : `${cell.row}::${String(cell.value)}`,
-        cell.count,
-      ]),
-    )
-    return counts
-  }, {})
-}
-
 function countsFromRawResponses(responses: SurveyResponse[]): ResponseCountMap {
   const counts: ResponseCountMap = {}
   for (const response of responses) {
@@ -363,6 +354,7 @@ const SURVEY_PERMISSIONS = {
 } as const
 
 export interface SurveyCapabilities {
+  read: boolean
   manage: boolean
   distributionManage: boolean
   readAggregates: boolean
@@ -374,12 +366,38 @@ export interface SurveyCapabilities {
 export function getSurveyCapabilities(permissions: readonly string[]): SurveyCapabilities {
   const can = (permission: string): boolean => permissions.includes(permission)
   return {
+    read: can("surveys.read"),
     manage: can(SURVEY_PERMISSIONS.manage),
     distributionManage: can(SURVEY_PERMISSIONS.distributionManage),
     readAggregates: can(SURVEY_PERMISSIONS.readAggregates),
     readRaw: can(SURVEY_PERMISSIONS.readRaw),
     export: can(SURVEY_PERMISSIONS.export),
     erase: can(SURVEY_PERMISSIONS.erase),
+  }
+}
+
+export function formatSurveyResponseCount(
+  count: number | null,
+  canReadAggregates: boolean,
+): string {
+  if (count === null) return canReadAggregates ? "Suppressed" : "Unavailable"
+  return String(count)
+}
+
+export function canSortSurveysByResponseCount(
+  capabilities: Pick<SurveyCapabilities, "readRaw" | "export" | "erase">,
+): boolean {
+  return capabilities.readRaw || capabilities.export || capabilities.erase
+}
+
+export function buildEraseAllResponsesPayload(
+  responseCount: number | null,
+): EraseAllResponsesPayload | null {
+  if (responseCount === null) return null
+  return {
+    scope: "all",
+    expected_response_count: responseCount,
+    confirmation: "ERASE_ALL_RESPONSES",
   }
 }
 
@@ -395,12 +413,14 @@ export interface SurveyManagementProps {
 
 export function SurveyManagement({ permissions }: SurveyManagementProps) {
   const capabilities = getSurveyCapabilities(permissions)
+  const canRead = capabilities.read
   const canManage = capabilities.manage
   const canManageDistribution = capabilities.distributionManage
   const canReadAggregates = capabilities.readAggregates
   const canReadRaw = capabilities.readRaw
   const canExport = capabilities.export
   const canErase = capabilities.erase
+  const canSortByResponseCount = canSortSurveysByResponseCount(capabilities)
   const [surveys, setSurveys] = useState<Survey[]>([])
   const [showArchived, setShowArchived] = useState(false)
   const [loading, setLoading] = useState(true)
@@ -445,10 +465,8 @@ export function SurveyManagement({ permissions }: SurveyManagementProps) {
   const deferredSearch = useDeferredValue(search)
 
   const responseCounts = useMemo(
-    () => canReadAggregates
-      ? countsFromAggregates(responseAggregates)
-      : countsFromRawResponses(surveyResponses),
-    [canReadAggregates, responseAggregates, surveyResponses],
+    () => countsFromRawResponses(surveyResponses),
+    [surveyResponses],
   )
   const responseTotals = useMemo(
     () => Object.fromEntries(responseAggregates.map((aggregate) => [aggregate.question_id, aggregate.total])),
@@ -467,9 +485,7 @@ export function SurveyManagement({ permissions }: SurveyManagementProps) {
   const editedSurvey = modalState?.type === "edit"
     ? surveys.find((survey) => survey.id === modalState.id)
     : undefined
-  const structureEditable = modalState?.type !== "edit" || (
-    editedSurvey?.status === "Inactive" && editedSurvey.responses === 0
-  )
+  const structureEditable = modalState?.type !== "edit" || editedSurvey?.status === "Inactive"
 
   const interactionLocked = loading || pendingAction !== null
   const pendingLabel = loading
@@ -519,7 +535,7 @@ export function SurveyManagement({ permissions }: SurveyManagementProps) {
           ...(deferredSearch ? { search: deferredSearch } : {}),
           ...(statusFilter !== "all" ? { status: statusFilter } : {}),
           ...(cohortFilter ? { targetCohort: cohortFilter } : {}),
-          sortBy,
+          sortBy: canSortByResponseCount || sortBy !== "responses_count" ? sortBy : "created_at",
           sortOrder,
           limit: 20,
           offset,
@@ -545,7 +561,7 @@ export function SurveyManagement({ permissions }: SurveyManagementProps) {
     return () => {
       cancelled = true
     }
-  }, [showArchived, deferredSearch, statusFilter, cohortFilter, sortBy, sortOrder, offset, listRevision])
+  }, [showArchived, deferredSearch, statusFilter, cohortFilter, sortBy, sortOrder, offset, listRevision, canSortByResponseCount])
 
   const refreshListAfterCountChange = (nextTotal: number) => {
     setTotalSurveys(nextTotal)
@@ -701,9 +717,23 @@ export function SurveyManagement({ permissions }: SurveyManagementProps) {
     if (!canErase || responseAction !== null) return
     if (scope === "selected" && (!canReadRaw || selectedResponseIds.length === 0)) return
     if (scope === "all" && !survey.isDeleted) return
+    const allPayload = scope === "all"
+      ? buildEraseAllResponsesPayload(survey.responses)
+      : null
+    if (scope === "all" && allPayload === null) {
+      const message = "The exact response count is unavailable. Refresh the survey before erasing all responses."
+      setResponsesError(message)
+      setRequestError(message)
+      return
+    }
+    const erasePayload = allPayload ?? {
+      scope: "selected" as const,
+      response_ids: selectedResponseIds,
+      confirmation: "ERASE_SELECTED_RESPONSES" as const,
+    }
     const confirmed = window.confirm(
-      scope === "all"
-        ? `Erase all ${survey.responses} responses from ${survey.title}? This cannot be undone.`
+      erasePayload.scope === "all"
+        ? `Erase all ${erasePayload.expected_response_count} responses from ${survey.title}? This cannot be undone.`
         : `Erase ${selectedResponseIds.length} selected response${selectedResponseIds.length === 1 ? "" : "s"}? This cannot be undone.`,
     )
     if (!confirmed) return
@@ -714,17 +744,7 @@ export function SurveyManagement({ permissions }: SurveyManagementProps) {
       try {
         await eraseResponses(
           getSurveyResponseResourceId(survey),
-          scope === "all"
-            ? {
-                scope: "all",
-                expected_response_count: survey.responses,
-                confirmation: "ERASE_ALL_RESPONSES",
-              }
-            : {
-                scope: "selected",
-                response_ids: selectedResponseIds,
-                confirmation: "ERASE_SELECTED_RESPONSES",
-              },
+          erasePayload,
           createClientId(),
         )
         if (scope === "all") {
@@ -812,6 +832,11 @@ export function SurveyManagement({ permissions }: SurveyManagementProps) {
     setSaving(true)
     setSaveError(null)
     try {
+      const structureError = validateSurveyStructure(sections)
+      if (structureError) {
+        setSaveError(structureError)
+        return
+      }
       if (surveyStatus === "Active") {
         if (sections.length === 0) {
           setSaveError("Add at least one section before activating the survey.")
@@ -840,9 +865,9 @@ export function SurveyManagement({ permissions }: SurveyManagementProps) {
         if (!target) return
 
         const structureChanged = JSON.stringify(sections) !== JSON.stringify(originalSections)
-        const structureEditable = target.status === "Inactive" && target.responses === 0
+        const structureEditable = target.status === "Inactive"
         if (structureChanged && !structureEditable) {
-          setSaveError("Only inactive surveys with no responses can have their structure edited.")
+          setSaveError("Only inactive surveys can have their structure edited. The backend will check for response conflicts when saving.")
           return
         }
 
@@ -1064,7 +1089,7 @@ export function SurveyManagement({ permissions }: SurveyManagementProps) {
       const sec = { ...next[secIdx]! }
       sec.questions = [
         ...sec.questions,
-        { id: createClientId(), text: "", type: "text", options: [""], isRequired: true },
+        { id: createClientId(), text: "", type: "text", options: null, config: null, isRequired: true },
       ]
       next[secIdx] = sec
       return next
@@ -1161,7 +1186,7 @@ export function SurveyManagement({ permissions }: SurveyManagementProps) {
           </p>
         </div>
         <div className="flex gap-2">
-          {canManage && <Button
+          {canRead && <Button
             onClick={() => {
               setShowArchived((current) => !current)
               setOffset(0)
@@ -1241,7 +1266,7 @@ export function SurveyManagement({ permissions }: SurveyManagementProps) {
         <select
           aria-label="Sort surveys"
           className="h-8 rounded-lg border border-slate-200 bg-white px-2 text-sm"
-          value={`${sortBy}:${sortOrder}`}
+          value={`${canSortByResponseCount || sortBy !== "responses_count" ? sortBy : "created_at"}:${sortOrder}`}
           onChange={(event) => {
             const [nextSortBy, nextSortOrder] = event.target.value.split(":")
             if (!nextSortBy || (nextSortOrder !== "asc" && nextSortOrder !== "desc")) return
@@ -1254,7 +1279,7 @@ export function SurveyManagement({ permissions }: SurveyManagementProps) {
           <option value="created_at:asc">Oldest first</option>
           <option value="title:asc">Title A-Z</option>
           <option value="title:desc">Title Z-A</option>
-          <option value="responses_count:desc">Most responses</option>
+          {canSortByResponseCount && <option value="responses_count:desc">Most responses</option>}
           <option value="status:asc">Status</option>
         </select>
         <p className="text-xs text-slate-500 sm:ml-auto">
@@ -1326,7 +1351,7 @@ export function SurveyManagement({ permissions }: SurveyManagementProps) {
                     <td className="px-5 py-4">
                       <div className="flex items-center gap-1.5 text-slate-600">
                         <Users className="size-3.5 text-slate-400" />
-                        {survey.responses}
+                        {formatSurveyResponseCount(survey.responses, canReadAggregates)}
                       </div>
                     </td>
                     <td className="px-5 py-4">
@@ -1339,7 +1364,7 @@ export function SurveyManagement({ permissions }: SurveyManagementProps) {
                       <div className="flex items-center justify-end gap-2">
                         {survey.isDeleted ? (
                           <>
-                            {canErase && survey.responses > 0 && (
+                            {canErase && survey.responses !== null && survey.responses > 0 && (
                               <Button
                                 variant="ghost"
                                 size="sm"
@@ -1641,9 +1666,9 @@ export function SurveyManagement({ permissions }: SurveyManagementProps) {
               <div className="max-w-3xl mx-auto pb-20">
                 {!structureEditable && (
                   <p className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
-                    {editedSurvey?.responses
-                      ? "The survey structure is locked because it has responses."
-                      : "Set this survey to Inactive and save before changing its structure."}
+                    {editedSurvey?.status !== "Inactive"
+                      ? "Set this survey to Inactive and save before changing its structure."
+                      : "The backend will check for response conflicts when the structure is saved."}
                   </p>
                 )}
                 <fieldset
@@ -1863,19 +1888,9 @@ export function SurveyManagement({ permissions }: SurveyManagementProps) {
                                                         const patch: Partial<SurveyQuestion> = {
                                                           type: newType,
                                                         }
-                                                        if (["single_choice", "multiple_choice", "ranking"].includes(newType)) {
-                                                          patch.options = (q.options && q.options.length > 0) ? q.options : ["Option 1", "Option 2"]
-                                                          patch.config = null
-                                                        } else if (newType === "matrix") {
-                                                          patch.options = (q.options && q.options.length > 0) ? q.options : ["Row 1", "Row 2"]
-                                                          patch.config = { columns: ["Poor", "Fair", "Good", "Excellent"] }
-                                                        } else if (newType === "scale") {
-                                                          patch.options = null
-                                                          patch.config = { min: 1, max: 4, min_label: "", max_label: "" }
-                                                        } else {
-                                                          patch.options = null
-                                                          patch.config = null
-                                                        }
+                                                         const normalized = normalizeQuestionStructure(newType, q.options, q.config)
+                                                         patch.options = normalized.options
+                                                         patch.config = normalized.config
                                                         updateQuestion(secIdx, qIdx, patch)
                                                         setOpenQuestionSelectId(null)
                                                       }}
@@ -2403,7 +2418,7 @@ export function SurveyManagement({ permissions }: SurveyManagementProps) {
                               <span className="text-[13px] font-medium">Responses</span>
                             </div>
                             <div className="text-3xl font-semibold text-slate-900">
-                              {survey.responses}
+                              {formatSurveyResponseCount(survey.responses, canReadAggregates)}
                             </div>
                           </div>
                           <div className="rounded-xl border border-slate-200/80 bg-white p-5 shadow-sm">
@@ -2446,12 +2461,12 @@ export function SurveyManagement({ permissions }: SurveyManagementProps) {
                           )}
                         >
                           Responses
-                          {survey.responses > 0 && (
+                          {(survey.responses === null || survey.responses > 0) && (
                             <span className={cn(
                               "py-0.5 px-2 rounded-full text-[11px] font-bold leading-none",
                               viewTab === "responses" ? "bg-indigo-100 text-indigo-700" : "bg-slate-200 text-slate-600"
                             )}>
-                              {survey.responses}
+                               {formatSurveyResponseCount(survey.responses, canReadAggregates)}
                             </span>
                           )}
                         </button>
@@ -2593,7 +2608,7 @@ export function SurveyManagement({ permissions }: SurveyManagementProps) {
                                       Erase selected
                                     </Button>
                                   )}
-                                  {canErase && survey.isDeleted && (
+                                  {canErase && survey.isDeleted && survey.responses !== null && survey.responses > 0 && (
                                     <Button variant="destructive" size="sm" onClick={() => void handleEraseResponses(survey, "all")} disabled={responseAction !== null}>
                                       Erase all responses
                                     </Button>
@@ -2635,13 +2650,23 @@ export function SurveyManagement({ permissions }: SurveyManagementProps) {
                                     {sec.questions?.map((q, qIdx) => {
                                       const qTexts = responseTexts[q.id] ?? []
                                       const qCounts = responseCounts[q.id] ?? {}
-                                      const totalAnswers = responseTotals[q.id] ?? Object.values(qCounts).reduce((a, b) => a + b, 0)
+                                      const aggregate = canReadAggregates
+                                        ? responseAggregates.find((item) => item.question_id === q.id)
+                                        : canReadRaw
+                                          ? buildRawAggregate(q, surveyResponses)
+                                          : undefined
+                                      const aggregatePresentation = aggregate
+                                        ? buildAggregatePresentation(aggregate, q)
+                                        : null
+                                      const totalAnswers = aggregatePresentation?.total
+                                        ?? responseTotals[q.id]
+                                        ?? Object.values(qCounts).reduce((a, b) => a + b, 0)
                                       const renderBar = (label: string, count: number, index: number) => {
                                         const percent = totalAnswers > 0 ? Math.round((count / totalAnswers) * 100) : 0
                                         return (
                                           <div key={label} className="group">
                                             <div className="mb-2 flex justify-between text-[13px]">
-                                              <span className="truncate pr-4 font-medium text-slate-600">{label} {count > 0 && <span className="ml-1.5 text-slate-400">({count})</span>}</span>
+                                              <span className="truncate pr-4 font-medium text-slate-600">{label} <span className="ml-1.5 text-slate-400">({count})</span></span>
                                               <span className="font-semibold text-slate-900">{percent}%</span>
                                             </div>
                                             <div className="h-3 w-full overflow-hidden rounded-full bg-slate-100/80 shadow-inner">
@@ -2660,10 +2685,46 @@ export function SurveyManagement({ permissions }: SurveyManagementProps) {
                                                 {qTexts.length > 0 ? qTexts.map((text, textIndex) => <div key={textIndex} className="rounded-xl border border-slate-100 bg-slate-50 p-4 text-[14px] italic text-slate-700 shadow-sm">&quot;{text}&quot;</div>) : <div className="py-2 text-[14px] italic text-slate-400">No text responses yet.</div>}
                                               </div>
                                             ) : <div className="py-2 text-sm italic text-slate-400">Text responses are not included in aggregate-only access.</div>
+                                          ) : aggregatePresentation ? (
+                                            aggregatePresentation.kind === "empty" ? (
+                                              <div className="rounded-lg border border-dashed border-slate-200 px-4 py-6 text-sm italic text-slate-400">
+                                                No aggregate values are available.
+                                              </div>
+                                            ) : aggregatePresentation.kind === "bars" ? (
+                                              <div className="space-y-4">
+                                                {aggregatePresentation.items.map((item, index) => renderBar(item.label, item.count, index))}
+                                              </div>
+                                            ) : aggregatePresentation.kind === "ranking" ? (
+                                              <div className="space-y-5">
+                                                {aggregatePresentation.rows.map((row) => (
+                                                  <div key={row.rank} className="space-y-3">
+                                                    <p className="text-sm font-semibold text-slate-700">Rank {row.rank}</p>
+                                                    <div className="space-y-3 pl-3">
+                                                      {row.cells.map((item, index) => renderBar(item.label, item.count, index))}
+                                                    </div>
+                                                  </div>
+                                                ))}
+                                              </div>
+                                            ) : (
+                                              <div className="space-y-5">
+                                                {aggregatePresentation.rows.map((row) => (
+                                                  <div key={row.row} className="space-y-3">
+                                                    <p className="text-sm font-semibold text-slate-700">{row.row}</p>
+                                                    <div className="space-y-3 pl-3">
+                                                      {row.cells.map((item, index) => renderBar(item.label, item.count, index))}
+                                                    </div>
+                                                  </div>
+                                                ))}
+                                              </div>
+                                            )
+                                          ) : canReadAggregates ? (
+                                            <div className="rounded-lg border border-dashed border-slate-200 px-4 py-6 text-sm italic text-slate-400">
+                                              Aggregate results are unavailable because the privacy threshold was not met.
+                                            </div>
                                           ) : q.type === "scale" ? (
                                             <div className="space-y-4">{getScaleOptions(q).map((option, optionIndex) => renderBar(`${option.value}${option.label ? ` ${option.label}` : ""}`, qCounts[String(option.value)] ?? 0, optionIndex))}</div>
                                           ) : (
-                                            <div className="space-y-4">{(q.options?.length ? q.options : ["Option 1", "Option 2", "Option 3"]).map((option, optionIndex) => renderBar(option, qCounts[option] ?? 0, optionIndex))}</div>
+                                            <div className="space-y-4">{(q.type === "boolean" ? ["No", "Yes"] : q.options?.length ? q.options : ["Option 1", "Option 2", "Option 3"]).map((option, optionIndex) => renderBar(option, qCounts[q.type === "boolean" ? String(optionIndex === 1) : option] ?? 0, optionIndex))}</div>
                                           )}
                                         </div>
                                       )

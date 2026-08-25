@@ -31,7 +31,7 @@ models. Schemas are the boundary between HTTP data and internal model/service co
   appear in read schemas, not create/update schemas. The backend owns those values.
 - Read schemas must exclude secrets and tokens. Local user schemas contain no password;
   password operations use dedicated auth schemas and Supabase Auth.
-- User invitation create/update schemas reject legacy `password` and scalar `role` fields.
+- User invitation create/update schemas reject local `password` and scalar `role` fields.
 - Keep optional update fields optional and use service-layer `exclude_unset=True` updates
   rather than requiring clients to resend entire records.
 - Keep response schemas aligned with the model fields the frontend actually needs.

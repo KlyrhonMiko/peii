@@ -4,6 +4,7 @@ import io
 import json
 import math
 from collections import Counter
+from dataclasses import dataclass
 from datetime import date
 from typing import cast
 from uuid import UUID
@@ -28,6 +29,7 @@ from schemas.survey_response import (
     SurveyResponseAggregate,
     SurveyResponseListQueryParams,
 )
+from services import survey_privacy
 from services.audit_service import AuditEvent, commit_with_audit
 from services.base_service import utc_now
 from services.distribution_service import get_distribution_and_survey_by_token
@@ -359,6 +361,7 @@ _AGGREGATE_TYPES = {
     QuestionType.RANKING,
     QuestionType.MATRIX,
 }
+_AGGREGATE_BATCH_SIZE = 1000
 
 
 async def _load_aggregate_questions(
@@ -372,6 +375,7 @@ async def _load_aggregate_questions(
             col(SurveySection.survey_id) == survey_id,
             col(SurveySection.is_deleted).is_(False),
             col(SurveyQuestion.is_deleted).is_(False),
+            col(SurveyQuestion.question_type).in_(_AGGREGATE_TYPES),
         )
         .order_by(
             col(SurveySection.order_index),
@@ -383,20 +387,67 @@ async def _load_aggregate_questions(
     return list(result.all())
 
 
-def _aggregate_question(
-    question: SurveyQuestion, responses: list[SurveyResponse]
-) -> SurveyResponseAggregate | None:
-    question_type = QuestionType(question.question_type)
-    if question_type not in _AGGREGATE_TYPES:
-        return None
+@dataclass
+class _AggregateState:
+    question: SurveyQuestion
+    question_type: QuestionType
+    options: list[object]
+    config: dict[str, object]
+    counts: Counter[object]
+    total: int = 0
 
+
+def _new_aggregate_state(question: SurveyQuestion) -> _AggregateState:
+    question_type = QuestionType(question.question_type)
     options = _load_json(question.options, "options")
     config = _load_json(question.config, "config")
     normalized_options = options if isinstance(options, list) else []
     normalized_config = config if isinstance(config, dict) else {}
-    answers = [response.answers.get(str(question.id)) for response in responses]
-    answers = [answer for answer in answers if not _is_blank_answer(answer)]
-    total = len(answers)
+    counts: Counter[object] = Counter()
+    state = _AggregateState(
+        question=question,
+        question_type=question_type,
+        options=normalized_options,
+        config=normalized_config,
+        counts=counts,
+    )
+    if question_type in {
+        QuestionType.SINGLE_CHOICE,
+        QuestionType.MULTIPLE_CHOICE,
+    }:
+        for option in normalized_options:
+            state.counts[option] = 0
+    elif question_type == QuestionType.BOOLEAN:
+        state.counts[False] = 0
+        state.counts[True] = 0
+    elif question_type == QuestionType.SCALE:
+        scale_options = (
+            normalized_options
+            if all(isinstance(item, str) for item in normalized_options)
+            else None
+        )
+        minimum, maximum = get_scale_bounds(
+            cast(list[str] | None, scale_options), normalized_config
+        )
+        for scale_value in range(minimum, maximum + 1):
+            state.counts[scale_value] = 0
+    elif question_type == QuestionType.RANKING:
+        for rank in range(1, len(normalized_options) + 1):
+            for option in normalized_options:
+                state.counts[(option, rank)] = 0
+    else:
+        columns = get_matrix_columns(normalized_config)
+        for row in normalized_options:
+            for matrix_value in columns:
+                state.counts[(row, matrix_value)] = 0
+    return state
+
+
+def _accumulate_aggregate_answer(state: _AggregateState, answer: object) -> None:
+    if _is_blank_answer(answer):
+        return
+    state.total += 1
+    question_type = state.question_type
 
     if question_type in {
         QuestionType.SINGLE_CHOICE,
@@ -404,64 +455,103 @@ def _aggregate_question(
         QuestionType.MULTIPLE_CHOICE,
     }:
         if question_type == QuestionType.MULTIPLE_CHOICE:
-            counts: Counter[object] = Counter(
-                item for answer in answers if isinstance(answer, list) for item in answer
-            )
+            if isinstance(answer, list):
+                for item in answer:
+                    try:
+                        if item in state.counts:
+                            state.counts[item] += 1
+                    except TypeError:
+                        continue
         else:
-            counts = Counter(answers)
-        cells = [
-            {"value": option, "count": counts.get(option, 0)}
-            for option in (
-                normalized_options
-                if question_type != QuestionType.BOOLEAN
-                else [False, True]
-            )
-        ]
+            try:
+                if answer in state.counts:
+                    state.counts[answer] += 1
+            except TypeError:
+                pass
     elif question_type == QuestionType.SCALE:
-        minimum, maximum = get_scale_bounds(
-            normalized_options
-            if all(isinstance(item, str) for item in normalized_options)
-            else None,
-            normalized_config,
+        try:
+            if answer in state.counts:
+                state.counts[answer] += 1
+        except TypeError:
+            pass
+    elif question_type == QuestionType.RANKING:
+        if isinstance(answer, list):
+            for rank, value in enumerate(answer, start=1):
+                try:
+                    if (value, rank) in state.counts:
+                        state.counts[(value, rank)] += 1
+                except TypeError:
+                    continue
+    else:
+        if isinstance(answer, dict):
+            for row, value in answer.items():
+                try:
+                    if (row, value) in state.counts:
+                        state.counts[(row, value)] += 1
+                except TypeError:
+                    continue
+
+
+def _aggregate_cells(state: _AggregateState) -> list[dict[str, object]]:
+    question_type = state.question_type
+    if question_type in {
+        QuestionType.SINGLE_CHOICE,
+        QuestionType.MULTIPLE_CHOICE,
+    }:
+        return [
+            {"value": option, "count": state.counts.get(option, 0)}
+            for option in state.options
+        ]
+    if question_type == QuestionType.BOOLEAN:
+        return [
+            {"value": value, "count": state.counts.get(value, 0)}
+            for value in (False, True)
+        ]
+    if question_type == QuestionType.SCALE:
+        scale_options = (
+            state.options
+            if all(isinstance(item, str) for item in state.options)
+            else None
         )
-        counts = Counter(answers)
-        cells = [
-            {"value": value, "count": counts.get(value, 0)}
+        minimum, maximum = get_scale_bounds(
+            cast(list[str] | None, scale_options),
+            state.config,
+        )
+        return [
+            {"value": value, "count": state.counts.get(value, 0)}
             for value in range(minimum, maximum + 1)
         ]
-    elif question_type == QuestionType.RANKING:
-        counts = Counter(
-            (value, rank)
-            for answer in answers
-            if isinstance(answer, list)
-            for rank, value in enumerate(answer, start=1)
-        )
-        cells = [
-            {"value": value, "rank": rank, "count": counts.get((value, rank), 0)}
-            for rank in range(1, len(normalized_options) + 1)
-            for value in normalized_options
+    if question_type == QuestionType.RANKING:
+        return [
+            {
+                "value": value,
+                "rank": rank,
+                "count": state.counts.get((value, rank), 0),
+            }
+            for rank in range(1, len(state.options) + 1)
+            for value in state.options
         ]
-    else:
-        columns = get_matrix_columns(normalized_config)
-        counts = Counter(
-            (row, value)
-            for answer in answers
-            if isinstance(answer, dict)
-            for row, value in answer.items()
-        )
-        cells = [
-            {"row": row, "value": value, "count": counts.get((row, value), 0)}
-            for row in normalized_options
-            for value in columns
-        ]
+    columns = get_matrix_columns(state.config)
+    return [
+        {"row": row, "value": value, "count": state.counts.get((row, value), 0)}
+        for row in state.options
+        for value in columns
+    ]
 
-    if total < 5 or any(0 < cell["count"] < 5 for cell in cells):
+
+def _finalize_aggregate(state: _AggregateState) -> SurveyResponseAggregate | None:
+    cells = _aggregate_cells(state)
+
+    if state.total < survey_privacy.RESPONSE_COUNT_PRIVACY_THRESHOLD or any(
+        0 < cast(int, cell["count"]) < survey_privacy.RESPONSE_COUNT_PRIVACY_THRESHOLD
+        for cell in cells
+    ):
         return None
     return SurveyResponseAggregate(
-        question_id=question.id,
-        question_text=question.question_text,
-        question_type=cast(AggregateQuestionType, question_type.value),
-        total=total,
+        question_id=state.question.id,
+        question_text=state.question.question_text,
+        question_type=cast(AggregateQuestionType, state.question_type.value),
+        total=state.total,
         cells=[AggregateCell.model_validate(cell) for cell in cells],
     )
 
@@ -470,18 +560,33 @@ async def aggregate_responses(
     session: AsyncSession, survey_id: UUID
 ) -> list[SurveyResponseAggregate]:
     await resolve_survey(session, survey_id)
-    responses_result = await session.exec(
-        select(SurveyResponse)
-        .where(
-            col(SurveyResponse.survey_id) == survey_id,
-            col(SurveyResponse.is_deleted).is_(False),
-        )
-        .order_by(col(SurveyResponse.id))
-    )
-    responses = list(responses_result.all())
+    questions = await _load_aggregate_questions(session, survey_id)
+    states = {
+        str(question.id): _new_aggregate_state(question) for question in questions
+    }
+    if not states:
+        return []
+
+    responses_statement = select(SurveyResponse.answers).where(
+        col(SurveyResponse.survey_id) == survey_id,
+        col(SurveyResponse.is_deleted).is_(False),
+    ).order_by(col(SurveyResponse.id))
+    answers_result = await session.stream(responses_statement)
+    try:
+        async for answer_batch in answers_result.scalars().partitions(_AGGREGATE_BATCH_SIZE):
+            for answers in answer_batch:
+                if not isinstance(answers, dict):
+                    continue
+                for question_id, answer in answers.items():
+                    state = states.get(question_id)
+                    if state is not None:
+                        _accumulate_aggregate_answer(state, answer)
+    finally:
+        await answers_result.close()
+
     aggregates: list[SurveyResponseAggregate] = []
-    for question in await _load_aggregate_questions(session, survey_id):
-        aggregate = _aggregate_question(question, responses)
+    for question in questions:
+        aggregate = _finalize_aggregate(states[str(question.id)])
         if aggregate is not None:
             aggregates.append(aggregate)
     return aggregates

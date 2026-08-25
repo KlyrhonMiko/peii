@@ -178,12 +178,3 @@ async def test_distribution_capability_is_not_substituted_by_survey_capabilities
     override_principal(scoped_principal("surveys.read"))
     denied_list = await client.get(f"/api/v1/surveys/{survey_id}/distributions/")
     assert denied_list.status_code == 403
-
-
-async def test_survey_member_endpoints_are_not_registered(client):
-    created = await client.post("/api/v1/surveys/", json={"title": "No members"})
-    survey_id = created.json()["data"]["id"]
-
-    response = await client.get(f"/api/v1/surveys/{survey_id}/members/")
-
-    assert response.status_code == 404

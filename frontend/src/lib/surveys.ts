@@ -9,7 +9,7 @@ export interface Distribution {
   surveyId: string
   status: "active" | "suspended" | "expired" | "revoked"
   isActive: boolean
-  expiresAt: string | null
+  expiresAt: string
   revokedAt: string | null
   createdAt: string
 }
@@ -31,7 +31,7 @@ export interface Survey {
   surveyId: string
   title: string
   status: SurveyStatus
-  responses: number
+  responses: number | null
   dateCreated: string
   updatedAt: string
   isDeleted: boolean
@@ -100,7 +100,7 @@ export interface ApiSurvey {
   description: string | null
   status: SurveyStatus
   target_cohort: string | null
-  responses_count: number
+  responses_count: number | null
   created_at: string
   updated_at: string
   is_deleted: boolean
@@ -140,7 +140,7 @@ export interface ApiDistribution {
   survey_id: string
   status: "active" | "suspended" | "expired" | "revoked"
   is_active: boolean
-  expires_at: string | null
+  expires_at: string
   revoked_at: string | null
   created_at: string
 }
@@ -225,7 +225,7 @@ function mapSection(api: ApiSection): SurveySection {
   }
 }
 
-function mapSurvey(api: ApiSurvey): Survey {
+export function mapSurvey(api: ApiSurvey): Survey {
   return {
     id: api.id,
     surveyId: api.survey_id,

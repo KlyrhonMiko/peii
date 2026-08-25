@@ -10,8 +10,7 @@ SQLModel metadata changes into database schema changes.
 - Generate migrations with
   `./.venv/bin/alembic revision --autogenerate -m "describe change"`.
 - Use the repo-local virtualenv dependencies; do not assume system Alembic is configured.
-- The current migration head is `20260825_0001`, following the data-only capability revision
-  `20260825_0002`.
+- The current migration head is the canonical first-release baseline `20260825_v1`.
 
 ## Autogenerate-First Rule
 - For any `models/` change that alters table shape, generate a migration with
@@ -35,8 +34,8 @@ SQLModel metadata changes into database schema changes.
 - Revisions live in `alembic/versions/`.
 - Add new revisions for new schema changes. Do not rewrite older shared or applied
   revision files.
-- The collaboration removal revision `81568591615f` has an unusable downgrade. Use a reviewed
-  forward-fix or validated backup/PITR restore for rollback; never rewrite that migration.
+- The first-release baseline intentionally replaces all predecessor history. Future schema
+  changes should be added as forward revisions after `20260825_v1`.
 - If an earlier applied migration used the wrong name or shape, add a follow-up revision
   that moves the live schema forward.
 - Keep migration files lintable and readable.
@@ -44,7 +43,6 @@ SQLModel metadata changes into database schema changes.
 ## Validation
 - Inspect generated migration files before committing.
 - Run backend Ruff after migration edits.
-- When possible, run `./.venv/bin/alembic upgrade head` against the intended local
-  database mode.
+- When possible, run `./.venv/bin/alembic upgrade head` against a fresh disposable database.
 - Keep model, schema, service/router behavior, tests, and migrations aligned in the same
   feature change.

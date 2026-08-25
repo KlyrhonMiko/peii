@@ -41,7 +41,7 @@ def get_distribution_status(
     current_time = now or utc_now()
     if distribution.is_deleted or distribution.revoked_at is not None:
         return "revoked"
-    if distribution.expires_at is not None and distribution.expires_at <= current_time:
+    if distribution.expires_at <= current_time:
         return "expired"
     if survey_status != "Active":
         return "suspended"
@@ -318,7 +318,7 @@ async def get_distribution_and_survey_by_token(
 async def get_distribution_token_reference(
     session: AsyncSession, token: str
 ) -> SurveyDistribution:
-    """Look up a token owner without acquiring a row lock."""
+    """Look up a token reference without acquiring a row lock."""
     result = await session.exec(
         select(SurveyDistribution).where(
             col(SurveyDistribution.token) == token,

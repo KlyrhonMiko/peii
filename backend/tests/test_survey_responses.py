@@ -1,11 +1,16 @@
 import csv
 import io
+from typing import cast
 from uuid import UUID, uuid4
 
 import pytest
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from core.deps import Principal, get_current_principal
 from main import app
+from models.question_type import QuestionType
+from models.survey_question import SurveyQuestion
+from services import response_service
 
 pytestmark = pytest.mark.anyio
 EXPIRY = "2099-01-01T00:00:00+00:00"
@@ -489,6 +494,211 @@ async def test_aggregate_supported_types_are_suppressed_conservatively(client):
     )
     assert suppressed.status_code == 200
     assert suppressed.json()["data"] == []
+
+
+async def test_aggregate_all_supported_shapes_and_suppression(client):
+    question_specs = {
+        "choice": {
+            "question_text": "Choice",
+            "question_type": "single_choice",
+            "options": ["A", "B"],
+        },
+        "boolean": {"question_text": "Boolean", "question_type": "boolean"},
+        "multiple": {
+            "question_text": "Multiple",
+            "question_type": "multiple_choice",
+            "options": ["A", "B"],
+        },
+        "scale": {
+            "question_text": "Scale",
+            "question_type": "scale",
+            "config": {"min": 1, "max": 3},
+        },
+        "ranking": {
+            "question_text": "Ranking",
+            "question_type": "ranking",
+            "options": ["A", "B"],
+        },
+        "matrix": {
+            "question_text": "Matrix",
+            "question_type": "matrix",
+            "options": ["Row 1"],
+            "config": {"columns": ["Yes", "No"]},
+        },
+    }
+    survey, questions, token = await _create_survey_with_question_specs(client, question_specs)
+    answers = {
+        questions["choice"]: "A",
+        questions["boolean"]: True,
+        questions["multiple"]: ["A", "B"],
+        questions["scale"]: 2,
+        questions["ranking"]: ["A", "B"],
+        questions["matrix"]: {"Row 1": "Yes"},
+    }
+    for _index in range(5):
+        response = await client.post(
+            f"/api/v1/survey/{token}/respond",
+            json={"answers": answers},
+            headers={"Idempotency-Key": str(uuid4())},
+        )
+        assert response.status_code == 201
+
+    aggregate = await client.get(f"/api/v1/surveys/{survey['id']}/responses/aggregates")
+    assert aggregate.status_code == 200
+    data = aggregate.json()["data"]
+    assert [item["question_type"] for item in data] == [
+        "single_choice",
+        "boolean",
+        "multiple_choice",
+        "scale",
+        "ranking",
+        "matrix",
+    ]
+    assert all(item["total"] == 5 for item in data)
+    by_type = {item["question_type"]: item for item in data}
+    assert {cell["value"]: cell["count"] for cell in by_type["single_choice"]["cells"]} == {
+        "A": 5,
+        "B": 0,
+    }
+    assert {cell["value"]: cell["count"] for cell in by_type["boolean"]["cells"]} == {
+        False: 0,
+        True: 5,
+    }
+    assert {cell["value"]: cell["count"] for cell in by_type["multiple_choice"]["cells"]} == {
+        "A": 5,
+        "B": 5,
+    }
+    assert {cell["value"]: cell["count"] for cell in by_type["scale"]["cells"]} == {
+        1: 0,
+        2: 5,
+        3: 0,
+    }
+    assert {
+        (cell["value"], cell["rank"]): cell["count"]
+        for cell in by_type["ranking"]["cells"]
+    } == {
+        ("A", 1): 5,
+        ("B", 1): 0,
+        ("A", 2): 0,
+        ("B", 2): 5,
+    }
+    assert {(cell["row"], cell["value"]): cell["count"] for cell in by_type["matrix"]["cells"]} == {
+        ("Row 1", "Yes"): 5,
+        ("Row 1", "No"): 0,
+    }
+
+    suppressed_survey, suppressed_questions, suppressed_token = (
+        await _create_survey_with_question_specs(client, question_specs)
+    )
+    suppressed_answers = {
+        suppressed_questions[name]: answer
+        for name, answer in {
+            "choice": "A",
+            "boolean": True,
+            "multiple": ["A", "B"],
+            "scale": 2,
+            "ranking": ["A", "B"],
+            "matrix": {"Row 1": "Yes"},
+        }.items()
+    }
+    for _index in range(4):
+        response = await client.post(
+            f"/api/v1/survey/{suppressed_token}/respond",
+            json={"answers": suppressed_answers},
+            headers={"Idempotency-Key": str(uuid4())},
+        )
+        assert response.status_code == 201
+
+    suppressed = await client.get(
+        f"/api/v1/surveys/{suppressed_survey['id']}/responses/aggregates"
+    )
+    assert suppressed.status_code == 200
+    assert suppressed.json()["data"] == []
+
+
+async def test_aggregate_streams_answer_payloads_in_bounded_batches(monkeypatch):
+    survey_id = UUID("00000000-0000-0000-0000-000000000001")
+    questions = [
+        SurveyQuestion(
+            id=UUID("00000000-0000-0000-0000-000000000011"),
+            survey_id=survey_id,
+            section_id=UUID("00000000-0000-0000-0000-000000000010"),
+            question_text="Choice",
+            question_type=QuestionType.SINGLE_CHOICE,
+            options='["A", "B"]',
+        ),
+        SurveyQuestion(
+            id=UUID("00000000-0000-0000-0000-000000000012"),
+            survey_id=survey_id,
+            section_id=UUID("00000000-0000-0000-0000-000000000010"),
+            question_text="Boolean",
+            question_type=QuestionType.BOOLEAN,
+        ),
+    ]
+
+    class FakeStream:
+        def __init__(self) -> None:
+            self.batch_sizes: list[int] = []
+
+        def scalars(self) -> FakeStream:
+            return self
+
+        async def close(self) -> None:
+            return None
+
+        async def partitions(self, batch_size: int):
+            self.batch_sizes.append(batch_size)
+            payloads = [
+                {str(questions[0].id): "A", str(questions[1].id): True},
+                {str(questions[0].id): "A", str(questions[1].id): True},
+                {str(questions[0].id): "A", str(questions[1].id): True},
+                {str(questions[0].id): "A", str(questions[1].id): True},
+                {str(questions[0].id): "A", str(questions[1].id): True},
+            ]
+            for index in range(0, len(payloads), batch_size):
+                yield payloads[index : index + batch_size]
+
+    class FakeSession:
+        def __init__(self) -> None:
+            self.stream_result = FakeStream()
+            self.exec_called = False
+            self.statement = None
+
+        async def stream(self, statement):
+            self.statement = statement
+            return self.stream_result
+
+        async def exec(self, _statement):
+            self.exec_called = True
+            raise AssertionError("aggregate responses should not execute a response ORM query")
+
+    session = FakeSession()
+    monkeypatch.setattr(response_service, "resolve_survey", _return_survey)
+    monkeypatch.setattr(
+        response_service,
+        "_load_aggregate_questions",
+        lambda _session, _survey_id: _return_questions(questions),
+    )
+    monkeypatch.setattr(response_service, "_AGGREGATE_BATCH_SIZE", 2)
+
+    aggregates = await response_service.aggregate_responses(
+        cast(AsyncSession, session), survey_id
+    )
+
+    assert len(aggregates) == 2
+    assert all(aggregate.total == 5 for aggregate in aggregates)
+    assert session.exec_called is False
+    assert session.stream_result.batch_sizes == [2]
+    assert session.statement is not None
+    assert [column.key for column in session.statement.selected_columns] == ["answers"]
+
+
+async def _return_survey(_session, _survey_id):
+    return object()
+
+
+async def _return_questions(questions):
+    return questions
 
 
 async def test_export_is_long_form_canonical_and_formula_safe(client):

@@ -27,8 +27,7 @@ database shape; they should not know about HTTP requests.
 - Keep business rules and commits in services, not model methods.
 - The local `User` model links to Supabase with `auth_user_id` and does not persist a
   password.
-- Survey scope is global RBAC; do not add survey ownership persistence or per-survey access
-  tables to model definitions.
+- Survey scope is global RBAC; survey tables do not carry per-survey access state.
 - Do not expose sensitive fields by making them convenient on read schemas. Schema files
   own API visibility.
 

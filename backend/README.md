@@ -18,11 +18,10 @@ python3.14 -m venv .venv
 ./.venv/bin/pip install -r requirements.txt
 ```
 
-3. Apply migrations and initialize RBAC/admin data:
+3. Apply the canonical first-release baseline and initialize the administrator:
 
 ```bash
 ./.venv/bin/alembic upgrade head
-./.venv/bin/python scripts/seed_rbac.py
 ./.venv/bin/python scripts/bootstrap_admin.py
 ```
 
@@ -80,17 +79,16 @@ Create a new migration after model changes:
 ./.venv/bin/alembic revision --autogenerate -m "describe change"
 ```
 
-The current migration head is `20260825_0001`. For production, run
+The current migration head is the canonical first-release baseline `20260825_v1`. For production, run
 `./.venv/bin/alembic upgrade head` once as the managed-service release job before API
-replicas are promoted. Do not run migrations independently in every replica. Do not rewrite
-the older collaboration revisions; revision `81568591615f` has an unusable downgrade.
-Database rollback therefore requires a reviewed forward-fix or a validated backup/PITR
-restore, not an ad hoc downgrade.
+replicas are promoted. Do not run migrations independently in every replica. The baseline is
+intended for a fresh database; future schema changes must be forward revisions after
+`20260825_v1`.
 
 ## Survey Access And Lifecycle Policy
 
-- Survey access is global RBAC, not unrestricted authentication and not survey ownership or
-  membership. A permitted principal can act on any survey in the shared workspace, but every
+- Survey access is global RBAC, not unrestricted authentication. A permitted principal can act
+  on any survey in the shared workspace, but every
   operation still requires its explicit capability.
 - The seven survey capabilities are `surveys.read`, `surveys.manage`,
   `survey_distributions.manage`, `survey_responses.read_aggregates`,
@@ -108,13 +106,10 @@ restore, not an ad hoc downgrade.
   erasure writes minimal tombstones and is idempotent; all-scope erasure requires an archived
   survey.
 
-Retention and consent policy are documented in `../docs/privacy-and-retention.md`.
-
-The legacy collaboration bridge is run from `backend/`. Start with a dry run from the
-supported revision `5b37d61c76ff`; unknown legacy roles require a role-mapping JSON file.
-Only after a verified backup/PITR point should apply mode be used with
-`--apply --confirm-backup`. Reconcile any reported null `auth_user_id` values with Supabase
-Auth before relying on the migrated users.
+See [production decisions](../docs/production-decisions.md),
+[privacy and retention](../docs/privacy-and-retention.md), and the
+[deployment roadmap](../docs/deployment-roadmap.md) for the canonical first-release
+deployment, RBAC, privacy, validation, backup, and rollback guidance.
 
 ## Validation
 
@@ -133,20 +128,6 @@ isolated PostgreSQL integration tests explicitly with:
 TEST_DATABASE_URL=postgresql+psycopg2://user:password@localhost:5432/peii_test \
   env DEBUG=false ./.venv/bin/pytest -q -m integration --require-postgres
 ```
-
-To bridge a legacy collaboration database, run from `backend/` (with the application
-quiesced):
-
-```bash
-./.venv/bin/python scripts/bridge_collaboration_upgrade.py
-./.venv/bin/python scripts/bridge_collaboration_upgrade.py \
-  --role-map /path/to/legacy-role-map.json \
-  --apply --confirm-backup
-```
-
-The first command is read-only. The second requires a verified backup/PITR point and is
-supported only when the database starts at `5b37d61c76ff`; review the JSON report and any
-`auth_user_id` reconciliation warnings before enabling access.
 
 ## Run with Docker
 

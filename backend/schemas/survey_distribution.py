@@ -46,7 +46,7 @@ class SurveyDistributionRead(SurveyDistributionBaseSchema):
     survey_id: UUID
     status: DistributionStatus
     is_active: bool
-    expires_at: datetime | None
+    expires_at: datetime
     revoked_at: datetime | None
     created_at: datetime
 

@@ -95,5 +95,5 @@ yarn-error.log*
 
 .playwright-mcp/
 
-# local documentation
-docs/
+# local documentation and implementation history
+/docs/local_docs/

@@ -46,8 +46,8 @@ pre-commit configuration currently invokes them automatically.
 - For soft delete and restore, assert default hiding, `include_deleted`, state fields,
   and restored visibility.
 - For expected domain failures, assert the status code and shared error shape.
-- For user/auth behavior, assert Supabase identity linkage, invitation timestamps, legacy
-  password/role field rejection, and the absence of credentials in responses.
+- For user/auth behavior, assert Supabase identity linkage, invitation timestamps, rejection
+  of local password/scalar-role fields, and the absence of credentials in responses.
 - For survey capability behavior, cover the separate aggregate/raw/export/erase permissions,
   token-free distribution metadata, explicit expiry, `k=5` suppression, archive/restore, and
   idempotent selected/all erasure.

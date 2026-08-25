@@ -25,6 +25,24 @@ from services.question_validation import validate_question_definition
 from utils.identifiers import generate_business_id
 from utils.sorting import stable_order_by
 
+STRUCTURE_EDIT_CONFLICT_CODE = "structure_edit_conflict"
+STRUCTURE_EDIT_CONFLICT_MESSAGE = (
+    "Survey structure cannot be edited because it is stale or already has responses."
+)
+
+
+def structure_edit_conflict_error() -> AppError:
+    return AppError(
+        STRUCTURE_EDIT_CONFLICT_MESSAGE,
+        status_code=status.HTTP_409_CONFLICT,
+        errors=[
+            {
+                "code": STRUCTURE_EDIT_CONFLICT_CODE,
+                "message": STRUCTURE_EDIT_CONFLICT_MESSAGE,
+            }
+        ],
+    )
+
 
 def _apply_survey_list_filters(statement, params: SurveyListQueryParams):
     if not params.include_deleted:
@@ -232,10 +250,7 @@ async def get_survey_for_structure_edit(session: AsyncSession, survey_id: UUID) 
         .where(col(SurveyResponse.survey_id) == survey_id)
     )
     if response_count_result.one() > 0:
-        raise AppError(
-            "Survey structure cannot be edited after a response is submitted.",
-            status_code=status.HTTP_409_CONFLICT,
-        )
+        raise structure_edit_conflict_error()
     return survey
 
 
@@ -363,7 +378,7 @@ async def create_survey_with_structure(
     survey = Survey.model_validate(survey_data)
     survey.performed_by = actor_id
     session.add(survey)
-    # PostgreSQL enforces the section/question ownership foreign keys immediately.
+    # PostgreSQL enforces the section/question survey-consistency foreign keys immediately.
     await session.flush()
 
     events = [

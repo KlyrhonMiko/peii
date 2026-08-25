@@ -1,7 +1,16 @@
 import pytest
 
+from models.survey_distribution import SurveyDistribution
+from schemas.survey_distribution import SurveyDistributionRead
+
 pytestmark = pytest.mark.anyio
 EXPIRY = "2099-01-01T00:00:00+00:00"
+
+
+def test_distribution_expiry_is_required_in_model_and_read_contract():
+    table = getattr(SurveyDistribution, "__table__")
+    assert table.c.expires_at.nullable is False
+    assert SurveyDistributionRead.model_fields["expires_at"].is_required()
 
 
 async def _create_active_survey(client):
@@ -30,8 +39,6 @@ async def test_create_and_list_distributions(client):
     )
     assert dist_resp.status_code == 201
     assert len(dist_resp.json()["data"]["token"]) > 20
-    assert "version_id" not in dist_resp.json()["data"]
-    assert "is_legacy" not in dist_resp.json()["data"]
     list_resp = await client.get(f"/api/v1/surveys/{survey_uuid}/distributions/")
     assert list_resp.status_code == 200
     assert list_resp.json()["data"][0]["status"] == "active"

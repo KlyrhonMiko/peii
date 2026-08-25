@@ -5,7 +5,6 @@ from fastapi import status
 from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from core.config import settings
 from core.exceptions import AppError
 from models.rbac import Permission, Role, RolePermission, UserRole
 from models.user import User
@@ -181,107 +180,6 @@ async def get_role_permissions(session: AsyncSession, role: Role) -> list[Permis
         .order_by(col(Permission.code))
     )
     return list(result.all())
-
-
-async def ensure_permission_catalog(session: AsyncSession) -> None:
-    roles = list(
-        (
-            await session.exec(
-                select(Role).where(col(Role.name).in_(set(DEFAULT_ROLES)))
-            )
-        ).all()
-    )
-    incompatible_roles = [
-        role.name
-        for role in roles
-        if not role.is_system or not role.is_active or role.is_deleted
-    ]
-    if incompatible_roles:
-        names = ", ".join(sorted(incompatible_roles))
-        raise AppError(
-            f"Canonical system role records are unavailable: {names}.",
-            status_code=status.HTTP_409_CONFLICT,
-        )
-
-    permissions = {
-        permission.code: permission
-        for permission in (await session.exec(select(Permission))).all()
-    }
-    changed = False
-    for code, description in PERMISSIONS.items():
-        permission = permissions.get(code)
-        if permission is None:
-            permission = Permission(
-                code=code,
-                description=description,
-                performed_by=settings.SYSTEM_ACTOR_ID,
-            )
-            session.add(permission)
-            permissions[code] = permission
-            changed = True
-        elif permission.is_deleted:
-            permission.is_deleted = False
-            permission.deleted_at = None
-            permission.performed_by = settings.SYSTEM_ACTOR_ID
-            session.add(permission)
-            changed = True
-    await session.flush()
-
-    active_permissions = {
-        permission.code: permission
-        for permission in (await session.exec(select(Permission))).all()
-        if not permission.is_deleted
-    }
-    for role_name, codes in DEFAULT_ROLES.items():
-        role_result = await session.exec(
-            select(Role).where(col(Role.name) == role_name, col(Role.is_deleted).is_(False))
-        )
-        role = role_result.first()
-        if role is None:
-            role = Role(
-                name=role_name,
-                description=f"System {role_name} role.",
-                is_system=True,
-                performed_by=settings.SYSTEM_ACTOR_ID,
-            )
-            session.add(role)
-            await session.flush()
-            changed = True
-
-        assignments = list(
-            (
-                await session.exec(
-                    select(RolePermission).where(col(RolePermission.role_id) == role.id)
-                )
-            ).all()
-        )
-        assignments_by_permission = {
-            assignment.permission_id: assignment for assignment in assignments
-        }
-        for code in codes:
-            permission = active_permissions[code]
-            assignment = assignments_by_permission.get(permission.id)
-            if assignment is None:
-                session.add(
-                    RolePermission(
-                        role_id=role.id,
-                        permission_id=permission.id,
-                        performed_by=settings.SYSTEM_ACTOR_ID,
-                    )
-                )
-                changed = True
-            elif assignment.is_deleted:
-                assignment.is_deleted = False
-                assignment.deleted_at = None
-                assignment.performed_by = settings.SYSTEM_ACTOR_ID
-                session.add(assignment)
-                changed = True
-    if not changed:
-        return
-    await commit_with_audit(
-        session,
-        [AuditEvent("seed", "permission_catalog", "default", settings.SYSTEM_ACTOR_ID)],
-    )
 
 
 async def create_role(

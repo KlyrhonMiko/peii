@@ -57,7 +57,6 @@ Start the backend from `backend/`:
 python3.14 -m venv .venv
 ./.venv/bin/pip install -r requirements.txt
 ./.venv/bin/alembic upgrade head
-./.venv/bin/python scripts/seed_rbac.py
 ./.venv/bin/python scripts/bootstrap_admin.py
 ./.venv/bin/uvicorn main:app --reload
 ```
