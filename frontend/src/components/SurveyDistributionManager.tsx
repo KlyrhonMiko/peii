@@ -181,28 +181,28 @@ export function SurveyDistributionManager({
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="max-w-xl p-0 overflow-hidden bg-white border-slate-200 shadow-2xl sm:rounded-2xl">
-        <DialogHeader className="px-6 pt-6 pb-4 border-b border-slate-100">
+      <DialogContent className="max-w-xl p-0 overflow-hidden bg-white border-0 shadow-[0_16px_40px_-12px_rgba(0,0,0,0.1)] sm:rounded-2xl">
+        <DialogHeader className="px-8 pt-7 pb-5 border-b border-slate-100">
           <div className="flex items-center gap-4">
-            <div className="flex size-12 shrink-0 items-center justify-center rounded-full bg-slate-100 ring-1 ring-slate-200/50">
-              <Share2 className="size-5 text-slate-700" />
+            <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-slate-50 border border-slate-100">
+              <Share2 className="size-4.5 text-slate-700" />
             </div>
-            <div>
-              <DialogTitle>Distribute Survey</DialogTitle>
-              <DialogDescription>Create and manage shareable links.</DialogDescription>
+            <div className="flex-1 min-w-0">
+              <DialogTitle className="text-lg font-medium text-slate-900 tracking-tight text-left">Distribute Survey</DialogTitle>
+              <DialogDescription className="text-sm text-slate-500 text-left mt-0.5">Create and manage shareable links.</DialogDescription>
             </div>
           </div>
         </DialogHeader>
 
-        <div className="space-y-4 bg-slate-50/30 px-6 pb-6 pt-5">
-          <p className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-800">
+        <div className="space-y-6 bg-slate-50/30 px-8 pb-8 pt-6">
+          <p className="rounded-lg border border-indigo-200/50 bg-indigo-50/50 px-4 py-3 text-sm text-indigo-800">
             Tokens are shown only once when a link is issued. Reloading this list does not reveal a token again.
           </p>
-          {error && <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700" role="alert">{error}</p>}
-          {clipboardError && <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700" role="alert">Clipboard error: {clipboardError}</p>}
+          {error && <p className="rounded-lg border border-red-200/50 bg-red-50/50 px-4 py-3 text-sm text-red-700" role="alert">{error}</p>}
+          {clipboardError && <p className="rounded-lg border border-red-200/50 bg-red-50/50 px-4 py-3 text-sm text-red-700" role="alert">Clipboard error: {clipboardError}</p>}
 
           {canManage && (
-            <div className="space-y-2 rounded-xl border border-slate-200 bg-white p-4">
+            <div className="space-y-3">
               <div className="flex items-end gap-3">
                 <label className="flex-1 space-y-1.5 text-sm font-medium text-slate-700">
                   Expiry date and time
@@ -212,26 +212,26 @@ export function SurveyDistributionManager({
                     value={expiryAt}
                     min={new Date().toISOString().slice(0, 16)}
                     onChange={(event) => setExpiryAt(event.target.value)}
-                    className="h-9 w-full rounded-lg border border-input bg-background px-2 text-sm font-normal"
+                    className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm font-normal focus:outline-none focus:ring-2 focus:ring-slate-400 focus:border-transparent transition-all shadow-sm"
                   />
                 </label>
-                <Button onClick={() => void performCreate()} disabled={loading || action !== null || !expiryAt}>
-                  {action === "create" ? <Loader2 className="animate-spin" data-icon="inline-start" /> : <Link data-icon="inline-start" />}
+                <Button onClick={() => void performCreate()} disabled={loading || action !== null || !expiryAt} className="h-10 px-5 gap-2 font-medium">
+                  {action === "create" ? <Loader2 className="animate-spin size-4" /> : <Link className="size-4" />}
                   Issue new link
                 </Button>
               </div>
-              <p className="text-xs text-slate-500">The UI defaults to 30 days; the selected expiry is sent explicitly.</p>
+              <p className="text-[13px] text-slate-500">The UI defaults to 30 days; the selected expiry is sent explicitly.</p>
             </div>
           )}
 
           {loading ? (
             <div className="flex justify-center py-10" role="status"><Loader2 className="size-6 animate-spin text-slate-400" /></div>
           ) : (
-            <div className="space-y-3">
+            <div className="space-y-4 pt-4 border-t border-slate-200/60">
               <div className="flex items-center justify-between">
-                <h3 className="text-sm font-semibold text-slate-800">Link lifecycle</h3>
-                <Button variant="outline" size="sm" onClick={() => void load(true)} disabled={action !== null}>
-                  <RefreshCw data-icon="inline-start" /> Reload
+                <h3 className="text-sm font-semibold text-slate-900 tracking-tight">Link lifecycle</h3>
+                <Button variant="outline" size="sm" onClick={() => void load(true)} disabled={action !== null} className="h-8 gap-2 font-medium text-xs">
+                  <RefreshCw className="size-3.5" /> Reload
                 </Button>
               </div>
               {distributions.length === 0 ? (

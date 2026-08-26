@@ -37,62 +37,68 @@ export default async function ModelsPage() {
   const models = await getModels()
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-12 animate-in fade-in duration-500 max-w-6xl mx-auto pb-12">
       {/* Page Header */}
-      <div>
-        <h2 className="text-[20px] font-semibold text-slate-900 tracking-tight">System Models</h2>
-        <p className="text-[13px] text-slate-500 mt-0.5">
-          Machine learning models currently utilized by the platform for inference tasks.
-        </p>
+      <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-6 pb-6 border-b border-slate-200">
+        <div className="space-y-2">
+          <h2 className="text-3xl font-bold tracking-tight text-slate-900">System Models</h2>
+          <p className="text-base text-slate-500 max-w-xl">
+            Machine learning models currently utilized by the platform for inference tasks.
+          </p>
+        </div>
       </div>
 
       {models.length === 0 ? (
-        <div className="text-[13px] text-slate-500 bg-white border border-slate-200/80 p-5 rounded-xl text-center">
+        <div className="text-[14px] text-slate-500 py-12 text-center border-b border-slate-200">
           No models found or unable to connect to the backend API.
         </div>
       ) : (
-        <div className="grid gap-5 md:grid-cols-2 lg:grid-cols-3">
-          {models.map((model) => (
-            <div
-              key={model.id}
-              className="rounded-xl border border-slate-200/80 bg-white p-5 hover:border-slate-300/80 transition-colors shadow-sm flex flex-col"
-            >
-              <div className="flex items-start justify-between">
-                <div>
-                  <div className="flex items-center gap-2">
-                    <div className="w-8 h-8 rounded-lg bg-indigo-50 flex items-center justify-center shrink-0">
-                      <Cpu className="w-4 h-4 text-indigo-600" />
-                    </div>
-                    <div>
-                      <h3 className="text-[15px] font-semibold text-slate-900 leading-tight">{model.name}</h3>
-                      <div className="text-[11px] font-mono text-slate-500 mt-1 line-clamp-1" title={model.id}>{model.id}</div>
-                    </div>
+        <div className="pt-2">
+          {/* Desktop Header */}
+          <div className="hidden md:grid grid-cols-12 gap-6 pb-4 text-[11px] font-bold uppercase tracking-wider text-slate-500">
+            <div className="col-span-4 pl-2">Model</div>
+            <div className="col-span-2">Type</div>
+            <div className="col-span-4">Description</div>
+            <div className="col-span-2 text-right pr-2">Status</div>
+          </div>
+          
+          <div className="divide-y divide-slate-200 border-y border-slate-200">
+            {models.map((model) => (
+              <div key={model.id} className="grid grid-cols-1 md:grid-cols-12 gap-6 py-6 items-start hover:bg-slate-50/50 transition-colors px-2 group">
+                <div className="col-span-4 flex items-start gap-3">
+                  <div className="flex items-center justify-center shrink-0 mt-0.5">
+                    <Cpu className="w-[15px] h-[15px] text-slate-400 group-hover:text-indigo-600 transition-colors" />
+                  </div>
+                  <div>
+                    <div className="text-[14px] font-semibold text-slate-900 group-hover:text-indigo-600 transition-colors">{model.name}</div>
+                    <div className="text-[12px] font-mono text-slate-400 mt-1">{model.id}</div>
+                  </div>
+                </div>
+                
+                <div className="col-span-2 flex items-start">
+                  <span className="text-[12px] font-medium text-slate-600 capitalize">
+                    {model.type.replace(/-/g, " ")}
+                  </span>
+                </div>
+                
+                <div className="col-span-4 flex items-start">
+                  <p className="text-[13px] text-slate-500 leading-relaxed pr-6">
+                    {model.description}
+                  </p>
+                </div>
+                
+                <div className="col-span-2 flex items-center justify-end gap-3">
+                  <div className="flex items-center text-[12px] text-slate-400" title="Local Inference">
+                    <Server className="w-3.5 h-3.5" />
+                  </div>
+                  <div className="flex items-center gap-1.5 text-[12px] text-emerald-600 font-medium">
+                    <Activity className="w-3.5 h-3.5" />
+                    Online
                   </div>
                 </div>
               </div>
-              
-              <div className="mt-3">
-                <span className="text-[10px] font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full uppercase tracking-wide">
-                  {model.type.replace("-", " ")}
-                </span>
-              </div>
-              
-              <p className="text-[13px] text-slate-600 mt-4 leading-relaxed flex-1">
-                {model.description}
-              </p>
-              
-              <div className="mt-5 pt-4 border-t border-slate-100 flex items-center gap-4 text-[12px]">
-                 <div className="flex items-center gap-1.5 text-slate-500 font-medium">
-                    <Server className="w-3.5 h-3.5" />
-                    Local Inference
-                 </div>
-                 <div className="flex items-center gap-1.5 text-emerald-600 font-medium">
-                    <Activity className="w-3.5 h-3.5" />
-                    Online
-                 </div>
-              </div>
-            </div>
-          ))}
+            ))}
+          </div>
         </div>
       )}
     </div>

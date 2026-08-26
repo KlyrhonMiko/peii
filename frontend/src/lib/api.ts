@@ -20,6 +20,7 @@ interface ApiResponseEnvelope<T> {
 
 export interface ApiRequestOptions {
   headers?: Record<string, string>
+  timeout?: number
 }
 
 async function request<T>(
@@ -32,16 +33,30 @@ async function request<T>(
   if (body) {
     headers["Content-Type"] = "application/json"
   }
-  const res = await fetch(`${API_BASE}${path}`, {
-    method,
-    headers,
-    body: body ? JSON.stringify(body) : null,
-  })
-  const json: ApiResponseEnvelope<T> = await res.json()
-  if (!res.ok) {
-    throw new ApiError(json.message ?? "Request failed", res.status, json)
+  
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), options?.timeout ?? 15000)
+
+  try {
+    const res = await fetch(`${API_BASE}${path}`, {
+      method,
+      headers,
+      body: body ? JSON.stringify(body) : null,
+      signal: controller.signal,
+    })
+    const json: ApiResponseEnvelope<T> = await res.json()
+    if (!res.ok) {
+      throw new ApiError(json.message ?? "Request failed", res.status, json)
+    }
+    return json
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new ApiError("Request timed out", 408, null)
+    }
+    throw error
+  } finally {
+    clearTimeout(timeoutId)
   }
-  return json
 }
 
 async function requestRaw(
@@ -52,24 +67,38 @@ async function requestRaw(
 ): Promise<Response> {
   const headers: Record<string, string> = { ...options?.headers }
   if (body !== undefined) headers["Content-Type"] = "application/json"
-  const response = await fetch(`${API_BASE}${path}`, {
-    method,
-    headers,
-    body: body === undefined ? null : JSON.stringify(body),
-  })
-  if (!response.ok) {
-    let payload: unknown = null
-    try {
-      payload = await response.json()
-    } catch {
-      // Preserve the status when an upstream error is not JSON.
+  
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), options?.timeout ?? 15000)
+
+  try {
+    const response = await fetch(`${API_BASE}${path}`, {
+      method,
+      headers,
+      body: body === undefined ? null : JSON.stringify(body),
+      signal: controller.signal,
+    })
+    if (!response.ok) {
+      let payload: unknown = null
+      try {
+        payload = await response.json()
+      } catch {
+        // Preserve the status when an upstream error is not JSON.
+      }
+      const message = typeof payload === "object" && payload !== null && "message" in payload && typeof payload.message === "string"
+        ? payload.message
+        : "Request failed"
+      throw new ApiError(message, response.status, payload)
     }
-    const message = typeof payload === "object" && payload !== null && "message" in payload && typeof payload.message === "string"
-      ? payload.message
-      : "Request failed"
-    throw new ApiError(message, response.status, payload)
+    return response
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new ApiError("Request timed out", 408, null)
+    }
+    throw error
+  } finally {
+    clearTimeout(timeoutId)
   }
-  return response
 }
 
 export const api = {
