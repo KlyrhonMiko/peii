@@ -23,5 +23,5 @@ class SurveyDistribution(BaseModel, table=True):
         nullable=True,
     )
     token_prefix: str | None = Field(default=None, index=True, max_length=8, nullable=True)
-    expires_at: datetime = Field(index=True, nullable=False)
+    expires_at: datetime | None = Field(default=None, index=True, nullable=True)
     revoked_at: datetime | None = Field(default=None, nullable=True)

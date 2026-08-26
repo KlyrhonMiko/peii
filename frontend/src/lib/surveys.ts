@@ -9,9 +9,10 @@ export interface Distribution {
   surveyId: string
   status: "active" | "suspended" | "expired" | "revoked"
   isActive: boolean
-  expiresAt: string
+  expiresAt: string | null
   revokedAt: string | null
   createdAt: string
+  token: string
 }
 
 export interface DistributionSecret extends Distribution {
@@ -140,9 +141,10 @@ export interface ApiDistribution {
   survey_id: string
   status: "active" | "suspended" | "expired" | "revoked"
   is_active: boolean
-  expires_at: string
+  expires_at: string | null
   revoked_at: string | null
   created_at: string
+  token: string
 }
 
 export interface ApiDistributionSecret extends ApiDistribution {
@@ -265,6 +267,7 @@ export function mapDistribution(api: ApiDistribution): Distribution {
     expiresAt: api.expires_at,
     revokedAt: api.revoked_at,
     createdAt: api.created_at,
+    token: api.token,
   }
 }
 
@@ -467,7 +470,7 @@ export async function deleteQuestion(
 
 export async function createDistribution(
   surveyUuid: string,
-  expiresAt: string,
+  expiresAt: string | null,
 ): Promise<DistributionSecret> {
   const res = await api.post<ApiDistributionSecret>(
     `/surveys/${surveyUuid}/distributions/`,
@@ -495,7 +498,7 @@ export async function revokeDistribution(
 export async function rotateDistribution(
   surveyUuid: string,
   distributionId: string,
-  expiresAt: string,
+  expiresAt: string | null,
 ): Promise<DistributionSecret> {
   const res = await api.post<ApiDistributionSecret>(
     `/surveys/${surveyUuid}/distributions/${distributionId}/rotate`,

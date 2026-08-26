@@ -28,6 +28,7 @@ def _distribution_read(
         expires_at=distribution.expires_at,
         revoked_at=distribution.revoked_at,
         created_at=distribution.created_at,
+        token=distribution.token,
     )
 
 
@@ -36,7 +37,7 @@ def _distribution_secret_read(
 ) -> SurveyDistributionSecretRead:
     distribution = secret_result.distribution
     return SurveyDistributionSecretRead(
-        **_distribution_read(distribution, survey_status).model_dump(), token=secret_result.token
+        **_distribution_read(distribution, survey_status).model_dump()
     )
 
 

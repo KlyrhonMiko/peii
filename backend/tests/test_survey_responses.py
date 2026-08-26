@@ -652,7 +652,7 @@ async def test_aggregate_streams_answer_payloads_in_bounded_batches(monkeypatch)
         def __init__(self) -> None:
             self.batch_sizes: list[int] = []
 
-        def scalars(self) -> FakeStream:
+        def scalars(self) -> "FakeStream":
             return self
 
         async def close(self) -> None:

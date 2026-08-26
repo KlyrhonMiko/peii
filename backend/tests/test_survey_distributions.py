@@ -26,10 +26,10 @@ def configured_distribution_expiry(monkeypatch):
     )
 
 
-def test_distribution_expiry_is_required_in_model_and_read_contract():
+def test_distribution_expiry_is_optional_in_model_and_read_contract():
     table = getattr(SurveyDistribution, "__table__")
-    assert table.c.expires_at.nullable is False
-    assert SurveyDistributionRead.model_fields["expires_at"].is_required()
+    assert table.c.expires_at.nullable is True
+    assert not SurveyDistributionRead.model_fields["expires_at"].is_required()
 
 
 def test_distribution_token_compatibility_columns_are_nullable_and_constrained():
@@ -82,7 +82,7 @@ async def test_create_and_list_distributions(client):
     list_resp = await client.get(f"/api/v1/surveys/{survey_uuid}/distributions/")
     assert list_resp.status_code == 200
     assert list_resp.json()["data"][0]["status"] == "active"
-    assert "token" not in list_resp.json()["data"][0]
+    assert "token" in list_resp.json()["data"][0]
 
     stored = await _stored_distribution(dist_resp.json()["data"]["id"])
     token = dist_resp.json()["data"]["token"]
@@ -122,7 +122,7 @@ async def test_create_and_rotate_return_secret_once_without_listing_it(client):
     distribution_id = created.json()["data"]["id"]
 
     listed = await client.get(f"/api/v1/surveys/{survey_uuid}/distributions/")
-    assert "token" not in listed.json()["data"][0]
+    assert "token" in listed.json()["data"][0]
 
     rotated = await client.post(
         f"/api/v1/surveys/{survey_uuid}/distributions/{distribution_id}/rotate",
@@ -130,7 +130,7 @@ async def test_create_and_rotate_return_secret_once_without_listing_it(client):
     )
     second_token = rotated.json()["data"]["token"]
     assert first_token != second_token
-    assert "token" not in (
+    assert "token" in (
         await client.get(f"/api/v1/surveys/{survey_uuid}/distributions/")
     ).json()["data"][0]
 

@@ -40,7 +40,9 @@ def _public_token_error() -> AppError:
     )
 
 
-def _normalize_expiry(expires_at: datetime) -> datetime:
+def _normalize_expiry(expires_at: datetime | None) -> datetime | None:
+    if expires_at is None:
+        return None
     normalized = expires_at.astimezone(UTC).replace(tzinfo=None)
     now = utc_now()
     if normalized <= now:
@@ -64,7 +66,7 @@ def get_distribution_status(
     current_time = now or utc_now()
     if distribution.is_deleted or distribution.revoked_at is not None:
         return "revoked"
-    if distribution.expires_at <= current_time:
+    if distribution.expires_at is not None and distribution.expires_at <= current_time:
         return "expired"
     if survey_status != "Active":
         return "suspended"
