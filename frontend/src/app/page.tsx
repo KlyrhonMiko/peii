@@ -10,6 +10,8 @@ import {
   Shield,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { LoginModal } from "@/components/LoginModal";
+import { ForgotPasswordModal } from "@/components/ForgotPasswordModal";
 import { motion, useReducedMotion } from "motion/react";
 
 export default function Home() {
@@ -34,11 +36,7 @@ export default function Home() {
           >
             Documentation
           </Button>
-          <Link href="/login?returnTo=/researcher/dashboard">
-            <Button className="h-9 px-5 text-[14px] font-semibold bg-slate-900 text-white hover:bg-slate-800 rounded-lg shadow-sm transition-all">
-              Login
-            </Button>
-          </Link>
+          <LoginModal />
         </div>
       </nav>
 
@@ -70,7 +68,7 @@ export default function Home() {
               transition={{ duration: 0.5, delay: 0.2, ease: "easeOut" }}
               className="flex flex-col sm:flex-row gap-4 mt-12 w-full sm:w-auto"
             >
-              <Link href="/login?returnTo=/researcher/dashboard" className="w-full sm:w-auto">
+              <LoginModal>
                 <Button
                   size="lg"
                   className="w-full sm:w-auto h-14 px-8 text-[15px] bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm transition-all rounded-xl font-semibold group"
@@ -78,7 +76,7 @@ export default function Home() {
                   Researcher Portal
                   <ArrowRight className="ml-2 h-5 w-5 transition-transform group-hover:translate-x-1" />
                 </Button>
-              </Link>
+              </LoginModal>
 
               <Link href="/survey/demo-token" className="w-full sm:w-auto">
                 <Button
@@ -226,6 +224,7 @@ export default function Home() {
         </section>
 
       </main>
+      <ForgotPasswordModal />
     </div>
   );
 }

@@ -1,10 +1,15 @@
 "use server"
 
-import { redirect } from "next/navigation"
 
-export async function requestPasswordRecoveryAction(formData: FormData) {
+export type ForgotPasswordState = {
+  sent?: boolean;
+  error?: "invalid" | "retry-later";
+  retryAfter?: number | null;
+} | null
+
+export async function requestPasswordRecoveryAction(state: ForgotPasswordState, formData: FormData): Promise<ForgotPasswordState> {
   const email = formData.get("email")
-  if (typeof email !== "string") redirect("/forgot-password?error=invalid")
+  if (typeof email !== "string") return { error: "invalid" }
   const backendUrl = process.env.BACKEND_INTERNAL_URL
   if (!backendUrl) throw new Error("BACKEND_INTERNAL_URL is not configured")
   const response = await fetch(`${backendUrl}/auth/password/recover`, {
@@ -14,12 +19,10 @@ export async function requestPasswordRecoveryAction(formData: FormData) {
     cache: "no-store",
   })
   if (!response.ok) {
-    const params = new URLSearchParams({ error: "retry-later" })
     const retryAfter = parseRetryAfter(response.headers.get("Retry-After"))
-    if (retryAfter !== null) params.set("retryAfter", String(retryAfter))
-    redirect(`/forgot-password?${params.toString()}`)
+    return { error: "retry-later", retryAfter }
   }
-  redirect("/forgot-password?sent=1")
+  return { sent: true }
 }
 
 function parseRetryAfter(value: string | null): number | null {

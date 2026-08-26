@@ -5,11 +5,16 @@ import { redirect } from "next/navigation"
 import { safeInternalPath } from "@/lib/safe-redirect"
 import { createSupabaseServerClient } from "@/lib/supabase/server"
 
-export async function loginAction(formData: FormData) {
+export type LoginState = {
+  error?: "invalid" | "rate-limited" | "unavailable";
+  retryAfter?: number | null;
+} | null
+
+export async function loginAction(state: LoginState, formData: FormData): Promise<LoginState> {
   const identifier = formData.get("identifier")
   const password = formData.get("password")
   if (typeof identifier !== "string" || typeof password !== "string") {
-    redirect("/login?error=invalid")
+    return { error: "invalid" }
   }
 
   const backendUrl = process.env.BACKEND_INTERNAL_URL
@@ -23,13 +28,15 @@ export async function loginAction(formData: FormData) {
     cache: "no-store",
   })
   if (response.status === 429) {
-    redirectLoginError("rate-limited", response)
+    const retryAfter = parseRetryAfter(response.headers.get("Retry-After"))
+    return { error: "rate-limited", retryAfter }
   }
   if (response.status === 503) {
-    redirectLoginError("unavailable", response)
+    const retryAfter = parseRetryAfter(response.headers.get("Retry-After"))
+    return { error: "unavailable", retryAfter }
   }
   if (!response.ok) {
-    redirect("/login?error=invalid")
+    return { error: "invalid" }
   }
   const body: unknown = await response.json()
   if (!isSessionEnvelope(body)) {
@@ -39,8 +46,9 @@ export async function loginAction(formData: FormData) {
   const supabase = await createSupabaseServerClient()
   const { error } = await supabase.auth.setSession(body.data)
   if (error) {
-    redirect("/login?error=invalid")
+    return { error: "invalid" }
   }
+  
   redirect(safeInternalPath(formData.get("returnTo")))
 }
 
@@ -58,7 +66,7 @@ export async function logoutAction() {
     if (!response.ok) throw new Error("Backend logout failed")
   }
   await supabase.auth.signOut()
-  redirect("/login")
+  redirect("/")
 }
 
 function isSessionEnvelope(
@@ -74,13 +82,6 @@ function isSessionEnvelope(
     typeof data.access_token === "string" &&
     typeof data.refresh_token === "string"
   )
-}
-
-function redirectLoginError(error: "rate-limited" | "unavailable", response: Response): never {
-  const params = new URLSearchParams({ error })
-  const retryAfter = parseRetryAfter(response.headers.get("Retry-After"))
-  if (retryAfter !== null) params.set("retryAfter", String(retryAfter))
-  redirect(`/login?${params.toString()}`)
 }
 
 function parseRetryAfter(value: string | null): number | null {

@@ -57,7 +57,6 @@ export function AdminRoleManagement({ canManage, canManageUsers }: AdminRoleMana
 
   useEffect(() => {
     refresh()
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const saveNewRole = (input: RoleInput) => {

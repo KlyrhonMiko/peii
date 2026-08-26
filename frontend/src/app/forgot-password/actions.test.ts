@@ -30,24 +30,18 @@ describe("requestPasswordRecoveryAction", () => {
   it("does not present rate limiting as successful delivery", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response(429, { "Retry-After": "45" })))
 
-    await expect(requestPasswordRecoveryAction(recoveryForm())).rejects.toThrow(
-      "REDIRECT:/forgot-password?error=retry-later&retryAfter=45",
-    )
+    await expect(requestPasswordRecoveryAction(null, recoveryForm())).resolves.toEqual({ error: "retry-later", retryAfter: 45 })
   })
 
   it("does not present temporary unavailability as successful delivery", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response(503)))
 
-    await expect(requestPasswordRecoveryAction(recoveryForm())).rejects.toThrow(
-      "REDIRECT:/forgot-password?error=retry-later",
-    )
+    await expect(requestPasswordRecoveryAction(null, recoveryForm())).resolves.toEqual({ error: "retry-later", retryAfter: null })
   })
 
   it("does not present provider failures as successful delivery", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response(502)))
 
-    await expect(requestPasswordRecoveryAction(recoveryForm())).rejects.toThrow(
-      "REDIRECT:/forgot-password?error=retry-later",
-    )
+    await expect(requestPasswordRecoveryAction(null, recoveryForm())).resolves.toEqual({ error: "retry-later", retryAfter: null })
   })
 })

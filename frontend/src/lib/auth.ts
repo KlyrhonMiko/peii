@@ -21,13 +21,13 @@ export async function requirePortalUser(permission?: string): Promise<PortalUser
   const supabase = await createSupabaseServerClient()
   const { data: claims } = await supabase.auth.getClaims()
   const { data: session } = await supabase.auth.getSession()
-  if (!claims?.claims || !session.session?.access_token) redirect("/login")
+  if (!claims?.claims || !session.session?.access_token) redirect("/?login=true")
 
   const response = await fetch(`${backendUrl}/auth/me`, {
     headers: { Authorization: `Bearer ${session.session.access_token}` },
     cache: "no-store",
   })
-  if (response.status === 401) redirect("/login")
+  if (response.status === 401) redirect("/?login=true")
   if (!response.ok) redirect("/access-denied")
   const payload: unknown = await response.json()
   if (!isPortalUserEnvelope(payload)) throw new Error("Backend returned an invalid current-user response")

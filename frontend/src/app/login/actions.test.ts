@@ -43,16 +43,14 @@ describe("loginAction", () => {
   it("keeps ordinary credential failures generic", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response(401)))
 
-    await expect(loginAction(loginForm())).rejects.toThrow("REDIRECT:/login?error=invalid")
+    await expect(loginAction(null, loginForm())).resolves.toEqual({ error: "invalid" })
   })
 
   it("distinguishes rate limiting without forwarding client IP headers", async () => {
     const fetchMock = vi.fn().mockResolvedValue(response(429, { "Retry-After": "30" }))
     vi.stubGlobal("fetch", fetchMock)
 
-    await expect(loginAction(loginForm())).rejects.toThrow(
-      "REDIRECT:/login?error=rate-limited&retryAfter=30",
-    )
+    await expect(loginAction(null, loginForm())).resolves.toEqual({ error: "rate-limited", retryAfter: 30 })
     const request = fetchMock.mock.calls[0]?.[1]
     expect(request).toBeDefined()
     expect(request?.headers).toEqual({ "Content-Type": "application/json" })
@@ -61,6 +59,6 @@ describe("loginAction", () => {
   it("distinguishes temporary unavailability without account-specific details", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response(503)))
 
-    await expect(loginAction(loginForm())).rejects.toThrow("REDIRECT:/login?error=unavailable")
+    await expect(loginAction(null, loginForm())).resolves.toEqual({ error: "unavailable", retryAfter: null })
   })
 })
