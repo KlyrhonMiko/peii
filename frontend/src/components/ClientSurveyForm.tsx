@@ -117,17 +117,15 @@ export function ClientSurveyForm({
 
   if (submitted) {
     return (
-      <div className="min-h-screen bg-[#f0f2f5] flex items-center justify-center">
-        <div className="mx-auto w-full max-w-[480px] px-4">
-          <div className="overflow-hidden rounded-xl border-t-[6px] border-t-emerald-500 bg-white shadow-sm ring-1 ring-black/[0.04] px-7 pb-8 pt-7 text-center">
-            <div className="mx-auto mb-4 flex size-14 items-center justify-center rounded-full bg-emerald-50">
-              <CheckCircle className="size-7 text-emerald-500" />
-            </div>
-            <h2 className="text-xl font-semibold tracking-tight text-slate-900">Response Submitted</h2>
-            <p className="mt-2 text-[14px] leading-relaxed text-slate-500">
-              Thank you for completing the survey. Your feedback helps us improve the quality of education at Pasig City.
-            </p>
+      <div className="min-h-screen bg-zinc-50 flex items-center justify-center py-12 px-4">
+        <div className="w-full max-w-md text-center">
+          <div className="mx-auto mb-6 flex size-12 items-center justify-center rounded-full bg-zinc-100">
+            <CheckCircle className="size-6 text-zinc-900" />
           </div>
+          <h2 className="text-2xl font-semibold tracking-tight text-zinc-900">Response Submitted</h2>
+          <p className="mt-3 text-[15px] leading-relaxed text-zinc-500">
+            Thank you for completing the survey. Your feedback has been recorded.
+          </p>
         </div>
       </div>
     )
@@ -296,57 +294,45 @@ export function ClientSurveyForm({
   }
 
   return (
-    <div className="min-h-screen bg-[#f0f2f5]">
-      <div className="h-[240px] bg-gradient-to-br from-indigo-600 via-indigo-500 to-violet-500" />
-
+    <div className="min-h-screen bg-zinc-50 py-12 md:py-24">
       <fieldset disabled={submitting} aria-busy={submitting} className="contents">
         <form onSubmit={onSubmit} noValidate>
-          <div className={`mx-auto w-full max-w-[640px] px-4 -mt-[200px] pb-12 ${submitting ? "pointer-events-none opacity-90" : ""}`}>
-            {/* Survey header card */}
-            <div className="relative mb-4 overflow-hidden rounded-xl border-t-[6px] border-t-indigo-500 bg-white shadow-sm ring-1 ring-black/[0.04]">
-              <div className="px-7 pb-6 pt-7">
-                <div className="mb-4 flex items-center gap-2">
-                  <div className="flex size-9 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600">
-                    <ClipboardList className="size-[18px]" />
-                  </div>
-                  <span className="text-xs font-semibold uppercase tracking-wider text-indigo-600">Alumni Survey</span>
-                </div>
-                <h1 className="text-2xl font-semibold tracking-tight text-slate-900">{title}</h1>
-                {description && (
-                  <p className="mt-2 max-w-md text-[15px] leading-relaxed text-slate-500">{description}</p>
-                )}
-                <p className="mt-3 text-[11px] text-slate-400">
-                  {Object.keys(answers).length} of {sections.reduce((total, current) => total + current.questions.length, 0)} answered
-                </p>
-              </div>
-            </div>
-
-            {/* Progress bar */}
-            <div className="mb-4">
-              <div className="mb-2 flex items-center justify-between text-xs text-slate-400">
-                <span>Section {sectionIdx + 1} of {sections.length}</span>
-                <span>{Math.round(((sectionIdx + 1) / sections.length) * 100)}% complete</span>
-              </div>
-              <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-200">
-                <div
-                  className="h-full rounded-full bg-indigo-500 transition-all duration-300"
-                  style={{ width: `${((sectionIdx + 1) / sections.length) * 100}%` }}
-                />
-              </div>
-            </div>
-
-            {/* Section label */}
-            <div className="mb-4 rounded-xl border-l-4 border-l-violet-500 bg-white px-7 py-5 shadow-sm ring-1 ring-black/[0.04]">
-              <h2 className="text-lg font-semibold text-slate-900">
-                {section.title || `Section ${sectionIdx + 1}`}
-              </h2>
-              {section.description && (
-                <p className="mt-1 text-[14px] leading-relaxed text-slate-500">{section.description}</p>
+          <div className={`mx-auto w-full max-w-[640px] px-4 ${submitting ? "pointer-events-none opacity-90" : ""}`}>
+            
+            {/* Minimal Header */}
+            <div className="mb-12">
+              <h1 className="text-3xl font-semibold tracking-tight text-zinc-900">{title}</h1>
+              {description && (
+                <p className="mt-3 text-[15px] leading-relaxed text-zinc-500">{description}</p>
               )}
             </div>
 
-            {/* Questions */}
-            <div className="space-y-3">
+            {/* Subtle Progress Indicator */}
+            <div className="mb-10">
+              <div className="flex items-end justify-between text-[13px] font-medium text-zinc-500">
+                <div className="flex flex-col gap-1">
+                  <span className="text-zinc-900">{section.title || `Section ${sectionIdx + 1}`}</span>
+                  <span className="text-[12px] text-zinc-400 font-normal">
+                    {Object.keys(answers).length} of {sections.reduce((total, current) => total + current.questions.length, 0)} answered
+                  </span>
+                </div>
+                <span>{Math.round(((sectionIdx + 1) / sections.length) * 100)}%</span>
+              </div>
+              <div className="mt-3 h-px w-full bg-zinc-200">
+                <div
+                  className="h-full bg-zinc-900 transition-all duration-300"
+                  style={{ width: `${((sectionIdx + 1) / sections.length) * 100}%` }}
+                />
+              </div>
+              {section.description && (
+                <p className="mt-6 text-[15px] leading-relaxed text-zinc-600">
+                  {section.description}
+                </p>
+              )}
+            </div>
+
+            {/* Questions Container */}
+            <div className="space-y-6">
               {section.questions.map((question) => (
                 <QuestionInput
                   key={question.id}
@@ -360,43 +346,38 @@ export function ClientSurveyForm({
             </div>
 
             {/* Consent card */}
-            <SurveyConsentCard
-              consent={consent}
-              consentAccepted={consentAccepted}
-              consentTouched={consentTouched}
-              staleConsent={staleConsent}
-              onConsentChange={(accepted) => {
-                setConsentAccepted(accepted)
-                setConsentTouched(true)
-              }}
-            />
+            <div className="mt-6">
+              <SurveyConsentCard
+                consent={consent}
+                consentAccepted={consentAccepted}
+                consentTouched={consentTouched}
+                staleConsent={staleConsent}
+                onConsentChange={(accepted) => {
+                  setConsentAccepted(accepted)
+                  setConsentTouched(true)
+                }}
+              />
+            </div>
 
-            {/* Status messages */}
-            {submitting && (
-              <div className="mt-5 flex items-center gap-2 text-xs text-slate-500" role="status" aria-live="polite">
-                <Loader2 className="size-3.5 animate-spin" />
-                <span>Submitting your response...</span>
-              </div>
-            )}
             {submitError && (
-              <div className="mt-5 flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2.5 text-sm text-red-700" role="alert" aria-live="assertive">
-                <AlertCircle className="mt-0.5 size-4 shrink-0" />
+              <div className="mt-6 flex items-center gap-2 text-[13.5px] font-medium text-red-500" role="alert" aria-live="assertive">
+                <AlertCircle className="size-4 shrink-0" />
                 <span>{submitError}</span>
               </div>
             )}
 
             {/* Navigation */}
-            <div className="mt-6 flex items-center justify-between">
-              <div className="text-xs text-slate-400">Consent notice version {consent.version}</div>
-              <div className="flex gap-2">
+            <div className="mt-10 flex items-center justify-between border-t border-zinc-200 pt-6">
+              <div className="text-[12px] text-zinc-400">Consent version {consent.version}</div>
+              <div className="flex gap-3">
                 {!isFirst && (
-                  <Button type="button" variant="outline" onClick={goPrev} className="h-10 gap-2 rounded-lg px-5 text-sm">
+                  <Button type="button" variant="outline" onClick={goPrev} className="h-10 gap-2 rounded-lg border-zinc-200 px-5 text-sm text-zinc-700 hover:bg-zinc-50">
                     <ArrowLeft className="size-4" data-icon="inline-start" />
                     Previous
                   </Button>
                 )}
                 {!isLast ? (
-                  <Button type="button" onClick={goNext} className="h-10 gap-2 rounded-lg bg-indigo-600 px-6 text-sm font-medium text-white shadow-sm transition-all hover:bg-indigo-700 hover:shadow-md">
+                  <Button type="button" onClick={goNext} className="h-10 gap-2 rounded-lg bg-zinc-900 px-6 text-sm font-medium text-white shadow-sm transition-all hover:bg-zinc-800">
                     Next
                     <ArrowRight className="size-4" data-icon="inline-end" />
                   </Button>
@@ -404,7 +385,7 @@ export function ClientSurveyForm({
                   <Button
                     type="submit"
                     disabled={submitting || !consentAccepted || staleConsent || retryBlocked}
-                    className="h-10 gap-2 rounded-lg bg-emerald-600 px-6 text-sm font-medium text-white shadow-sm transition-all hover:bg-emerald-700 hover:shadow-md"
+                    className="h-10 gap-2 rounded-lg bg-zinc-900 px-6 text-sm font-medium text-white shadow-sm transition-all hover:bg-zinc-800 disabled:opacity-50"
                   >
                     {submitting ? (
                       <Loader2 className="size-4 animate-spin" />
@@ -419,7 +400,7 @@ export function ClientSurveyForm({
               </div>
             </div>
             {retryBlocked && (
-              <p className="mt-2 text-right text-xs text-slate-500" role="status" aria-live="polite">
+              <p className="mt-3 text-right text-[13px] text-zinc-500" role="status" aria-live="polite">
                 Please wait {retryRemaining} seconds before trying again.
               </p>
             )}
@@ -429,18 +410,27 @@ export function ClientSurveyForm({
 
       {/* Validation alert dialog */}
       <Dialog open={validationAlertOpen} onOpenChange={(open) => !submitting && setValidationAlertOpen(open)}>
-        <DialogContent className="sm:max-w-[400px]">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-rose-600">
+        <DialogContent className="max-w-md border-0 rounded-2xl shadow-[0_16px_40px_-12px_rgba(0,0,0,0.1)] p-6" showCloseButton={true}>
+          <div className="flex flex-col items-center gap-4 text-center pb-2">
+            <div className="flex size-12 items-center justify-center rounded-full bg-red-100 ring-[6px] ring-red-50 text-red-600 mb-1">
               <AlertCircle className="size-5" />
-              Missing Information
-            </DialogTitle>
-            <DialogDescription className="pt-2 text-[14.5px] leading-relaxed text-slate-600">
-              Please complete all required questions before proceeding to the next section. Missing fields have been highlighted in red.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter className="mt-2">
-            <Button type="button" disabled={submitting} onClick={() => setValidationAlertOpen(false)} className="border-0 bg-indigo-600 text-white shadow-sm hover:bg-indigo-700">
+            </div>
+            <DialogHeader className="flex flex-col items-center">
+              <DialogTitle className="text-xl font-semibold text-slate-900 tracking-tight">
+                Missing Information
+              </DialogTitle>
+              <DialogDescription className="text-[15px] text-slate-500 mt-2 leading-relaxed max-w-[95%] text-center">
+                Please complete all required questions before proceeding to the next section.
+              </DialogDescription>
+            </DialogHeader>
+          </div>
+          <DialogFooter className="flex flex-col-reverse sm:flex-row sm:justify-center gap-3 sm:space-x-0 w-full mt-4">
+            <Button
+              type="button"
+              disabled={submitting}
+              onClick={() => setValidationAlertOpen(false)}
+              className="bg-zinc-900 text-white hover:bg-zinc-800 font-medium w-full sm:w-auto h-11 px-8 rounded-xl active:scale-[0.97] transition-all duration-200 ease-out"
+            >
               Got it
             </Button>
           </DialogFooter>

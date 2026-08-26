@@ -1,7 +1,9 @@
 "use client"
 
-import { type ComponentType } from "react"
+import { type ComponentType, useState } from "react"
 import { Button } from "@/components/ui/button"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { cn } from "@/lib/utils"
 import {
   Star,
   ArrowUpDown,
@@ -15,6 +17,8 @@ import {
   Circle,
   ArrowLeft,
   ArrowRight,
+  ChevronDown,
+  Check,
 } from "lucide-react"
 import type { PublicAnswerValue, PublicSurveyQuestion } from "@/lib/public-survey"
 
@@ -59,6 +63,7 @@ export function QuestionInput({
   onAnswer,
   onToggleMultiple,
 }: QuestionInputProps) {
+  const [singleChoiceOpen, setSingleChoiceOpen] = useState(false)
   const errorId = `${question.id}-error`
   const hasError = Boolean(error)
   const fieldProps = {
@@ -67,47 +72,83 @@ export function QuestionInput({
   } as const
 
   return (
-    <fieldset
+    <div
+      role="group"
+      aria-labelledby={`q-title-${question.id}`}
       aria-invalid={hasError}
       aria-describedby={hasError ? errorId : undefined}
-      className={`rounded-xl bg-white px-7 py-5 shadow-sm ring-1 transition-all ${hasError ? "bg-red-50/10 ring-red-400" : "ring-black/[0.04]"}`}
+      className={`rounded-2xl bg-white p-6 sm:p-8 transition-all ${hasError ? "border border-red-300" : "border border-zinc-200 shadow-sm"}`}
     >
-      <legend className="mb-4 block text-sm font-medium text-slate-800">
-        {question.question_text}
-        {question.is_required && <span className="ml-1 text-red-500" aria-hidden="true">*</span>}
-        {question.is_required && <span className="sr-only"> (required)</span>}
-      </legend>
-      <div className="mb-1 flex items-center gap-2">
+      <div className="mb-3 flex items-center gap-2 text-zinc-400">
         {(() => {
           const Icon = TYPE_ICON[question.question_type] ?? Type
-          return <Icon className="size-4 text-indigo-500" />
+          return <Icon className="size-[14px]" />
         })()}
-        <span className="text-[11px] font-medium uppercase tracking-wider text-indigo-500">
+        <span className="text-[11px] font-medium uppercase tracking-widest">
           {TYPE_LABEL[question.question_type] ?? question.question_type}
         </span>
       </div>
+      
+      <div id={`q-title-${question.id}`} className="mb-6 text-[16px] font-medium leading-relaxed text-zinc-900">
+        {question.question_text}
+        {question.is_required && <span className="ml-1 text-red-500" aria-hidden="true">*</span>}
+        {question.is_required && <span className="sr-only"> (required)</span>}
+      </div>
+      
       {hasError && (
-        <p id={errorId} role="alert" className="mb-4 rounded-lg border border-red-100 bg-red-50 px-3 py-2 text-[13px] font-semibold text-red-600">
+        <p id={errorId} role="alert" className="mb-5 text-[13.5px] font-medium text-red-500">
           {error}
         </p>
       )}
 
       {/* Single Choice */}
       {question.question_type === "single_choice" && (
-        <select
-          id={`q-${question.id}`}
-          name={`q-${question.id}`}
-          value={(answer as string | undefined) ?? ""}
-          onChange={(event) => onAnswer(question.id, event.target.value)}
-          aria-label={question.question_text}
-          {...fieldProps}
-          className="h-11 w-full rounded-lg border border-slate-200 bg-white px-3.5 text-sm text-slate-700 outline-none transition-colors focus:border-indigo-600 focus:ring-2 focus:ring-indigo-500/10"
-        >
-          <option value="">Select an option…</option>
-          {(question.options ?? []).map((option) => (
-            <option key={option} value={option}>{option}</option>
-          ))}
-        </select>
+        <Popover open={singleChoiceOpen} onOpenChange={setSingleChoiceOpen}>
+          <PopoverTrigger
+            render={
+              <button
+                type="button"
+                id={`q-${question.id}`}
+                aria-label={question.question_text}
+                {...fieldProps}
+                className={cn(
+                  "flex h-11 w-full items-center justify-between rounded-lg border border-zinc-200 bg-zinc-50/50 px-4 text-[14px] text-zinc-900 outline-none transition-all hover:bg-zinc-50 focus:border-zinc-900 focus:bg-white focus:ring-4 focus:ring-zinc-900/5",
+                  !(answer as string | undefined) && "text-zinc-500"
+                )}
+              >
+                <span>{(answer as string | undefined) || "Select an option…"}</span>
+                <ChevronDown className="size-4 text-zinc-400 opacity-60" />
+              </button>
+            }
+          />
+          <PopoverContent
+            align="start"
+            className="flex w-(--anchor-width) min-w-[200px] flex-col gap-0.5 rounded-lg border border-slate-200 bg-white p-1 shadow-md animate-in fade-in-0 zoom-in-95 duration-100"
+          >
+            {(question.options ?? []).map((option) => {
+              const isSelected = answer === option
+              return (
+                <button
+                  key={option}
+                  type="button"
+                  onClick={() => {
+                    onAnswer(question.id, option)
+                    setSingleChoiceOpen(false)
+                  }}
+                  className={cn(
+                    "flex w-full cursor-pointer items-center justify-between rounded-md px-2.5 py-1.5 text-left text-[13px] font-medium transition-colors outline-none",
+                    isSelected
+                      ? "bg-zinc-100 font-semibold text-zinc-900"
+                      : "text-zinc-600 hover:bg-zinc-50 hover:text-zinc-900"
+                  )}
+                >
+                  <span>{option}</span>
+                  {isSelected && <Check className="size-3.5 text-zinc-900" />}
+                </button>
+              )
+            })}
+          </PopoverContent>
+        </Popover>
       )}
 
       {/* Multiple Choice */}
@@ -118,7 +159,7 @@ export function QuestionInput({
             return (
               <label
                 key={option}
-                className={`flex cursor-pointer items-center gap-3 rounded-lg border px-3.5 py-3 text-sm transition-all hover:border-indigo-200 hover:bg-slate-50 ${selected ? "border-indigo-200 bg-indigo-50/20 text-indigo-900" : "border-slate-100 bg-slate-50/20 text-slate-700"}`}
+                className={`flex cursor-pointer items-center gap-3.5 rounded-xl border px-4 py-3.5 transition-all ${selected ? "border-zinc-900 bg-zinc-50 text-zinc-900" : "border-zinc-200 bg-white text-zinc-600 hover:border-zinc-300 hover:bg-zinc-50/50"}`}
               >
                 <input
                   type="checkbox"
@@ -126,9 +167,9 @@ export function QuestionInput({
                   onChange={() => onToggleMultiple(question.id, option)}
                   aria-label={`${question.question_text}: ${option}`}
                   {...fieldProps}
-                  className="size-4 accent-indigo-600"
+                  className="size-[18px] cursor-pointer rounded-sm accent-zinc-900"
                 />
-                <span className={selected ? "font-medium" : ""}>{option}</span>
+                <span className={`text-[14px] ${selected ? "font-medium" : ""}`}>{option}</span>
               </label>
             )
           })}
@@ -148,7 +189,7 @@ export function QuestionInput({
           }}
           aria-label={question.question_text}
           {...fieldProps}
-          className="mt-2 w-full resize-none border-b border-slate-200 bg-transparent pb-1.5 pt-1 text-sm font-normal outline-none transition-colors placeholder:text-slate-400 focus:border-indigo-600"
+          className="w-full resize-none border-b border-zinc-200 bg-transparent pb-2 pt-1 text-[15px] font-normal text-zinc-900 outline-none transition-colors placeholder:text-zinc-400 focus:border-zinc-900"
           placeholder="Your answer"
         />
       )}
@@ -162,7 +203,7 @@ export function QuestionInput({
           onChange={(event) => onAnswer(question.id, event.target.value ? Number(event.target.value) : "")}
           aria-label={question.question_text}
           {...fieldProps}
-          className="mt-2 w-full max-w-[200px] border-b border-slate-200 bg-transparent pb-1.5 pt-1 text-sm font-normal outline-none transition-colors placeholder:text-slate-400 focus:border-indigo-600"
+          className="w-full max-w-[240px] border-b border-zinc-200 bg-transparent pb-2 pt-1 text-[15px] font-normal text-zinc-900 outline-none transition-colors placeholder:text-zinc-400 focus:border-zinc-900"
           placeholder="Your answer"
         />
       )}
@@ -175,15 +216,15 @@ export function QuestionInput({
         const maxLabel = typeof question.config?.max_label === "string" ? question.config.max_label : undefined
         const range = Array.from({ length: max - min + 1 }, (_, index) => min + index)
         return (
-          <div className="flex flex-col items-center justify-center rounded-xl bg-slate-50/30 px-4 py-4">
-            <div className="flex w-full max-w-[500px] items-end justify-between gap-2.5">
-              {minLabel && <span className="mb-2 max-w-[120px] text-right text-xs font-medium leading-tight text-slate-500">{minLabel}</span>}
-              <div className="flex flex-1 items-start justify-center gap-2 sm:gap-4">
+          <div className="flex flex-col items-center justify-center rounded-xl bg-zinc-50/50 px-4 py-6 border border-zinc-100">
+            <div className="flex w-full max-w-[500px] items-end justify-between gap-3">
+              {minLabel && <span className="mb-[18px] max-w-[100px] text-right text-[12px] font-medium leading-snug text-zinc-500">{minLabel}</span>}
+              <div className="flex flex-1 items-start justify-center gap-2 sm:gap-6">
                 {range.map((number) => {
                   const selected = answer === number
                   return (
-                    <label key={number} className="group flex max-w-[70px] flex-1 cursor-pointer flex-col items-center gap-1.5">
-                      <span className="text-xs font-semibold text-slate-500 group-hover:text-indigo-600">{number}</span>
+                    <label key={number} className="group flex flex-1 cursor-pointer flex-col items-center gap-2.5">
+                      <span className={`text-[13px] font-medium transition-colors ${selected ? "text-zinc-900" : "text-zinc-400 group-hover:text-zinc-600"}`}>{number}</span>
                       <input
                         type="radio"
                         name={`scale-${question.id}`}
@@ -192,10 +233,10 @@ export function QuestionInput({
                         onChange={() => onAnswer(question.id, number)}
                         aria-label={`${question.question_text}: ${number}`}
                         {...fieldProps}
-                        className="size-4 accent-indigo-600"
+                        className="size-4 cursor-pointer accent-zinc-900"
                       />
                       {question.options && question.options[number - min] && (
-                        <span className="mt-1 text-center text-[10px] font-medium leading-tight text-slate-400">
+                        <span className={`mt-1 text-center text-[11px] leading-tight transition-colors ${selected ? "text-zinc-900 font-medium" : "text-zinc-400"}`}>
                           {question.options[number - min]}
                         </span>
                       )}
@@ -203,7 +244,7 @@ export function QuestionInput({
                   )
                 })}
               </div>
-              {maxLabel && <span className="mb-2 max-w-[120px] text-left text-xs font-medium leading-tight text-slate-500">{maxLabel}</span>}
+              {maxLabel && <span className="mb-[18px] max-w-[100px] text-left text-[12px] font-medium leading-snug text-zinc-500">{maxLabel}</span>}
             </div>
           </div>
         )
@@ -224,19 +265,19 @@ export function QuestionInput({
           onAnswer(question.id, nextOrder)
         }
         return (
-          <div className="space-y-2.5">
-            <p className="mb-1 text-[11px] italic text-slate-400">Rank the choices using the arrow buttons:</p>
+          <div className="space-y-3">
+            <p className="mb-2 text-[13px] text-zinc-500">Rank the choices using the arrows:</p>
             {currentOrder.map((option, index) => (
-              <div key={option} className="flex items-center justify-between gap-3 rounded-lg border border-slate-100 bg-white p-3 shadow-sm transition-all hover:border-indigo-200">
-                <div className="flex items-center gap-3">
-                  <span className="flex size-6 items-center justify-center rounded bg-slate-100 text-xs font-bold text-slate-500">{index + 1}</span>
-                  <span className="text-sm font-medium text-slate-700">{option}</span>
+              <div key={option} className="flex items-center justify-between gap-3 rounded-xl border border-zinc-200 bg-white p-3.5 transition-all hover:border-zinc-300 hover:shadow-sm">
+                <div className="flex items-center gap-3.5">
+                  <span className="flex size-7 items-center justify-center rounded-md bg-zinc-100 text-[12px] font-semibold text-zinc-500">{index + 1}</span>
+                  <span className="text-[14px] font-medium text-zinc-800">{option}</span>
                 </div>
                 <div className="flex gap-1">
-                  <Button type="button" variant="ghost" onClick={() => handleMove(index, "up")} disabled={index === 0} aria-label={`Move ${option} up`} className="h-8 w-8 p-0 text-slate-400 hover:bg-slate-50 hover:text-indigo-600 disabled:opacity-40">
+                  <Button type="button" variant="ghost" onClick={() => handleMove(index, "up")} disabled={index === 0} aria-label={`Move ${option} up`} className="size-8 p-0 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-900 disabled:opacity-30">
                     <ArrowLeft className="size-4 rotate-90" />
                   </Button>
-                  <Button type="button" variant="ghost" onClick={() => handleMove(index, "down")} disabled={index === currentOrder.length - 1} aria-label={`Move ${option} down`} className="h-8 w-8 p-0 text-slate-400 hover:bg-slate-50 hover:text-indigo-600 disabled:opacity-40">
+                  <Button type="button" variant="ghost" onClick={() => handleMove(index, "down")} disabled={index === currentOrder.length - 1} aria-label={`Move ${option} down`} className="size-8 p-0 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-900 disabled:opacity-30">
                     <ArrowRight className="size-4 rotate-90" />
                   </Button>
                 </div>
@@ -255,14 +296,14 @@ export function QuestionInput({
         const rows = question.options ?? []
         const matrixAnswers = (answer as Record<string, string> | undefined) ?? {}
         return (
-          <div className="-mx-7 overflow-x-auto px-7">
+          <div className="-mx-6 overflow-x-auto sm:-mx-8 px-6 sm:px-8">
             <table className="w-full min-w-[500px] border-collapse text-sm">
               <caption className="sr-only">{question.question_text}</caption>
               <thead>
-                <tr className="border-b border-slate-200">
-                  <th scope="col" className="w-2/5 py-2.5 pr-4 text-left text-xs font-medium uppercase tracking-wider text-slate-500" />
+                <tr className="border-b border-zinc-200">
+                  <th scope="col" className="w-2/5 py-3 pr-4 text-left text-[11px] font-medium uppercase tracking-wider text-zinc-400" />
                   {columns.map((column) => (
-                    <th scope="col" key={column} className="w-1/5 min-w-[80px] px-3 py-2.5 text-center text-xs font-semibold text-slate-500">
+                    <th scope="col" key={column} className="w-1/5 min-w-[80px] px-3 py-3 text-center text-[12px] font-semibold text-zinc-500">
                       {column}
                     </th>
                   ))}
@@ -270,10 +311,10 @@ export function QuestionInput({
               </thead>
               <tbody>
                 {rows.map((row, rowIndex) => (
-                  <tr key={row} className="border-b border-slate-100 transition-colors last:border-0 hover:bg-slate-50/50">
-                    <th scope="row" className="py-3.5 pr-4 text-left text-sm font-medium text-slate-700">{row}</th>
+                  <tr key={row} className="border-b border-zinc-100 transition-colors last:border-0 hover:bg-zinc-50/50">
+                    <th scope="row" className="py-4 pr-4 text-left text-[14px] font-medium text-zinc-800">{row}</th>
                     {columns.map((column) => (
-                      <td key={column} className="px-3 py-3.5 text-center">
+                      <td key={column} className="px-3 py-4 text-center">
                         <input
                           type="radio"
                           name={`matrix-${question.id}-row-${rowIndex}`}
@@ -282,7 +323,7 @@ export function QuestionInput({
                           onChange={() => onAnswer(question.id, { ...matrixAnswers, [row]: column })}
                           aria-label={`${row}: ${column}`}
                           {...fieldProps}
-                          className="size-4 accent-indigo-600"
+                          className="size-4 cursor-pointer accent-zinc-900"
                         />
                       </td>
                     ))}
@@ -303,15 +344,15 @@ export function QuestionInput({
           onChange={(event) => onAnswer(question.id, event.target.value)}
           aria-label={question.question_text}
           {...fieldProps}
-          className="h-10 w-48 rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none transition-colors focus:border-indigo-600 focus:ring-2 focus:ring-indigo-500/10"
+          className="h-11 w-full max-w-[200px] rounded-lg border border-zinc-200 bg-zinc-50/50 px-4 text-[14px] text-zinc-900 outline-none transition-all hover:bg-zinc-50 focus:border-zinc-900 focus:bg-white focus:ring-4 focus:ring-zinc-900/5"
         />
       )}
 
       {/* File */}
       {question.question_type === "file" && (
-        <div className="flex flex-col items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-6 text-center">
-          <Upload className="size-6 text-slate-400" />
-          <p className="text-xs text-slate-500">File upload questions are not currently supported.</p>
+        <div className="flex flex-col items-center gap-2 rounded-xl border border-dashed border-zinc-200 bg-zinc-50/50 px-4 py-8 text-center">
+          <Upload className="size-6 text-zinc-400" />
+          <p className="text-[13px] text-zinc-500">File upload questions are not currently supported.</p>
         </div>
       )}
 
@@ -324,7 +365,7 @@ export function QuestionInput({
             return (
               <label
                 key={option}
-                className={`flex flex-1 cursor-pointer items-center justify-center gap-3 rounded-lg border px-4 py-3 text-sm transition-all hover:border-indigo-200 hover:bg-slate-50 ${selected ? "border-indigo-200 bg-indigo-50/20 text-indigo-900" : "border-slate-100 bg-slate-50/20 text-slate-700"}`}
+                className={`flex flex-1 cursor-pointer items-center justify-center gap-3 rounded-xl border px-4 py-3.5 transition-all ${selected ? "border-zinc-900 bg-zinc-50 text-zinc-900" : "border-zinc-200 bg-white text-zinc-600 hover:border-zinc-300 hover:bg-zinc-50/50"}`}
               >
                 <input
                   type="radio"
@@ -334,14 +375,14 @@ export function QuestionInput({
                   onChange={() => onAnswer(question.id, boolValue)}
                   aria-label={`${question.question_text}: ${option}`}
                   {...fieldProps}
-                  className="size-4 accent-indigo-600"
+                  className="size-[18px] cursor-pointer accent-zinc-900"
                 />
-                <span className={selected ? "font-medium" : ""}>{option}</span>
+                <span className={`text-[14px] ${selected ? "font-medium" : ""}`}>{option}</span>
               </label>
             )
           })}
         </div>
       )}
-    </fieldset>
+    </div>
   )
 }
