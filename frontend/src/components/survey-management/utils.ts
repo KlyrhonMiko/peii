@@ -92,10 +92,10 @@ export function getSurveyCapabilities(permissions: readonly string[]): SurveyCap
 }
 
 export function formatSurveyResponseCount(
-  count: number | null,
+  count: number | null | undefined,
   canReadAggregates: boolean,
 ): string {
-  if (count === null) return canReadAggregates ? "Suppressed" : "Unavailable"
+  if (count === null || count === undefined) return canReadAggregates ? "Suppressed" : "Unavailable"
   return String(count)
 }
 
@@ -121,3 +121,4 @@ export function getSurveyResponseResourceId(
 ): string {
   return survey.id
 }
+
