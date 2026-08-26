@@ -1,7 +1,17 @@
 "use client"
 
+import { useState } from "react"
 import { usePathname } from "next/navigation"
 import Link from "next/link"
+import {
+  Dialog,
+  DialogContent,
+  DialogTitle,
+  DialogDescription,
+  DialogHeader,
+  DialogFooter,
+} from "@/components/ui/dialog"
+import { Button } from "@/components/ui/button"
 import {
   Sidebar,
   SidebarContent,
@@ -33,6 +43,7 @@ const managementItems = [
 
 export function AppSidebar({ user }: { user: PortalUser }) {
   const pathname = usePathname()
+  const [showLogoutModal, setShowLogoutModal] = useState(false)
 
   const renderMenuItems = (items: Array<(typeof mainItems)[number] | (typeof managementItems)[number]>) =>
     items.filter((item) => !("permission" in item) || user.permissions.includes(item.permission)).map((item) => {
@@ -41,15 +52,13 @@ export function AppSidebar({ user }: { user: PortalUser }) {
         <SidebarMenuItem key={item.title}>
           <SidebarMenuButton
             render={<Link href={item.url} />}
+            isActive={isActive}
             className={`
-              group flex items-center gap-3 px-3 py-2 rounded-lg transition-all duration-200 text-[13px] font-medium
-              ${isActive
-                ? "bg-white text-slate-900 shadow-sm ring-1 ring-slate-200/50"
-                : "text-slate-500 hover:text-slate-900 hover:bg-slate-100/50"
-              }
+              h-9 gap-3 px-3 transition-colors text-[13px]
+              ${isActive ? "font-medium" : "font-normal text-sidebar-foreground/70"}
             `}
           >
-            <item.icon className={`w-[16px] h-[16px] shrink-0 transition-colors ${isActive ? "text-slate-900" : "text-slate-400 group-hover:text-slate-600"}`} />
+            <item.icon className="w-[16px] h-[16px] shrink-0" />
             <span>{item.title}</span>
           </SidebarMenuButton>
         </SidebarMenuItem>
@@ -57,60 +66,97 @@ export function AppSidebar({ user }: { user: PortalUser }) {
     })
 
   return (
-    <Sidebar className="border-r border-slate-200/60 bg-[#fafafa]">
+    <Sidebar className="border-r border-sidebar-border">
       {/* Branding */}
-      <SidebarHeader className="px-5 h-[60px] flex flex-row items-center gap-3 border-b border-slate-200/60 bg-[#fafafa]">
-        <div className="w-8 h-8 bg-slate-900 rounded-lg flex items-center justify-center shadow-sm ring-1 ring-slate-950/10">
-          <FlaskConical className="w-[16px] h-[16px] text-white" />
+      <SidebarHeader className="px-5 h-[60px] flex flex-row items-center gap-3 border-b border-sidebar-border">
+        <div className="w-8 h-8 bg-zinc-900 dark:bg-white rounded-lg flex items-center justify-center shadow-sm">
+          <FlaskConical className="w-[16px] h-[16px] text-white dark:text-zinc-900" />
         </div>
         <div className="flex flex-col">
-          <span className="text-[14px] font-semibold text-slate-900 leading-none tracking-tight">PEII</span>
-          <span className="text-[10px] text-slate-400 font-medium leading-none mt-[3px]">Research Portal</span>
+          <span className="text-[14px] font-semibold text-foreground leading-none tracking-tight">PEII</span>
+          <span className="text-[10px] text-muted-foreground font-medium leading-none mt-1">Research Portal</span>
         </div>
       </SidebarHeader>
 
-      <SidebarContent className="bg-[#fafafa] px-3 pt-6">
+      <SidebarContent className="px-3 pt-6 gap-6">
         <SidebarGroup>
-          <SidebarGroupLabel className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1 px-2.5">
+          <SidebarGroupLabel className="text-xs font-semibold text-sidebar-foreground/40 mb-1 px-3 uppercase tracking-wider">
             Research
           </SidebarGroupLabel>
           <SidebarGroupContent>
-            <SidebarMenu className="space-y-px">
+            <SidebarMenu className="gap-0.5">
               {renderMenuItems(mainItems)}
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
 
-        <SidebarGroup className="mt-4">
-          <SidebarGroupLabel className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1 px-2.5">
+        <SidebarGroup>
+          <SidebarGroupLabel className="text-xs font-semibold text-sidebar-foreground/40 mb-1 px-3 uppercase tracking-wider">
             Management
           </SidebarGroupLabel>
           <SidebarGroupContent>
-            <SidebarMenu className="space-y-px">
+            <SidebarMenu className="gap-0.5">
               {renderMenuItems(managementItems)}
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
       </SidebarContent>
 
-      <SidebarFooter className="px-4 py-4 border-t border-slate-200/60 bg-[#fafafa]">
-          <div className="flex items-center gap-3 px-3 py-2 -mx-3 rounded-xl hover:bg-slate-200/40 transition-colors group">
-          <div className="w-8 h-8 rounded-md bg-white flex items-center justify-center text-slate-700 text-[11px] font-bold shrink-0 ring-1 ring-slate-200 shadow-sm">
+      <SidebarFooter className="px-4 py-4 border-t border-sidebar-border">
+        <div className="flex items-center gap-3 px-2 py-2 -mx-2 rounded-lg hover:bg-sidebar-accent transition-colors group">
+          <div className="w-8 h-8 rounded-full bg-background border border-sidebar-border flex items-center justify-center text-sidebar-foreground text-[11px] font-bold shrink-0 shadow-sm">
             {`${user.first_name[0] ?? ""}${user.last_name[0] ?? ""}`}
           </div>
           <div className="flex-1 min-w-0">
-            <div className="text-[13px] font-semibold text-slate-900 truncate leading-none">
+            <div className="text-[13px] font-medium text-sidebar-foreground truncate leading-none">
               {user.first_name} {user.last_name}
             </div>
-            <div className="text-[11px] text-slate-500 truncate leading-none mt-1">{user.email}</div>
+            <div className="text-[11px] text-sidebar-foreground/60 truncate leading-none mt-1.5">{user.email}</div>
           </div>
-          <form action={logoutAction}>
-            <button aria-label="Log out" className="rounded-md p-1 text-slate-400 hover:text-slate-600" type="submit">
-              <LogOut />
-            </button>
-          </form>
+          <button
+            aria-label="Log out"
+            className="rounded-md p-1.5 text-sidebar-foreground/40 hover:text-sidebar-foreground hover:bg-sidebar-accent/50 transition-colors"
+            onClick={() => setShowLogoutModal(true)}
+            type="button"
+          >
+            <LogOut className="w-4 h-4" />
+          </button>
         </div>
       </SidebarFooter>
+
+      <Dialog open={showLogoutModal} onOpenChange={setShowLogoutModal}>
+        <DialogContent className="max-w-md border-0 rounded-2xl shadow-[0_16px_40px_-12px_rgba(0,0,0,0.1)] p-6" showCloseButton={true}>
+          <div className="flex flex-col items-center gap-4 text-center pb-2">
+            <div className="flex size-12 items-center justify-center rounded-full bg-slate-100 ring-[6px] ring-slate-50 text-slate-600 mb-1 dark:bg-zinc-800 dark:ring-zinc-900/50 dark:text-zinc-300">
+              <LogOut className="size-5" />
+            </div>
+            <DialogHeader className="flex flex-col items-center">
+              <DialogTitle className="text-xl font-semibold text-foreground tracking-tight">Log out</DialogTitle>
+              <DialogDescription className="text-[15px] text-muted-foreground mt-2 leading-relaxed max-w-[95%] text-center">
+                Are you sure you want to log out of your account? You will need to sign in again to access the portal.
+              </DialogDescription>
+            </DialogHeader>
+          </div>
+          <DialogFooter className="flex flex-col-reverse sm:flex-row sm:justify-center gap-3 sm:space-x-0 w-full mt-4">
+            <Button
+              variant="outline"
+              onClick={() => setShowLogoutModal(false)}
+              className="font-medium w-full sm:w-auto h-11 px-8 rounded-xl active:scale-[0.97] transition-all duration-200 ease-out"
+            >
+              Cancel
+            </Button>
+            <form action={logoutAction} className="w-full sm:w-auto">
+              <Button
+                variant="default"
+                type="submit"
+                className="font-medium w-full h-11 px-8 rounded-xl active:scale-[0.97] transition-all duration-200 ease-out"
+              >
+                Log out
+              </Button>
+            </form>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Sidebar>
   )
 }
