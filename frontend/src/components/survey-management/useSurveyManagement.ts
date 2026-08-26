@@ -36,7 +36,6 @@ export interface UseSurveyManagementProps {
 
 export function useSurveyManagement({ permissions }: UseSurveyManagementProps) {
   const capabilities = getSurveyCapabilities(permissions)
-  const canRead = capabilities.read
   const canManage = capabilities.manage
   const canManageDistribution = capabilities.distributionManage
   const canReadAggregates = capabilities.readAggregates

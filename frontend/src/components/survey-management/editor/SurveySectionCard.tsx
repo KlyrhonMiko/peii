@@ -22,7 +22,6 @@ export function SurveySectionCard({
 }: SurveySectionCardProps) {
   const {
     handleDragStart,
-    handleDrop,
     setDragItem,
     updateSection,
     moveSection,

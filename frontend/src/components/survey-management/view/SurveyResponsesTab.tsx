@@ -1,6 +1,6 @@
 import { Button } from "@/components/ui/button"
 import { Download, Loader2, Users } from "lucide-react"
-import { cn, formatDate } from "@/lib/utils"
+import { formatDate } from "@/lib/utils"
 import { getScaleOptions } from "@/lib/surveys"
 import { buildRawAggregate, buildAggregatePresentation } from "@/lib/survey-aggregates"
 import type { Survey } from "@/lib/surveys"
