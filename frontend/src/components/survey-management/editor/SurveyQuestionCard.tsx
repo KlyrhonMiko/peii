@@ -67,7 +67,7 @@ export function SurveyQuestionCard({
           id: question.id,
         })
       }
-      className="group/q rounded-lg border border-slate-200/70 bg-white shadow-sm transition-shadow hover:shadow-md"
+      className="group/q relative rounded-xl transition-colors hover:bg-slate-50 border border-transparent hover:border-slate-100"
     >
       <div className="flex items-start gap-2 p-3">
         <div className="flex items-center gap-1.5 pt-1">
@@ -87,7 +87,7 @@ export function SurveyQuestionCard({
                   text: e.target.value,
                 })
               }
-              className="bg-slate-50/60 focus-visible:bg-white pr-6"
+              className="bg-transparent hover:bg-white focus-visible:bg-white pr-6 border-transparent hover:border-slate-200 focus-visible:border-ring shadow-none"
             />
             {(question.isRequired ?? true) && (
               <span className="text-red-500 absolute right-2.5 top-1/2 -translate-y-1/2 font-medium">*</span>
@@ -100,19 +100,21 @@ export function SurveyQuestionCard({
               open={openQuestionSelectId === question.id}
               onOpenChange={(isOpen) => setOpenQuestionSelectId(isOpen ? question.id : null)}
             >
-              <PopoverTrigger>
-                <Button
-                  variant="outline"
-                  type="button"
-                  className="h-8 w-full justify-between font-normal text-xs border border-input bg-slate-50/60 hover:bg-slate-100 hover:border-slate-300 transition-colors cursor-pointer outline-none focus-visible:ring-3 focus-visible:ring-ring/50 select-none text-left pl-7.5"
-                >
-                  <span className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400">
-                    {questionTypeIcon(question.type)}
-                  </span>
-                  <span>{QUESTION_TYPES.find((t) => t.value === question.type)?.label || question.type}</span>
-                  <ChevronDown className="size-3.5 text-slate-400 shrink-0 opacity-60" />
-                </Button>
-              </PopoverTrigger>
+              <PopoverTrigger
+                render={
+                  <Button
+                    variant="outline"
+                    type="button"
+                    className="h-8 w-full justify-between font-normal text-xs border border-transparent bg-transparent hover:bg-white hover:border-slate-200 transition-colors cursor-pointer outline-none focus-visible:ring-3 focus-visible:ring-ring/50 select-none text-left pl-7.5 shadow-none"
+                  >
+                    <span className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400">
+                      {questionTypeIcon(question.type)}
+                    </span>
+                    <span>{QUESTION_TYPES.find((t) => t.value === question.type)?.label || question.type}</span>
+                    <ChevronDown className="size-3.5 text-slate-400 shrink-0 opacity-60" />
+                  </Button>
+                }
+              />
               <PopoverContent
                 align="start"
                 style={{ width: "var(--anchor-width)" }}
@@ -185,7 +187,7 @@ export function SurveyQuestionCard({
           variant="ghost"
           size="icon-xs"
           onClick={() => removeQuestion(sectionIndex, question.id)}
-          className="mt-0.5 text-slate-300 opacity-0 transition-opacity group-hover/q:opacity-100 hover:text-red-500 hover:bg-red-50"
+          className="mt-0.5 text-slate-400 opacity-0 transition-opacity group-hover/q:opacity-100 hover:text-red-600 hover:bg-slate-100"
         >
           <X className="size-3.5" />
         </Button>
@@ -220,82 +222,6 @@ export function SurveyQuestionCard({
         </div>
       </div>
 
-      {/* Preview Section for Question Types */}
-      {question.type === "scale" && (
-        <div className="mt-2 space-y-1 p-3 pt-0">
-          {!!(question.config?.min_label || question.config?.max_label) && (
-            <div className="flex items-center gap-1.5 text-xs text-slate-400">
-              {!!question.config?.min_label && <span>{String(question.config.min_label)}</span>}
-              <span>
-                ({(question.config?.min as number) ?? 1} to{" "}
-                {(question.config?.max as number) ?? (question.options?.length ?? 4)})
-              </span>
-              {!!question.config?.max_label && <span>{String(question.config.max_label)}</span>}
-            </div>
-          )}
-          <div className="flex gap-2">
-            {Array.from(
-              {
-                length:
-                  ((question.config?.max as number) ?? (question.options?.length ?? 4)) -
-                  ((question.config?.min as number) ?? 1) +
-                  1,
-              },
-              (_, i) => ((question.config?.min as number) ?? 1) + i
-            ).map((rating) => (
-              <div
-                key={rating}
-                className="size-8 rounded-md border border-slate-200 bg-slate-50 flex items-center justify-center text-slate-500 text-xs"
-              >
-                {rating}
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {question.type === "text" && (
-        <div className="h-16 rounded-md border border-slate-200 bg-slate-50 mt-2 p-2 text-slate-400 text-xs mx-3 mb-3">
-          Text response area...
-        </div>
-      )}
-
-      {isChoiceType && (
-        <div className="space-y-1.5 mt-2 p-3 pt-0">
-          {(question.options ?? []).map((opt, optIdx) => (
-            <div key={optIdx} className="flex items-center gap-2 text-xs">
-              <span className="flex size-4 shrink-0 items-center justify-center rounded-full border border-slate-300 text-[9px] font-semibold text-slate-400">
-                {String.fromCharCode(65 + optIdx)}
-              </span>
-              <span className="text-slate-700">{opt || `Option ${optIdx + 1}`}</span>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {question.type === "matrix" && (
-        <div className="mt-2 space-y-2 p-3 pt-0">
-          <div className="text-[10px] text-slate-400 font-semibold uppercase">Rows:</div>
-          <div className="space-y-1 pl-2">
-            {(question.options ?? []).map((opt, optIdx) => (
-              <div key={optIdx} className="text-xs text-slate-600">
-                • {opt || `Row ${optIdx + 1}`}
-              </div>
-            ))}
-          </div>
-          <div className="text-[10px] text-slate-400 font-semibold uppercase mt-1">Columns:</div>
-          <div className="flex flex-wrap gap-1.5 pl-2">
-            {((question.config?.columns as string[]) ?? []).map((col, colIdx) => (
-              <span
-                key={colIdx}
-                className="inline-flex items-center px-1.5 py-0.5 rounded bg-slate-100 text-[10px] font-medium text-slate-600"
-              >
-                {col || `Col ${colIdx + 1}`}
-              </span>
-            ))}
-          </div>
-        </div>
-      )}
 
       {/* Configurators */}
       {isChoiceType && (

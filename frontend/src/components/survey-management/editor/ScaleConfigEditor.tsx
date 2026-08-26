@@ -18,8 +18,8 @@ export function ScaleConfigEditor({
   const { updateQuestion } = actions
 
   return (
-    <div className="border-t border-slate-100 bg-slate-50/30 px-3 py-3 rounded-b-xl">
-      <div className="space-y-3 pl-7">
+    <div className="mt-2 ml-9 pl-4 border-l-2 border-slate-100 py-1">
+      <div className="space-y-3">
         <div className="flex items-center gap-4">
           <div className="space-y-1">
             <label className="text-[10px] font-bold text-slate-400 uppercase">Min Value</label>

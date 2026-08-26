@@ -35,8 +35,8 @@ export function MatrixConfigEditor({
   const columns = ((question.config?.columns as string[]) ?? [])
 
   return (
-    <div className="border-t border-slate-100 bg-slate-50/30 px-3 py-3 rounded-b-xl">
-      <div className="space-y-4 pl-7">
+    <div className="mt-2 ml-9 pl-4 border-l-2 border-slate-100 py-1">
+      <div className="space-y-4">
         {/* Rows */}
         <div className="space-y-1.5">
           <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Rows</label>
@@ -74,7 +74,7 @@ export function MatrixConfigEditor({
               <Button
                 variant="ghost"
                 size="icon-xs"
-                className="text-slate-300 hover:text-red-500 hover:bg-red-50"
+                className="text-slate-400 hover:text-red-600 hover:bg-slate-100"
                 aria-label={`Move row ${optIdx + 1} up`}
                 disabled={optIdx === 0}
                 onClick={() => moveOption(sectionId, question.id, optIdx, optIdx - 1)}
@@ -84,7 +84,7 @@ export function MatrixConfigEditor({
               <Button
                 variant="ghost"
                 size="icon-xs"
-                className="text-slate-300 hover:text-red-500 hover:bg-red-50"
+                className="text-slate-400 hover:text-red-600 hover:bg-slate-100"
                 aria-label={`Move row ${optIdx + 1} down`}
                 disabled={optIdx === rows.length - 1}
                 onClick={() => moveOption(sectionId, question.id, optIdx, optIdx + 1)}
@@ -94,7 +94,7 @@ export function MatrixConfigEditor({
               <Button
                 variant="ghost"
                 size="icon-xs"
-                className="text-slate-300 hover:text-red-500 hover:bg-red-50"
+                className="text-slate-400 hover:text-red-600 hover:bg-slate-100"
                 onClick={() => removeOption(sectionIndex, questionIndex, optIdx)}
               >
                 <Trash className="size-3" />
@@ -155,7 +155,7 @@ export function MatrixConfigEditor({
               <Button
                 variant="ghost"
                 size="icon-xs"
-                className="text-slate-300 hover:text-red-500 hover:bg-red-50"
+                className="text-slate-400 hover:text-red-600 hover:bg-slate-100"
                 aria-label={`Move column ${colIdx + 1} up`}
                 disabled={colIdx === 0}
                 onClick={() => moveColumn(sectionId, question.id, colIdx, colIdx - 1)}
@@ -165,7 +165,7 @@ export function MatrixConfigEditor({
               <Button
                 variant="ghost"
                 size="icon-xs"
-                className="text-slate-300 hover:text-red-500 hover:bg-red-50"
+                className="text-slate-400 hover:text-red-600 hover:bg-slate-100"
                 aria-label={`Move column ${colIdx + 1} down`}
                 disabled={colIdx === columns.length - 1}
                 onClick={() => moveColumn(sectionId, question.id, colIdx, colIdx + 1)}
@@ -175,7 +175,7 @@ export function MatrixConfigEditor({
               <Button
                 variant="ghost"
                 size="icon-xs"
-                className="text-slate-300 hover:text-red-500 hover:bg-red-50"
+                className="text-slate-400 hover:text-red-600 hover:bg-slate-100"
                 onClick={() => {
                   const newCols = [...columns]
                   newCols.splice(colIdx, 1)

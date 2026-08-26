@@ -36,11 +36,10 @@ export function SurveySectionCard({
       onDragStart={(event) => handleDragStart(event, { kind: "section", id: section.id })}
       onDragEnd={() => setDragItem(null)}
       onDragOver={(event) => event.preventDefault()}
-      onDrop={(event) => handleDrop(event, { kind: "section", id: section.id })}
-      className="rounded-xl border border-slate-200/80 bg-white shadow-sm"
+      className="relative pb-10 mb-10 border-b border-slate-100 last:mb-0 last:border-0 last:pb-0"
     >
       {/* Section header */}
-      <div className="flex items-start gap-3 p-4 pb-3 border-b border-slate-100">
+      <div className="flex items-start gap-3 mb-6 group/section">
         <div className="flex items-center gap-1.5 pt-1">
           <GripVertical className="size-4 cursor-grab text-slate-300 active:cursor-grabbing" aria-label="Drag section" />
           <span className="flex size-5 items-center justify-center rounded-md bg-violet-50 text-[10px] font-bold text-violet-600">
@@ -56,11 +55,11 @@ export function SurveySectionCard({
                 title: e.target.value,
               })
             }
-            className="bg-slate-50/60 focus-visible:bg-white font-medium"
+            className="bg-transparent hover:bg-slate-50 focus-visible:bg-white font-semibold text-xl border-transparent hover:border-slate-200 focus-visible:border-ring px-3 h-10 shadow-none rounded-md"
           />
           <textarea
             rows={1}
-            className="w-full rounded-lg border border-input bg-transparent px-2.5 py-1.5 text-xs outline-none transition-colors placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 resize-none overflow-hidden min-h-[32px]"
+            className="w-full rounded-md border border-transparent bg-transparent hover:bg-slate-50 px-3 py-2 text-sm text-slate-600 outline-none transition-colors placeholder:text-slate-400 focus-visible:bg-white focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50 resize-none overflow-hidden min-h-[36px]"
             placeholder="Section description (optional)"
             value={section.description ?? ""}
             onChange={(e) => {
@@ -106,7 +105,7 @@ export function SurveySectionCard({
           variant="ghost"
           size="icon-xs"
           onClick={() => removeSection(section.id)}
-          className="mt-0.5 text-slate-300 hover:text-red-500 hover:bg-red-50"
+          className="mt-0.5 text-slate-400 hover:text-red-600 hover:bg-slate-100"
           title="Remove section"
         >
           <X className="size-3.5" />
@@ -114,16 +113,21 @@ export function SurveySectionCard({
       </div>
 
       {/* Questions within section */}
-      <div className="px-4 py-3 space-y-3">
+      <div className="space-y-1">
         {section.questions.length === 0 ? (
-          <button
-            type="button"
-            onClick={() => addQuestion(sectionIndex)}
-            className="group flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-slate-200 bg-slate-50/40 px-3 py-3 text-[12px] font-medium text-slate-500 transition-colors hover:border-indigo-300 hover:text-indigo-600 hover:bg-indigo-50/30"
-          >
-            <Plus className="size-3.5" />
-            Add question to section
-          </button>
+          <div className="flex flex-col items-center justify-center py-8 mt-2 text-center bg-slate-50/50 rounded-lg border border-slate-100 border-dashed">
+            <p className="text-[13px] text-slate-500 mb-3">No questions in this section yet.</p>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => addQuestion(sectionIndex)}
+              className="gap-1.5 text-slate-600 bg-white"
+            >
+              <Plus className="size-3.5" />
+              Add Question
+            </Button>
+          </div>
         ) : (
           <div className="space-y-2">
             {section.questions.map((q, qIdx) => (
@@ -140,14 +144,18 @@ export function SurveySectionCard({
             ))}
 
             {/* Add question to this section */}
-            <button
-              type="button"
-              onClick={() => addQuestion(sectionIndex)}
-              className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-slate-200 bg-white px-3 py-2 text-[12px] font-medium text-slate-500 transition-colors hover:border-indigo-300 hover:text-indigo-600 hover:bg-indigo-50/30"
-            >
-              <Plus className="size-3.5" />
-              Add Question
-            </button>
+            <div className="pt-2 pb-1 pl-1">
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => addQuestion(sectionIndex)}
+                className="gap-1.5 text-slate-500 hover:text-slate-900"
+              >
+                <Plus className="size-3.5" />
+                Add Question
+              </Button>
+            </div>
           </div>
         )}
       </div>

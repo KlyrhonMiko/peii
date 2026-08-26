@@ -1,4 +1,5 @@
 import { Dialog, DialogContent } from "@/components/ui/dialog"
+import { Button } from "@/components/ui/button"
 import { Plus } from "lucide-react"
 import { cn } from "@/lib/utils"
 import type { useSurveyManagement } from "./useSurveyManagement"
@@ -89,7 +90,7 @@ export function SurveyEditorModal({ store }: SurveyEditorModalProps) {
           />
 
           {/* Right Main Area: Sections & Questions */}
-          <div className="flex-1 bg-slate-50/30 p-10 overflow-y-auto">
+          <div className="flex-1 bg-white p-10 overflow-y-auto">
             <div className="max-w-3xl mx-auto pb-20">
               {!structureEditable && (
                 <p className="mb-6 rounded-lg border border-amber-200/50 bg-amber-50/50 px-4 py-3 text-sm text-amber-800">
@@ -108,23 +109,25 @@ export function SurveyEditorModal({ store }: SurveyEditorModalProps) {
                 </legend>
 
                 {sections.length === 0 ? (
-                  <button
-                    type="button"
-                    onClick={addSection}
-                    className="group flex w-full flex-col items-center gap-2 rounded-xl border-2 border-dashed border-slate-200 bg-slate-50/40 px-4 py-8 text-center transition-colors hover:border-indigo-300 hover:bg-indigo-50/30"
-                  >
-                    <div className="flex size-10 items-center justify-center rounded-full bg-white ring-1 ring-slate-200 transition-shadow group-hover:ring-indigo-200 group-hover:shadow-sm">
-                      <Plus className="size-5 text-slate-400 group-hover:text-indigo-500 transition-colors" />
+                  <div className="flex flex-col items-center justify-center py-12 text-center bg-slate-50/50 rounded-xl border border-slate-100 border-dashed">
+                    <div className="flex size-10 items-center justify-center rounded-full bg-white ring-1 ring-slate-200 shadow-sm mb-3">
+                      <Plus className="size-5 text-slate-400" />
                     </div>
-                    <div>
-                      <p className="text-[13px] font-medium text-slate-600 group-hover:text-indigo-600 transition-colors">
-                        Add your first section
-                      </p>
-                      <p className="text-[11px] text-slate-400 mt-0.5">
-                        Group related questions into sections
-                      </p>
-                    </div>
-                  </button>
+                    <p className="text-[14px] font-medium text-slate-700 mb-1">
+                      Start building your survey
+                    </p>
+                    <p className="text-[13px] text-slate-500 mb-5">
+                      Group related questions into sections
+                    </p>
+                    <Button
+                      type="button"
+                      onClick={addSection}
+                      className="gap-2 bg-slate-900 text-white hover:bg-slate-800"
+                    >
+                      <Plus className="size-4" />
+                      Add First Section
+                    </Button>
+                  </div>
                 ) : (
                   <div className="space-y-4">
                     {sections.map((sec, secIdx) => (
@@ -139,14 +142,17 @@ export function SurveyEditorModal({ store }: SurveyEditorModalProps) {
                     ))}
 
                     {/* Add section */}
-                    <button
-                      type="button"
-                      onClick={addSection}
-                      className="flex w-full items-center justify-center gap-1.5 rounded-lg border-2 border-dashed border-violet-200 bg-violet-50/30 px-3 py-3 text-[12px] font-medium text-violet-600 transition-colors hover:border-violet-300 hover:bg-violet-50/60"
-                    >
-                      <Plus className="size-3.5" />
-                      Add Section
-                    </button>
+                    <div className="pt-4">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={addSection}
+                        className="w-full gap-2 py-6 border-slate-200 text-slate-600 hover:bg-slate-50 hover:text-slate-900 border-dashed"
+                      >
+                        <Plus className="size-4 text-slate-400" />
+                        Add New Section
+                      </Button>
+                    </div>
                   </div>
                 )}
               </fieldset>
