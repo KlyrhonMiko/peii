@@ -25,8 +25,6 @@ export type PendingAction = {
   surveyId?: string
 } | null
 
-export type ResponseCountMap = Record<string, Record<string, number>>
-
 export interface SurveyCapabilities {
   read: boolean
   manage: boolean

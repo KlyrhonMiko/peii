@@ -15,6 +15,11 @@ checks, persistence transforms, transaction boundaries, and domain errors.
   error shape.
 - Let unexpected errors surface unless there is a concrete domain message to return.
 
+Phase 3 response behavior is kept in `response_service.py`,
+`response_retention_service.py`, `response_export_service.py`, and
+`survey_analytics_service.py`. The retention service is invoked by the external
+`scripts/purge_expired_responses.py` job; it is not run by an application timer.
+
 ## List Query Rules
 - For paginated list endpoints, return both the page of rows and the filtered total.
 - Apply the same filters to the data query and count query.
@@ -74,10 +79,11 @@ checks, persistence transforms, transaction boundaries, and domain errors.
   references without a lock, then acquire the parent survey lock before a distribution lock.
 - Keep survey access global and capability-based. Raw reads, exports, aggregates, and erasure
   remain distinct operations.
-- `survey_privacy.py` centralizes the `k=5` threshold and permission-aware response-count
-  projection. Aggregate responses use the same threshold for supported question types. Response
-  erasure clears answer/linkage data, stores minimal tombstone/receipt state, and requires a
-  UUID idempotency key; all-scope erasure is valid only after archive.
+- `survey_privacy.py` centralizes the `k=5` threshold for permission-aware survey list/detail
+  response-count projection. Aggregate responses intentionally return exact totals and cells for
+  groups of any size; keep aggregate access capability-gated and do not describe it as anonymous.
+  Response erasure clears answer/linkage data, stores minimal tombstone/receipt state, and
+  requires a UUID idempotency key; all-scope erasure is valid only after archive.
 
 ## Soft Delete
 - Treat soft delete as state mutation on the row: `is_deleted`, `deleted_at`,

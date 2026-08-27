@@ -24,6 +24,11 @@ class SurveyResponse(BaseModel, table=True):
             "idempotency_key",
             name="uq_survey_responses_distribution_idempotency",
         ),
+        UniqueConstraint(
+            "survey_id",
+            "withdrawal_credential_digest",
+            name="uq_survey_responses_survey_withdrawal_digest",
+        ),
     )
 
     survey_id: UUID = Field(foreign_key="surveys.id", index=True, nullable=False)
@@ -32,6 +37,17 @@ class SurveyResponse(BaseModel, table=True):
     idempotency_hash: str | None = Field(default=None, max_length=64, nullable=True)
     consent_version: str | None = Field(default=None, max_length=64, nullable=True)
     consented_at: datetime | None = Field(default=None, nullable=True)
+    retention_expires_at: datetime | None = Field(
+        default=None,
+        index=True,
+        nullable=True,
+    )
+    withdrawal_credential_digest: str | None = Field(
+        default=None,
+        max_length=64,
+        index=True,
+        nullable=True,
+    )
     consent_notice_snapshot: dict[str, object] | None = Field(
         default=None,
         sa_column=Column(JSON().with_variant(JSONB, "postgresql"), nullable=True),

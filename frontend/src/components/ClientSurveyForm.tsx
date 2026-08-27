@@ -1,6 +1,7 @@
 "use client"
 
 import { type FormEvent, useEffect, useRef, useState } from "react"
+import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -11,16 +12,18 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog"
 import {
-  ClipboardList,
   ArrowLeft,
   ArrowRight,
   Loader2,
   CheckCircle,
   AlertCircle,
+  Copy,
+  Printer,
 } from "lucide-react"
 
 import {
   createPublicSurveySubmission,
+  generateWithdrawalCode,
   publicSurveyErrorCode,
   parsePublicSurveyAccepted,
   parseRetryAfter,
@@ -100,8 +103,21 @@ export function ClientSurveyForm({
   const [staleConsent, setStaleConsent] = useState(false)
   const [retryAt, setRetryAt] = useState<number | null>(null)
   const [now, setNow] = useState(() => Date.now())
+  const [submittedWithdrawalCode, setSubmittedWithdrawalCode] = useState<string | null>(null)
   const idempotencyKey = useRef<string | null>(null)
+  const withdrawalCode = useRef<string | null>(null)
+  const [codeCopied, setCodeCopied] = useState(false)
   const submittingRef = useRef(false)
+
+  const copyWithdrawalCode = async (code: string) => {
+    try {
+      if (!navigator.clipboard) throw new Error("Clipboard unavailable")
+      await navigator.clipboard.writeText(code)
+      setCodeCopied(true)
+    } catch {
+      setCodeCopied(false)
+    }
+  }
 
   useEffect(() => {
     if (retryAt === null) return
@@ -116,15 +132,62 @@ export function ClientSurveyForm({
   const section = sections[sectionIdx]
 
   if (submitted) {
+    const code = submittedWithdrawalCode
     return (
       <div className="min-h-screen bg-zinc-50 flex items-center justify-center py-12 px-4">
-        <div className="w-full max-w-md text-center">
+        <div className="w-full max-w-lg rounded-2xl border border-zinc-200 bg-white p-8 text-center shadow-sm sm:p-10">
           <div className="mx-auto mb-6 flex size-12 items-center justify-center rounded-full bg-zinc-100">
             <CheckCircle className="size-6 text-zinc-900" />
           </div>
           <h2 className="text-2xl font-semibold tracking-tight text-zinc-900">Response Submitted</h2>
           <p className="mt-3 text-[15px] leading-relaxed text-zinc-500">
             Thank you for completing the survey. Your feedback has been recorded.
+          </p>
+          {code && (
+            <section
+              aria-labelledby="withdrawal-code-heading"
+              className="mt-8 rounded-xl border-2 border-zinc-900 bg-zinc-50 p-5 text-left"
+            >
+              <h3 id="withdrawal-code-heading" className="text-sm font-semibold text-zinc-900">
+                Save this code for later
+              </h3>
+              <p className="mt-2 text-sm leading-relaxed text-zinc-600">
+                This code is required to withdraw your response later. Keep it somewhere safe; it cannot be recovered for you.
+              </p>
+              <code
+                aria-label="Private withdrawal code"
+                className="mt-4 block select-all break-all rounded-lg bg-white px-3 py-3 text-center font-mono text-sm font-semibold tracking-wide text-zinc-900 ring-1 ring-zinc-200"
+              >
+                {code}
+              </code>
+              <div className="mt-4 flex flex-wrap justify-center gap-2 print:hidden">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => void copyWithdrawalCode(code)}
+                  className="h-9 gap-2 rounded-lg border-zinc-200 px-3 text-xs"
+                  aria-label="Copy withdrawal code"
+                >
+                  <Copy data-icon="inline-start" />
+                  {codeCopied ? "Copied" : "Copy code"}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => window.print()}
+                  className="h-9 gap-2 rounded-lg border-zinc-200 px-3 text-xs"
+                >
+                  <Printer data-icon="inline-start" />
+                  Print
+                </Button>
+              </div>
+            </section>
+          )}
+          <p className="mt-6 text-sm text-zinc-600">
+            Need to withdraw your response?{" "}
+            <Link href="/survey/withdraw" className="font-semibold text-zinc-900 underline underline-offset-4">
+              Withdraw a response
+            </Link>
           </p>
         </div>
       </div>
@@ -212,13 +275,15 @@ export function ClientSurveyForm({
         }
       }
       idempotencyKey.current ??= crypto.randomUUID()
+      const code = withdrawalCode.current ?? generateWithdrawalCode()
+      withdrawalCode.current = code
       const response = await fetch(`${API_BASE}/survey/${encodeURIComponent(token)}/respond`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           "Idempotency-Key": idempotencyKey.current,
         },
-        body: JSON.stringify(createPublicSurveySubmission(submittedAnswers, consent.version)),
+        body: JSON.stringify(createPublicSurveySubmission(submittedAnswers, consent.version, code)),
       })
       if (!response.ok) {
         let errorPayload: unknown = null
@@ -266,6 +331,8 @@ export function ClientSurveyForm({
         return
       }
       setRetryAt(null)
+      setSubmittedWithdrawalCode(code)
+      withdrawalCode.current = null
       setSubmitted(true)
     } catch {
       setSubmitError("We could not submit your response. Please try again.")

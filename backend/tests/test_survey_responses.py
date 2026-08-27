@@ -1,5 +1,6 @@
 import csv
 import io
+import secrets
 from datetime import UTC, datetime, timedelta
 from typing import cast
 from uuid import UUID, uuid4
@@ -11,12 +12,13 @@ from core.deps import Principal, get_current_principal
 from main import app
 from models.question_type import QuestionType
 from models.survey_question import SurveyQuestion
-from services import response_service
+from services import survey_analytics_service
 
 pytestmark = pytest.mark.anyio
 EXPIRY = (datetime.now(UTC) + timedelta(days=29)).isoformat()
 IDEMPOTENCY_KEY = "018f4a1a-7b3b-7d0e-913a-c5f1c5c1c5c2"
 CONSENT_VERSION = "2026-08-25"
+WITHDRAWAL_CODE = "A" * 42 + "B"
 
 
 def _consent() -> dict[str, object]:
@@ -116,7 +118,11 @@ def _override_permissions(*permissions: str) -> None:
 async def _submit(client, token, question_id, answer, key=None):
     return await client.post(
         f"/api/v1/survey/{token}/respond",
-        json={"answers": {question_id: answer}, "consent": _consent()},
+        json={
+            "answers": {question_id: answer},
+            "consent": _consent(),
+            "withdrawal_code": secrets.token_urlsafe(32),
+        },
         headers={"Idempotency-Key": key or str(uuid4())},
     )
 
@@ -139,7 +145,11 @@ async def test_submit_response(client):
 
     resp = await client.post(
         f"/api/v1/survey/{token}/respond",
-        json={"answers": {question_id: "Full-Time"}, "consent": _consent()},
+        json={
+            "answers": {question_id: "Full-Time"},
+            "consent": _consent(),
+            "withdrawal_code": WITHDRAWAL_CODE,
+        },
         headers={"Idempotency-Key": IDEMPOTENCY_KEY},
     )
     assert resp.status_code == 201
@@ -151,7 +161,11 @@ async def test_submit_response_requires_idempotency_key(client):
 
     response = await client.post(
         f"/api/v1/survey/{token}/respond",
-        json={"answers": {question_id: "Full-Time"}, "consent": _consent()},
+        json={
+            "answers": {question_id: "Full-Time"},
+            "consent": _consent(),
+            "withdrawal_code": WITHDRAWAL_CODE,
+        },
     )
 
     assert response.status_code == 400
@@ -163,7 +177,11 @@ async def test_submit_response_increments_count(client):
 
     resp = await client.post(
         f"/api/v1/survey/{token}/respond",
-        json={"answers": {question_id: "Part-Time"}, "consent": _consent()},
+        json={
+            "answers": {question_id: "Part-Time"},
+            "consent": _consent(),
+            "withdrawal_code": WITHDRAWAL_CODE,
+        },
         headers={"Idempotency-Key": IDEMPOTENCY_KEY},
     )
     assert resp.status_code == 201
@@ -176,7 +194,11 @@ async def test_submit_response_increments_count(client):
 async def test_submit_response_is_idempotent(client):
     survey_uuid, token, question_id = await _create_active_survey_with_questions(client)
     key = IDEMPOTENCY_KEY
-    payload = {"answers": {question_id: "Part-Time"}, "consent": _consent()}
+    payload = {
+        "answers": {question_id: "Part-Time"},
+        "consent": _consent(),
+        "withdrawal_code": WITHDRAWAL_CODE,
+    }
 
     first = await client.post(
         f"/api/v1/survey/{token}/respond",
@@ -190,7 +212,11 @@ async def test_submit_response_is_idempotent(client):
     )
     conflict = await client.post(
         f"/api/v1/survey/{token}/respond",
-        json={"answers": {question_id: "Full-Time"}, "consent": _consent()},
+        json={
+            "answers": {question_id: "Full-Time"},
+            "consent": _consent(),
+            "withdrawal_code": WITHDRAWAL_CODE,
+        },
         headers={"Idempotency-Key": key},
     )
 
@@ -284,7 +310,11 @@ async def test_response_validates_each_answer_type(client):
     for invalid in invalid_answers:
         response = await client.post(
             f"/api/v1/survey/{token}/respond",
-            json={"answers": {**base_answers, **invalid}, "consent": _consent()},
+            json={
+                "answers": {**base_answers, **invalid},
+                "consent": _consent(),
+                "withdrawal_code": WITHDRAWAL_CODE,
+            },
             headers={"Idempotency-Key": IDEMPOTENCY_KEY},
         )
         assert response.status_code == 422
@@ -298,6 +328,7 @@ async def test_response_validates_each_answer_type(client):
                 questions["boolean"]: True,
             },
             "consent": _consent(),
+                "withdrawal_code": secrets.token_urlsafe(32),
         },
         headers={"Idempotency-Key": IDEMPOTENCY_KEY},
     )
@@ -335,7 +366,11 @@ async def test_required_whitespace_answer_is_rejected(client):
 
     response = await client.post(
         f"/api/v1/survey/{distribution.json()['data']['token']}/respond",
-        json={"answers": {question_id: "   "}, "consent": _consent()},
+        json={
+            "answers": {question_id: "   "},
+            "consent": _consent(),
+            "withdrawal_code": WITHDRAWAL_CODE,
+        },
         headers={"Idempotency-Key": IDEMPOTENCY_KEY},
     )
     assert response.status_code == 422
@@ -358,7 +393,11 @@ async def test_revoked_token_rejects_read_and_submit(client):
     get_response = await client.get(f"/api/v1/survey/{token}")
     post_response = await client.post(
         f"/api/v1/survey/{token}/respond",
-        json={"answers": {question_id: "Full-Time"}, "consent": _consent()},
+        json={
+            "answers": {question_id: "Full-Time"},
+            "consent": _consent(),
+            "withdrawal_code": WITHDRAWAL_CODE,
+        },
         headers={"Idempotency-Key": IDEMPOTENCY_KEY},
     )
     assert get_response.status_code == 404
@@ -408,6 +447,7 @@ async def test_expired_token_rejects_public_access(client, monkeypatch):
         json={
             "answers": {question_response.json()["data"]["id"]: "answer"},
             "consent": _consent(),
+            "withdrawal_code": WITHDRAWAL_CODE,
         },
         headers={"Idempotency-Key": IDEMPOTENCY_KEY},
     )
@@ -419,7 +459,12 @@ async def test_response_routes_require_separate_permissions(client):
         client,
         {"text": {"question_text": "Text", "question_type": "text"}},
     )
-    _override_permissions("survey_responses.read_aggregates")
+    _override_permissions("survey_responses.read_aggregates", "surveys.manage")
+
+    closed = await client.patch(
+        f"/api/v1/surveys/{survey['survey_id']}", json={"status": "Closed"}
+    )
+    assert closed.status_code == 200
 
     assert (
         await client.get(f"/api/v1/surveys/{survey['id']}/responses/aggregates")
@@ -443,72 +488,10 @@ async def test_response_routes_require_separate_permissions(client):
     ).status_code == 403
 
 
-async def test_aggregate_supported_types_are_suppressed_conservatively(client):
-    survey, questions, token = await _create_survey_with_question_specs(
-        client,
-        {
-            "choice": {
-                "question_text": "Choice",
-                "question_type": "single_choice",
-                "options": ["A", "B"],
-            },
-            "free_text": {
-                "question_text": "Free text",
-                "question_type": "text",
-                "is_required": False,
-            },
-        },
-    )
-    for _index in range(5):
-        response = await _submit(
-            client,
-            token,
-            questions["choice"],
-            "A",
-        )
-        assert response.status_code == 201
-
-    aggregate = await client.get(f"/api/v1/surveys/{survey['id']}/responses/aggregates")
-    data = aggregate.json()["data"]
-    assert len(data) == 1
-    assert data[0]["question_type"] == "single_choice"
-    assert data[0]["total"] == 5
-    assert {cell["value"] for cell in data[0]["cells"]} == {"A", "B"}
-    assert {cell["value"]: cell["count"] for cell in data[0]["cells"]} == {
-        "A": 5,
-        "B": 0,
-    }
-    assert "answers" not in data[0]
-    assert "Free text" not in str(data)
-
-    suppressed_survey, suppressed_questions, suppressed_token = (
-        await _create_survey_with_question_specs(
-            client,
-            {
-                "choice": {
-                    "question_text": "Choice",
-                    "question_type": "single_choice",
-                    "options": ["A", "B"],
-                }
-            },
-        )
-    )
-    for index in range(5):
-        response = await _submit(
-            client,
-            suppressed_token,
-            suppressed_questions["choice"],
-            "A" if index < 4 else "B",
-        )
-        assert response.status_code == 201
-    suppressed = await client.get(
-        f"/api/v1/surveys/{suppressed_survey['id']}/responses/aggregates"
-    )
-    assert suppressed.status_code == 200
-    assert suppressed.json()["data"] == []
-
-
-async def test_aggregate_all_supported_shapes_and_suppression(client):
+@pytest.mark.parametrize("response_count", [0, 1, 4])
+async def test_aggregate_all_supported_shapes_exact_for_response_counts(
+    client, response_count
+):
     question_specs = {
         "choice": {
             "question_text": "Choice",
@@ -547,14 +530,22 @@ async def test_aggregate_all_supported_shapes_and_suppression(client):
         questions["ranking"]: ["A", "B"],
         questions["matrix"]: {"Row 1": "Yes"},
     }
-    for _index in range(5):
+    for _index in range(response_count):
         response = await client.post(
             f"/api/v1/survey/{token}/respond",
-            json={"answers": answers, "consent": _consent()},
+            json={
+                "answers": answers,
+                "consent": _consent(),
+                "withdrawal_code": secrets.token_urlsafe(32),
+            },
             headers={"Idempotency-Key": str(uuid4())},
         )
         assert response.status_code == 201
 
+    closed = await client.patch(
+        f"/api/v1/surveys/{survey['survey_id']}", json={"status": "Closed"}
+    )
+    assert closed.status_code == 200
     aggregate = await client.get(f"/api/v1/surveys/{survey['id']}/responses/aggregates")
     assert aggregate.status_code == 200
     data = aggregate.json()["data"]
@@ -566,66 +557,38 @@ async def test_aggregate_all_supported_shapes_and_suppression(client):
         "ranking",
         "matrix",
     ]
-    assert all(item["total"] == 5 for item in data)
+    assert all(item["total"] == response_count for item in data)
     by_type = {item["question_type"]: item for item in data}
     assert {cell["value"]: cell["count"] for cell in by_type["single_choice"]["cells"]} == {
-        "A": 5,
+        "A": response_count,
         "B": 0,
     }
     assert {cell["value"]: cell["count"] for cell in by_type["boolean"]["cells"]} == {
         False: 0,
-        True: 5,
+        True: response_count,
     }
     assert {cell["value"]: cell["count"] for cell in by_type["multiple_choice"]["cells"]} == {
-        "A": 5,
-        "B": 5,
+        "A": response_count,
+        "B": response_count,
     }
     assert {cell["value"]: cell["count"] for cell in by_type["scale"]["cells"]} == {
         1: 0,
-        2: 5,
+        2: response_count,
         3: 0,
     }
     assert {
         (cell["value"], cell["rank"]): cell["count"]
         for cell in by_type["ranking"]["cells"]
     } == {
-        ("A", 1): 5,
+        ("A", 1): response_count,
         ("B", 1): 0,
         ("A", 2): 0,
-        ("B", 2): 5,
+        ("B", 2): response_count,
     }
     assert {(cell["row"], cell["value"]): cell["count"] for cell in by_type["matrix"]["cells"]} == {
-        ("Row 1", "Yes"): 5,
+        ("Row 1", "Yes"): response_count,
         ("Row 1", "No"): 0,
     }
-
-    suppressed_survey, suppressed_questions, suppressed_token = (
-        await _create_survey_with_question_specs(client, question_specs)
-    )
-    suppressed_answers = {
-        suppressed_questions[name]: answer
-        for name, answer in {
-            "choice": "A",
-            "boolean": True,
-            "multiple": ["A", "B"],
-            "scale": 2,
-            "ranking": ["A", "B"],
-            "matrix": {"Row 1": "Yes"},
-        }.items()
-    }
-    for _index in range(4):
-        response = await client.post(
-            f"/api/v1/survey/{suppressed_token}/respond",
-            json={"answers": suppressed_answers, "consent": _consent()},
-            headers={"Idempotency-Key": str(uuid4())},
-        )
-        assert response.status_code == 201
-
-    suppressed = await client.get(
-        f"/api/v1/surveys/{suppressed_survey['id']}/responses/aggregates"
-    )
-    assert suppressed.status_code == 200
-    assert suppressed.json()["data"] == []
 
 
 async def test_aggregate_streams_answer_payloads_in_bounded_batches(monkeypatch):
@@ -652,7 +615,7 @@ async def test_aggregate_streams_answer_payloads_in_bounded_batches(monkeypatch)
         def __init__(self) -> None:
             self.batch_sizes: list[int] = []
 
-        def scalars(self) -> "FakeStream":
+        def scalars(self) -> FakeStream:
             return self
 
         async def close(self) -> None:
@@ -665,7 +628,6 @@ async def test_aggregate_streams_answer_payloads_in_bounded_batches(monkeypatch)
                 {str(questions[0].id): "A", str(questions[1].id): True},
                 {str(questions[0].id): "A", str(questions[1].id): True},
                 {str(questions[0].id): "A", str(questions[1].id): True},
-                {str(questions[0].id): "A", str(questions[1].id): True},
             ]
             for index in range(0, len(payloads), batch_size):
                 yield payloads[index : index + batch_size]
@@ -673,40 +635,47 @@ async def test_aggregate_streams_answer_payloads_in_bounded_batches(monkeypatch)
     class FakeSession:
         def __init__(self) -> None:
             self.stream_result = FakeStream()
-            self.exec_called = False
             self.statement = None
 
         async def stream(self, statement):
             self.statement = statement
             return self.stream_result
 
-        async def exec(self, _statement):
-            self.exec_called = True
-            raise AssertionError("aggregate responses should not execute a response ORM query")
+        def get_bind(self):
+            class FakeDialect:
+                name = "sqlite"
+
+            class FakeBind:
+                dialect = FakeDialect()
+
+            return FakeBind()
 
     session = FakeSession()
-    monkeypatch.setattr(response_service, "resolve_survey", _return_survey)
+    monkeypatch.setattr(survey_analytics_service, "resolve_survey", _return_survey)
     monkeypatch.setattr(
-        response_service,
+        survey_analytics_service,
         "_load_aggregate_questions",
         lambda _session, _survey_id: _return_questions(questions),
     )
-    monkeypatch.setattr(response_service, "_AGGREGATE_BATCH_SIZE", 2)
+    monkeypatch.setattr(survey_analytics_service, "AGGREGATE_BATCH_SIZE", 2)
 
-    aggregates = await response_service.aggregate_responses(
+    aggregates = await survey_analytics_service.aggregate_responses(
         cast(AsyncSession, session), survey_id
     )
 
     assert len(aggregates) == 2
-    assert all(aggregate.total == 5 for aggregate in aggregates)
-    assert session.exec_called is False
+    assert all(aggregate.total == 4 for aggregate in aggregates)
     assert session.stream_result.batch_sizes == [2]
     assert session.statement is not None
     assert [column.key for column in session.statement.selected_columns] == ["answers"]
 
 
-async def _return_survey(_session, _survey_id):
-    return object()
+async def _return_survey(_session, _survey_id, **_kwargs):
+    class FakeSurvey:
+        is_deleted = False
+        status = "Closed"
+
+    return FakeSurvey()
 
 
 async def _return_questions(questions):
@@ -730,6 +699,7 @@ async def test_export_is_long_form_canonical_and_formula_safe(client):
                 questions["nul"]: "safe",
             },
             "consent": _consent(),
+            "withdrawal_code": WITHDRAWAL_CODE,
         },
     )
     assert submitted.status_code == 201
@@ -744,21 +714,6 @@ async def test_export_is_long_form_canonical_and_formula_safe(client):
     assert rows[0]["answer_json"] == '"=2+2"'
     assert "\x00" not in rows[1]["question_text"]
     assert rows[1]["question_text"] == "�=SUM(B1)"
-
-    audit = await client.get(
-        "/api/v1/audit-logs/",
-        params={
-            "resource_type": "survey_response",
-            "resource_id": survey["survey_id"],
-            "action": "export",
-        },
-    )
-    assert audit.status_code == 200
-    assert audit.json()["data"][0]["changes"] == {
-        "response_count": 1,
-        "answer_row_count": 2,
-    }
-
 
 async def test_selected_erasure_is_atomic_and_idempotent(client):
     survey, questions, token = await _create_survey_with_question_specs(

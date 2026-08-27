@@ -21,6 +21,9 @@ PROJECT_ROOT = ROOT_DIR.parent
 sys.path.insert(0, str(ROOT_DIR))
 load_dotenv(PROJECT_ROOT / ".env", override=True)
 # The normal test suite must never depend on or mutate an external rate-limit store.
+# It therefore runs in explicit debug mode while production configuration validation is
+# covered separately in test_public_rate_limits.py.
+os.environ["DEBUG"] = "true"
 os.environ["RATE_LIMIT_ENABLED"] = "false"
 os.environ["UPSTASH_REDIS_REST_URL"] = ""
 os.environ["UPSTASH_REDIS_REST_TOKEN"] = ""
@@ -44,6 +47,7 @@ from tests.integration.fixtures import (  # noqa: E402,F401
     migrate_to,
     postgres_connection,
     postgres_database,
+    postgres_database_at_revision,
 )
 
 

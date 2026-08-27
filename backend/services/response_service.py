@@ -1,12 +1,9 @@
-import csv
 import hashlib
-import io
+import hmac
 import json
 import math
-from collections import Counter
-from dataclasses import dataclass
-from datetime import date
-from typing import cast
+import secrets
+from datetime import UTC, date, datetime, timedelta
 from uuid import UUID
 
 from fastapi import status
@@ -14,6 +11,7 @@ from sqlalchemy import func, update
 from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from core.config import settings
 from core.exceptions import AppError
 from models.question_type import QuestionType
 from models.survey import Survey
@@ -21,15 +19,14 @@ from models.survey_question import SurveyQuestion
 from models.survey_response import ResponseErasureReceipt, SurveyResponse
 from models.survey_section import SurveySection
 from schemas.survey_response import (
-    AggregateCell,
-    AggregateQuestionType,
     EraseAllResponses,
     EraseSelectedResponses,
     ResponseErasureResult,
-    SurveyResponseAggregate,
     SurveyResponseListQueryParams,
+    SurveyResponseWithdrawalRequest,
+    SurveyResponseWithdrawalResult,
 )
-from services import survey_consent, survey_privacy
+from services import survey_consent
 from services.audit_service import AuditEvent, commit_with_audit
 from services.base_service import utc_now
 from services.distribution_service import get_distribution_and_survey_by_token
@@ -40,6 +37,33 @@ from services.question_validation import (
 )
 from services.survey_service import resolve_survey
 from utils.sorting import stable_order_by
+
+_LOCAL_WITHDRAWAL_HMAC_SECRET = secrets.token_bytes(32)
+GENERIC_WITHDRAWAL_ERROR = "Response not found or already withdrawn."
+
+
+def hash_withdrawal_code(withdrawal_code: str) -> str:
+    """Return the server-side HMAC digest for a respondent-held code."""
+    secret = settings.WITHDRAWAL_CODE_HMAC_SECRET
+    key = secret.encode("utf-8") if secret is not None else _LOCAL_WITHDRAWAL_HMAC_SECRET
+    return hmac.new(key, withdrawal_code.encode("utf-8"), hashlib.sha256).hexdigest()
+
+
+def response_idempotency_hash(
+    answers: dict[str, object], consent_version: str, withdrawal_code: str
+) -> str:
+    return hashlib.sha256(
+        json.dumps(
+            {
+                "answers": answers,
+                "consent_version": consent_version,
+                "withdrawal_code": withdrawal_code,
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        ).encode()
+    ).hexdigest()
 
 
 def _is_blank_answer(value: object) -> bool:
@@ -214,6 +238,7 @@ async def submit_response(
     idempotency_key: UUID | None = None,
     ip_address: str | None = None,
     consent_version: str | None = None,
+    withdrawal_code: str | None = None,
 ) -> tuple[SurveyResponse, bool]:
     # Public HTTP callers must supply the current version.  A missing value is
     # defaulted only for existing internal service callers, preserving their
@@ -221,6 +246,11 @@ async def submit_response(
     if consent_version is None:
         consent_version = survey_consent.get_public_consent_policy().version
     consent_policy = survey_consent.require_current_consent(consent_version)
+    if withdrawal_code is None:
+        # Internal callers predating the public withdrawal contract receive a
+        # non-returned process-local secret. Public callers are required to
+        # provide their own code by SurveyResponseSubmit.
+        withdrawal_code = secrets.token_urlsafe(32)
 
     try:
         answers_json = json.dumps(answers, allow_nan=False)
@@ -246,14 +276,7 @@ async def submit_response(
 
     answers_hash = None
     if idempotency_key is not None:
-        answers_hash = hashlib.sha256(
-            json.dumps(
-                {"answers": answers, "consent_version": consent_version},
-                sort_keys=True,
-                separators=(",", ":"),
-                allow_nan=False,
-            ).encode()
-        ).hexdigest()
+        answers_hash = response_idempotency_hash(answers, consent_version, withdrawal_code)
         legacy_answers_hash = hashlib.sha256(
             json.dumps(answers, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()
         ).hexdigest()
@@ -299,29 +322,25 @@ async def submit_response(
                 return existing, True
 
             if existing.idempotency_hash == legacy_answers_hash:
-                existing.idempotency_hash = answers_hash
                 if all_consent_fields_null:
                     existing.consent_version = consent_version
                     existing.consented_at = utc_now()
                     existing.consent_notice_snapshot = consent_policy.model_dump(mode="json")
-                    replay_action = "consent_recorded_on_legacy_replay"
-                else:
-                    replay_action = "response_replay_hash_upgraded"
-                session.add(existing)
-                await commit_with_audit(
-                    session,
-                    [
-                        AuditEvent(
-                            action=replay_action,
-                            resource_type="survey_response",
-                            resource_id=str(existing.id),
-                            performed_by=actor_id,
-                            changes=None,
-                            ip_address=None,
-                        )
-                    ],
-                )
-                await session.refresh(existing)
+                    session.add(existing)
+                    await commit_with_audit(
+                        session,
+                        [
+                            AuditEvent(
+                                action="consent_recorded_on_legacy_replay",
+                                resource_type="survey_response",
+                                resource_id=str(existing.id),
+                                performed_by=actor_id,
+                                changes=None,
+                                ip_address=None,
+                            )
+                        ],
+                    )
+                    await session.refresh(existing)
                 return existing, True
 
             if existing.idempotency_hash != answers_hash:
@@ -338,14 +357,21 @@ async def submit_response(
 
     await _validate_answers(session, distribution.survey_id, answers)
 
+    accepted_at = utc_now()
     response = SurveyResponse(
         survey_id=distribution.survey_id,
         distribution_id=distribution.id,
         idempotency_key=idempotency_key,
         idempotency_hash=answers_hash,
         consent_version=consent_version,
-        consented_at=utc_now(),
+        consented_at=accepted_at,
         consent_notice_snapshot=consent_policy.model_dump(mode="json"),
+        retention_expires_at=(
+            accepted_at + timedelta(days=survey.retention_days)
+            if survey.retention_enabled
+            else None
+        ),
+        withdrawal_credential_digest=hash_withdrawal_code(withdrawal_code),
         answers=answers,
         performed_by=actor_id,
     )
@@ -390,38 +416,19 @@ async def list_responses(
     survey_id: UUID,
     params: SurveyResponseListQueryParams,
 ) -> tuple[list[SurveyResponse], int]:
-    survey_result = await session.exec(
-        select(Survey).where(
-            col(Survey.id) == survey_id,
-            col(Survey.is_deleted).is_(False),
-        )
-    )
-    if survey_result.first() is None:
-        raise AppError("Survey not found.", status_code=status.HTTP_404_NOT_FOUND)
-
-    statement = select(SurveyResponse).where(
-        col(SurveyResponse.survey_id) == survey_id,
-        col(SurveyResponse.is_deleted).is_(False),
-    )
-
-    total_statement = (
-        select(func.count())
-        .select_from(SurveyResponse)
-        .where(
-            col(SurveyResponse.survey_id) == survey_id,
-            col(SurveyResponse.is_deleted).is_(False),
-        )
+    await resolve_survey(session, survey_id, include_deleted=True)
+    now = utc_now()
+    statement = _apply_response_listing_filters(select(SurveyResponse), survey_id, params, now)
+    total_statement = _apply_response_listing_filters(
+        select(func.count()).select_from(SurveyResponse), survey_id, params, now
     )
     total_result = await session.exec(total_statement)
     total = total_result.one()
 
-    sort_columns = {
-        "created_at": SurveyResponse.created_at,
-    }
-    sort_column = sort_columns.get(params.sort_by, SurveyResponse.created_at)
+    sort_columns = {"created_at": SurveyResponse.created_at}
     statement = stable_order_by(
         statement,
-        sort_column,
+        sort_columns[params.sort_by],
         sort_order=params.sort_order,
         id_column=SurveyResponse.id,
     )
@@ -431,349 +438,164 @@ async def list_responses(
     return rows, total
 
 
-_AGGREGATE_TYPES = {
-    QuestionType.SINGLE_CHOICE,
-    QuestionType.BOOLEAN,
-    QuestionType.MULTIPLE_CHOICE,
-    QuestionType.SCALE,
-    QuestionType.RANKING,
-    QuestionType.MATRIX,
-}
-_AGGREGATE_BATCH_SIZE = 1000
+def _as_utc_naive(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value
+    return value.astimezone(UTC).replace(tzinfo=None)
 
 
-async def _load_aggregate_questions(
-    session: AsyncSession, survey_id: UUID
-) -> list[SurveyQuestion]:
-    result = await session.exec(
-        select(SurveyQuestion)
-        .join(SurveySection, col(SurveySection.id) == SurveyQuestion.section_id)
-        .where(
-            col(SurveyQuestion.survey_id) == survey_id,
-            col(SurveySection.survey_id) == survey_id,
-            col(SurveySection.is_deleted).is_(False),
-            col(SurveyQuestion.is_deleted).is_(False),
-            col(SurveyQuestion.question_type).in_(_AGGREGATE_TYPES),
-        )
-        .order_by(
-            col(SurveySection.order_index),
-            col(SurveySection.id),
-            col(SurveyQuestion.order_index),
-            col(SurveyQuestion.id),
-        )
-    )
-    return list(result.all())
-
-
-@dataclass
-class _AggregateState:
-    question: SurveyQuestion
-    question_type: QuestionType
-    options: list[object]
-    config: dict[str, object]
-    counts: Counter[object]
-    total: int = 0
-
-
-def _new_aggregate_state(question: SurveyQuestion) -> _AggregateState:
-    question_type = QuestionType(question.question_type)
-    options = _load_json(question.options, "options")
-    config = _load_json(question.config, "config")
-    normalized_options = options if isinstance(options, list) else []
-    normalized_config = config if isinstance(config, dict) else {}
-    counts: Counter[object] = Counter()
-    state = _AggregateState(
-        question=question,
-        question_type=question_type,
-        options=normalized_options,
-        config=normalized_config,
-        counts=counts,
-    )
-    if question_type in {
-        QuestionType.SINGLE_CHOICE,
-        QuestionType.MULTIPLE_CHOICE,
-    }:
-        for option in normalized_options:
-            state.counts[option] = 0
-    elif question_type == QuestionType.BOOLEAN:
-        state.counts[False] = 0
-        state.counts[True] = 0
-    elif question_type == QuestionType.SCALE:
-        scale_options = (
-            normalized_options
-            if all(isinstance(item, str) for item in normalized_options)
-            else None
-        )
-        minimum, maximum = get_scale_bounds(
-            cast(list[str] | None, scale_options), normalized_config
-        )
-        for scale_value in range(minimum, maximum + 1):
-            state.counts[scale_value] = 0
-    elif question_type == QuestionType.RANKING:
-        for rank in range(1, len(normalized_options) + 1):
-            for option in normalized_options:
-                state.counts[(option, rank)] = 0
-    else:
-        columns = get_matrix_columns(normalized_config)
-        for row in normalized_options:
-            for matrix_value in columns:
-                state.counts[(row, matrix_value)] = 0
-    return state
-
-
-def _accumulate_aggregate_answer(state: _AggregateState, answer: object) -> None:
-    if _is_blank_answer(answer):
-        return
-    state.total += 1
-    question_type = state.question_type
-
-    if question_type in {
-        QuestionType.SINGLE_CHOICE,
-        QuestionType.BOOLEAN,
-        QuestionType.MULTIPLE_CHOICE,
-    }:
-        if question_type == QuestionType.MULTIPLE_CHOICE:
-            if isinstance(answer, list):
-                for item in answer:
-                    try:
-                        if item in state.counts:
-                            state.counts[item] += 1
-                    except TypeError:
-                        continue
-        else:
-            try:
-                if answer in state.counts:
-                    state.counts[answer] += 1
-            except TypeError:
-                pass
-    elif question_type == QuestionType.SCALE:
-        try:
-            if answer in state.counts:
-                state.counts[answer] += 1
-        except TypeError:
-            pass
-    elif question_type == QuestionType.RANKING:
-        if isinstance(answer, list):
-            for rank, value in enumerate(answer, start=1):
-                try:
-                    if (value, rank) in state.counts:
-                        state.counts[(value, rank)] += 1
-                except TypeError:
-                    continue
-    else:
-        if isinstance(answer, dict):
-            for row, value in answer.items():
-                try:
-                    if (row, value) in state.counts:
-                        state.counts[(row, value)] += 1
-                except TypeError:
-                    continue
-
-
-def _aggregate_cells(state: _AggregateState) -> list[dict[str, object]]:
-    question_type = state.question_type
-    if question_type in {
-        QuestionType.SINGLE_CHOICE,
-        QuestionType.MULTIPLE_CHOICE,
-    }:
-        return [
-            {"value": option, "count": state.counts.get(option, 0)}
-            for option in state.options
-        ]
-    if question_type == QuestionType.BOOLEAN:
-        return [
-            {"value": value, "count": state.counts.get(value, 0)}
-            for value in (False, True)
-        ]
-    if question_type == QuestionType.SCALE:
-        scale_options = (
-            state.options
-            if all(isinstance(item, str) for item in state.options)
-            else None
-        )
-        minimum, maximum = get_scale_bounds(
-            cast(list[str] | None, scale_options),
-            state.config,
-        )
-        return [
-            {"value": value, "count": state.counts.get(value, 0)}
-            for value in range(minimum, maximum + 1)
-        ]
-    if question_type == QuestionType.RANKING:
-        return [
-            {
-                "value": value,
-                "rank": rank,
-                "count": state.counts.get((value, rank), 0),
-            }
-            for rank in range(1, len(state.options) + 1)
-            for value in state.options
-        ]
-    columns = get_matrix_columns(state.config)
-    return [
-        {"row": row, "value": value, "count": state.counts.get((row, value), 0)}
-        for row in state.options
-        for value in columns
-    ]
-
-
-def _finalize_aggregate(state: _AggregateState) -> SurveyResponseAggregate | None:
-    cells = _aggregate_cells(state)
-
-    if state.total < survey_privacy.RESPONSE_COUNT_PRIVACY_THRESHOLD or any(
-        0 < cast(int, cell["count"]) < survey_privacy.RESPONSE_COUNT_PRIVACY_THRESHOLD
-        for cell in cells
-    ):
-        return None
-    return SurveyResponseAggregate(
-        question_id=state.question.id,
-        question_text=state.question.question_text,
-        question_type=cast(AggregateQuestionType, state.question_type.value),
-        total=state.total,
-        cells=[AggregateCell.model_validate(cell) for cell in cells],
-    )
-
-
-async def aggregate_responses(
-    session: AsyncSession, survey_id: UUID
-) -> list[SurveyResponseAggregate]:
-    await resolve_survey(session, survey_id)
-    questions = await _load_aggregate_questions(session, survey_id)
-    states = {
-        str(question.id): _new_aggregate_state(question) for question in questions
-    }
-    if not states:
-        return []
-
-    responses_statement = select(SurveyResponse.answers).where(
+def _apply_response_listing_filters(
+    statement,
+    survey_id: UUID,
+    params: SurveyResponseListQueryParams,
+    now: datetime,
+):
+    statement = statement.where(
         col(SurveyResponse.survey_id) == survey_id,
         col(SurveyResponse.is_deleted).is_(False),
-    ).order_by(col(SurveyResponse.id))
-    answers_result = await session.stream(responses_statement)
-    try:
-        async for answer_batch in answers_result.scalars().partitions(_AGGREGATE_BATCH_SIZE):
-            for answers in answer_batch:
-                if not isinstance(answers, dict):
-                    continue
-                for question_id, answer in answers.items():
-                    state = states.get(question_id)
-                    if state is not None:
-                        _accumulate_aggregate_answer(state, answer)
-    finally:
-        await answers_result.close()
-
-    aggregates: list[SurveyResponseAggregate] = []
-    for question in questions:
-        aggregate = _finalize_aggregate(states[str(question.id)])
-        if aggregate is not None:
-            aggregates.append(aggregate)
-    return aggregates
+        (
+            col(SurveyResponse.retention_expires_at).is_(None)
+            | (col(SurveyResponse.retention_expires_at) > now)
+        ),
+    )
+    if params.submitted_from is not None:
+        statement = statement.where(
+            col(SurveyResponse.created_at) >= _as_utc_naive(params.submitted_from)
+        )
+    if params.submitted_before is not None:
+        statement = statement.where(
+            col(SurveyResponse.created_at) < _as_utc_naive(params.submitted_before)
+        )
+    if params.distribution_id is not None:
+        statement = statement.where(
+            col(SurveyResponse.distribution_id) == params.distribution_id
+        )
+    return statement
 
 
-def _safe_csv_text(value: object) -> str:
-    text = str(value).replace("\x00", "\ufffd")
-    formula_candidate = text.lstrip()
-    if formula_candidate.startswith(("=", "+", "-", "@")) or text.lstrip(" ").startswith(
-        ("\t", "\r", "\n")
-    ):
-        return "'" + text
-    return text
-
-
-async def export_responses(
-    session: AsyncSession,
-    survey_id: UUID,
-    actor_id: UUID,
-    ip_address: str | None = None,
-) -> str:
-    survey = await resolve_survey(session, survey_id)
-    responses_result = await session.exec(
-        select(SurveyResponse)
+async def _reconcile_response_count(session: AsyncSession, survey: Survey) -> int:
+    result = await session.exec(
+        select(func.count())
+        .select_from(SurveyResponse)
         .where(
-            col(SurveyResponse.survey_id) == survey_id,
+            col(SurveyResponse.survey_id) == survey.id,
             col(SurveyResponse.is_deleted).is_(False),
         )
-        .order_by(col(SurveyResponse.id))
-        .limit(10001)
     )
-    responses = list(responses_result.all())
-    if len(responses) > 10000:
-        raise AppError(
-            "Response export is limited to 10,000 responses.",
-            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-        )
-    all_questions_result = await session.exec(
-        select(SurveyQuestion)
-        .join(SurveySection, col(SurveySection.id) == SurveyQuestion.section_id)
-        .where(
-            col(SurveyQuestion.survey_id) == survey_id,
-            col(SurveySection.survey_id) == survey_id,
-            col(SurveySection.is_deleted).is_(False),
-            col(SurveyQuestion.is_deleted).is_(False),
-        )
-        .order_by(
-            col(SurveySection.order_index),
-            col(SurveySection.id),
-            col(SurveyQuestion.order_index),
-            col(SurveyQuestion.id),
-        )
-    )
-    questions = list(all_questions_result.all())
+    survey.responses_count = result.one()
+    return survey.responses_count
 
-    output = io.StringIO(newline="")
-    writer = csv.writer(output, lineterminator="\n")
-    answer_row_count = 0
-    writer.writerow(
-        [
-            "response_id",
-            "submitted_at",
-            "question_id",
-            "question_text",
-            "question_type",
-            "answer_json",
-        ]
-    )
+
+async def tombstone_responses(
+    session: AsyncSession,
+    responses: list[SurveyResponse],
+    actor_id: UUID,
+    *,
+    preserve_withdrawal_digest: bool = False,
+    now: datetime | None = None,
+) -> int:
+    """Clear response data and mark rows deleted without committing the transaction."""
+    deleted_at = now or utc_now()
+    erased_count = 0
     for response in responses:
-        for question in questions:
-            question_id = str(question.id)
-            if question_id not in response.answers:
-                continue
-            answer_row_count += 1
-            answer_json = json.dumps(
-                response.answers[question_id],
-                sort_keys=True,
-                separators=(",", ":"),
-                ensure_ascii=False,
-                allow_nan=False,
-            )
-            writer.writerow(
-                [
-                    _safe_csv_text(response.id),
-                    _safe_csv_text(response.created_at.isoformat()),
-                    _safe_csv_text(question.id),
-                    _safe_csv_text(question.question_text),
-                    _safe_csv_text(question.question_type),
-                    _safe_csv_text(answer_json),
-                ]
-            )
+        if response.is_deleted:
+            continue
+        response.answers = {}
+        response.distribution_id = None
+        response.idempotency_key = None
+        response.idempotency_hash = None
+        response.consent_version = None
+        response.consented_at = None
+        response.consent_notice_snapshot = None
+        if not preserve_withdrawal_digest:
+            response.withdrawal_credential_digest = None
+        response.is_deleted = True
+        response.deleted_at = deleted_at
+        response.updated_at = deleted_at
+        response.performed_by = actor_id
+        session.add(response)
+        erased_count += 1
+    return erased_count
 
+
+async def withdraw_response(
+    session: AsyncSession,
+    payload: SurveyResponseWithdrawalRequest,
+    *,
+    actor_id: UUID | None = None,
+) -> SurveyResponseWithdrawalResult:
+    """Withdraw a response using only its respondent-held code."""
+    withdrawal_digest = hash_withdrawal_code(payload.withdrawal_code)
+    candidates_result = await session.exec(
+        select(SurveyResponse)
+        .where(col(SurveyResponse.withdrawal_credential_digest) == withdrawal_digest)
+        .order_by(col(SurveyResponse.id))
+    )
+    candidate = next(
+        (
+            response
+            for response in candidates_result.all()
+            if response.withdrawal_credential_digest is not None
+            and hmac.compare_digest(response.withdrawal_credential_digest, withdrawal_digest)
+        ),
+        None,
+    )
+    if candidate is None:
+        await session.rollback()
+        raise AppError(GENERIC_WITHDRAWAL_ERROR, status_code=status.HTTP_404_NOT_FOUND)
+
+    survey = await resolve_survey(
+        session,
+        candidate.survey_id,
+        include_deleted=True,
+        for_update=True,
+    )
+    response_result = await session.exec(
+        select(SurveyResponse)
+        .where(
+            col(SurveyResponse.id) == candidate.id,
+            col(SurveyResponse.survey_id) == survey.id,
+        )
+        .with_for_update()
+    )
+    response = response_result.first()
+    if (
+        response is None
+        or response.withdrawal_credential_digest is None
+        or not hmac.compare_digest(response.withdrawal_credential_digest, withdrawal_digest)
+    ):
+        await session.rollback()
+        raise AppError(GENERIC_WITHDRAWAL_ERROR, status_code=status.HTTP_404_NOT_FOUND)
+
+    if response.is_deleted:
+        await session.rollback()
+        return SurveyResponseWithdrawalResult(withdrawn=True)
+
+    system_actor = actor_id or settings.SYSTEM_ACTOR_ID
+    await tombstone_responses(
+        session,
+        [response],
+        system_actor,
+        preserve_withdrawal_digest=True,
+    )
+    await _reconcile_response_count(session, survey)
+    survey.updated_at = utc_now()
+    survey.performed_by = system_actor
+    session.add(survey)
     await commit_with_audit(
         session,
         [
             AuditEvent(
-                action="export",
-                resource_type="survey_response",
+                action="withdraw",
+                resource_type="survey_response_withdrawal",
                 resource_id=survey.survey_id,
-                performed_by=actor_id,
-                changes={
-                    "response_count": len(responses),
-                    "answer_row_count": answer_row_count,
-                },
-                ip_address=ip_address,
+                performed_by=system_actor,
+                changes={"result": "withdrawn"},
+                ip_address=None,
             )
         ],
     )
-    return output.getvalue()
+    return SurveyResponseWithdrawalResult(withdrawn=True)
 
 
 def _erasure_request_hash(
@@ -860,25 +682,13 @@ async def erase_responses(
             )
 
     now = utc_now()
-    erased_count = 0
-    for response in responses:
-        if response.is_deleted:
-            continue
-        response.answers = {}
-        response.distribution_id = None
-        response.idempotency_key = None
-        response.idempotency_hash = None
-        response.consent_version = None
-        response.consented_at = None
-        response.consent_notice_snapshot = None
-        response.is_deleted = True
-        response.deleted_at = now
-        response.updated_at = now
-        response.performed_by = actor_id
-        session.add(response)
-        erased_count += 1
-
-    survey.responses_count = max(0, survey.responses_count - erased_count)
+    erased_count = await tombstone_responses(
+        session,
+        responses,
+        actor_id,
+        now=now,
+    )
+    await _reconcile_response_count(session, survey)
     survey.updated_at = now
     survey.performed_by = actor_id
     session.add(survey)

@@ -78,7 +78,7 @@ describe("ClientSurveyForm", () => {
     expect(screen.queryByText(/confidential/i)).not.toBeInTheDocument()
   })
 
-  it("submits accepted consent and answers, then shows only a generic success", async () => {
+  it("submits a private code and shows it once with withdrawal instructions", async () => {
     const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(successResponse())
     renderSurvey()
 
@@ -94,11 +94,20 @@ describe("ClientSurveyForm", () => {
     expect(request?.[1]).toMatchObject({
       method: "POST",
       headers: expect.objectContaining({ "Idempotency-Key": expect.any(String) }),
-      body: JSON.stringify({
-        answers: { "question-1": "The mentoring program" },
-        consent: { accepted: true, version: consent.version },
-      }),
     })
+    const body = JSON.parse((request?.[1] as RequestInit).body as string) as Record<string, unknown>
+    expect(body).toEqual({
+      answers: { "question-1": "The mentoring program" },
+      consent: { accepted: true, version: consent.version },
+      withdrawal_code: expect.stringMatching(/^[A-Za-z0-9_-]{43}$/),
+    })
+    expect(screen.getByRole("heading", { name: "Response Submitted" })).toBeInTheDocument()
+    expect(screen.getByText(/required to withdraw your response later/i)).toBeInTheDocument()
+    expect(screen.getByRole("link", { name: /withdraw a response/i })).toHaveAttribute(
+      "href",
+      "/survey/withdraw",
+    )
+    expect(screen.queryByText("visible-token-must-not-render")).not.toBeInTheDocument()
     expect(screen.queryByText(/receipt|internal id|response id/i)).not.toBeInTheDocument()
   })
 
@@ -126,6 +135,31 @@ describe("ClientSurveyForm", () => {
           ((fetchMock.mock.calls[0]?.[1] as RequestInit).headers as Record<string, string>)["Idempotency-Key"],
       }),
     })
+    const firstBody = JSON.parse((fetchMock.mock.calls[0]?.[1] as RequestInit).body as string) as Record<string, string>
+    const secondBody = JSON.parse((fetchMock.mock.calls[1]?.[1] as RequestInit).body as string) as Record<string, string>
+    expect(secondBody.withdrawal_code).toBe(firstBody.withdrawal_code)
+  })
+
+  it("copies the displayed withdrawal code without placing it in a URL", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } })
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(successResponse())
+    renderSurvey()
+    fireEvent.change(screen.getByLabelText("What did you enjoy?"), {
+      target: { value: "The mentoring program" },
+    })
+    fireEvent.click(screen.getByRole("checkbox", { name: /consent/i }))
+    fireEvent.click(screen.getByRole("button", { name: /submit/i }))
+
+    await screen.findByRole("heading", { name: "Response Submitted" })
+    const code = screen.getByLabelText("Private withdrawal code").textContent
+    expect(code).toMatch(/^[A-Za-z0-9_-]{43}$/)
+    expect(screen.getAllByText(code ?? "")).toHaveLength(1)
+    fireEvent.click(screen.getByRole("button", { name: /copy withdrawal code/i }))
+    expect(writeText).toHaveBeenCalledWith(code)
+    expect(fetchMock.mock.calls[0]?.[0]).toContain("/survey/visible-token-must-not-render/respond")
+    expect(fetchMock.mock.calls[0]?.[0]).not.toContain(code ?? "")
+    expect(window.location.href).not.toContain(code)
   })
 
   it("shows and respects Retry-After for rate limits", async () => {

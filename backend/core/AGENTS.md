@@ -21,7 +21,10 @@ backend without knowing about one resource such as users.
   belong here.
 
 ## Current Files
-- `config.py` owns `Settings`, loads the repo-root `.env`, and exposes `database_url`, `async_database_url`, and `is_sqlite`. It has no default values (fails fast if config is missing).
+- `config.py` owns `Settings`, loads the repo-root `.env`, and exposes `database_url`,
+  `async_database_url`, and `is_sqlite`. Core application settings fail fast when missing;
+  traffic-security and public-policy settings have local-safe defaults. Production must provide
+  the dedicated `WITHDRAWAL_CODE_HMAC_SECRET` (at least 32 bytes) for respondent withdrawal.
 - `auth.py` parses bearer headers, caches Supabase JWKS, validates JWTs, and defines
   `AuthClaims`.
 - `database.py` owns both sync (`engine`/`get_session`) and async (`async_engine`/`get_async_session`) database engines and session factories. It configures PgBouncer-compatible connection args for async operations.

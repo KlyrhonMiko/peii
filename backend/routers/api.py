@@ -5,6 +5,7 @@ from routers.auth import router as auth_router
 from routers.health import router as health_router
 from routers.ml import router as ml_router
 from routers.rbac import router as rbac_router
+from routers.survey_analytics import router as survey_analytics_router
 from routers.survey_distributions import router as survey_distributions_router
 from routers.survey_public import router as survey_public_router
 from routers.survey_questions import router as survey_questions_router
@@ -40,5 +41,10 @@ api_router.include_router(
     survey_responses_router,
     prefix="/surveys/{survey_id}/responses",
     tags=["survey-responses"],
+)
+api_router.include_router(
+    survey_analytics_router,
+    prefix="/surveys/{survey_id}/responses",
+    tags=["survey-analytics"],
 )
 api_router.include_router(survey_public_router, prefix="/survey", tags=["survey-public"])

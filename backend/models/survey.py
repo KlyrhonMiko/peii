@@ -11,6 +11,10 @@ class Survey(BaseModel, table=True):
             "status IN ('Inactive', 'Active', 'Closed')",
             name="ck_surveys_status",
         ),
+        CheckConstraint(
+            "retention_days >= 1",
+            name="ck_surveys_retention_days_positive",
+        ),
     )
 
     survey_id: str = Field(unique=True, index=True, max_length=20)
@@ -19,3 +23,5 @@ class Survey(BaseModel, table=True):
     status: str = Field(default="Inactive", max_length=20, index=True)
     target_cohort: str | None = Field(default=None, max_length=100)
     responses_count: int = Field(default=0, nullable=False)
+    retention_enabled: bool = Field(default=True, nullable=False)
+    retention_days: int = Field(default=1825, ge=1, nullable=False)

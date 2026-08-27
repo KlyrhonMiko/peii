@@ -448,6 +448,18 @@ async def update_survey(
 ) -> Survey:
     survey = await get_survey(session, survey_id, for_update=True)
     updates = payload.model_dump(exclude_unset=True)
+    if "retention_enabled" in updates or "retention_days" in updates:
+        response_count_result = await session.exec(
+            select(func.count())
+            .select_from(SurveyResponse)
+            .where(col(SurveyResponse.survey_id) == survey.id)
+        )
+        if response_count_result.one() > 0:
+            raise AppError(
+                "Retention policy cannot be changed after responses exist.",
+                status_code=status.HTTP_409_CONFLICT,
+                errors={"code": "retention_policy_immutable"},
+            )
     resulting_status = updates.get("status", survey.status)
     if resulting_status == "Active":
         await ensure_survey_ready_for_activation(

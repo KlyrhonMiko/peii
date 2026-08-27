@@ -75,7 +75,6 @@ export function QuestionInput({
     <div
       role="group"
       aria-labelledby={`q-title-${question.id}`}
-      aria-invalid={hasError}
       aria-describedby={hasError ? errorId : undefined}
       className={`rounded-2xl bg-white p-6 sm:p-8 transition-all ${hasError ? "border border-red-300" : "border border-zinc-200 shadow-sm"}`}
     >

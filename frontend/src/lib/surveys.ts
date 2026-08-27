@@ -2,6 +2,9 @@ import { api, ApiError } from "@/lib/api"
 
 export type SurveyStatus = "Inactive" | "Active" | "Closed"
 
+export const DEFAULT_RETENTION_ENABLED = true
+export const DEFAULT_RETENTION_DAYS = 1825
+
 // ── Frontend-facing types (camelCase, matching existing UI) ──────
 
 export interface Distribution {
@@ -12,7 +15,7 @@ export interface Distribution {
   expiresAt: string | null
   revokedAt: string | null
   createdAt: string
-  token: string
+  token?: string
 }
 
 export interface DistributionSecret extends Distribution {
@@ -36,6 +39,8 @@ export interface Survey {
   dateCreated: string
   updatedAt: string
   isDeleted: boolean
+  retentionEnabled: boolean
+  retentionDays: number
   targetCohort?: string
   description?: string
   questions?: SurveyQuestion[]
@@ -107,6 +112,8 @@ export interface ApiSurvey {
   is_deleted: boolean
   deleted_at: string | null
   performed_by: string | null
+  retention_enabled: boolean
+  retention_days: number
   questions?: ApiQuestion[]
   sections?: ApiSection[]
 }
@@ -144,7 +151,7 @@ export interface ApiDistribution {
   expires_at: string | null
   revoked_at: string | null
   created_at: string
-  token: string
+  token?: string
 }
 
 export interface ApiDistributionSecret extends ApiDistribution {
@@ -214,6 +221,16 @@ export interface SurveyListOptions {
   offset?: number
 }
 
+export interface SurveyResponseListOptions {
+  limit?: number
+  offset?: number
+  sortBy?: "created_at"
+  sortOrder?: "asc" | "desc"
+  submittedFrom?: string
+  submittedBefore?: string
+  distributionId?: string
+}
+
 // ── Mapping ───────────────────────────────────────────────────────
 
 function mapSection(api: ApiSection): SurveySection {
@@ -237,6 +254,8 @@ export function mapSurvey(api: ApiSurvey): Survey {
     dateCreated: api.created_at,
     updatedAt: api.updated_at,
     isDeleted: api.is_deleted,
+    retentionEnabled: api.retention_enabled ?? DEFAULT_RETENTION_ENABLED,
+    retentionDays: api.retention_days ?? DEFAULT_RETENTION_DAYS,
     ...(api.target_cohort ? { targetCohort: api.target_cohort } : {}),
     ...(api.description ? { description: api.description } : {}),
     ...(api.questions ? { questions: api.questions.map(mapQuestion) } : {}),
@@ -267,7 +286,7 @@ export function mapDistribution(api: ApiDistribution): Distribution {
     expiresAt: api.expires_at,
     revokedAt: api.revoked_at,
     createdAt: api.created_at,
-    token: api.token,
+    ...(api.token !== undefined ? { token: api.token } : {}),
   }
 }
 
@@ -324,8 +343,14 @@ export async function createSurvey(payload: {
   description?: string | null
   target_cohort?: string | null
   status?: SurveyStatus
+  retention_enabled?: boolean
+  retention_days?: number
 }): Promise<Survey> {
-  const res = await api.post<ApiSurvey>("/surveys/", payload)
+  const res = await api.post<ApiSurvey>("/surveys/", {
+    ...payload,
+    retention_enabled: payload.retention_enabled ?? DEFAULT_RETENTION_ENABLED,
+    retention_days: payload.retention_days ?? DEFAULT_RETENTION_DAYS,
+  })
   return mapSurvey(res.data!)
 }
 
@@ -353,8 +378,14 @@ export async function createSurveyWithStructure(payload: {
   description?: string | null
   target_cohort?: string | null
   status?: SurveyStatus
+  retention_enabled?: boolean
+  retention_days?: number
 } & SurveyStructurePayload): Promise<Survey> {
-  const res = await api.post<ApiSurvey>("/surveys/with-structure", payload)
+  const res = await api.post<ApiSurvey>("/surveys/with-structure", {
+    ...payload,
+    retention_enabled: payload.retention_enabled ?? DEFAULT_RETENTION_ENABLED,
+    retention_days: payload.retention_days ?? DEFAULT_RETENTION_DAYS,
+  })
   return mapSurvey(res.data!)
 }
 
@@ -365,6 +396,8 @@ export async function updateSurvey(
     description: string | null
     status: SurveyStatus
     target_cohort: string | null
+    retention_enabled: boolean
+    retention_days: number
   }>,
 ): Promise<Survey> {
   const res = await api.patch<ApiSurvey>(`/surveys/${surveyId}`, payload)
@@ -512,33 +545,36 @@ export async function restoreSurvey(surveyId: string): Promise<Survey> {
   return mapSurvey(res.data!)
 }
 
+export function buildResponseListQuery(options: SurveyResponseListOptions = {}): string {
+  const query = new URLSearchParams()
+  if (options.limit !== undefined) query.set("limit", String(options.limit))
+  if (options.offset !== undefined) query.set("offset", String(options.offset))
+  if (options.sortBy) query.set("sort_by", options.sortBy)
+  if (options.sortOrder) query.set("sort_order", options.sortOrder)
+  if (options.submittedFrom) query.set("submitted_from", options.submittedFrom)
+  if (options.submittedBefore) query.set("submitted_before", options.submittedBefore)
+  if (options.distributionId) query.set("distribution_id", options.distributionId)
+  const value = query.toString()
+  return value ? `?${value}` : ""
+}
+
 export async function fetchResponses(
   surveyUuid: string,
+  options: SurveyResponseListOptions = {},
 ): Promise<{ responses: SurveyResponse[]; pagination: ApiPagination }> {
-  const responses: SurveyResponse[] = []
-  let offset = 0
-  let pagination: ApiPagination | undefined
-
-  do {
-    const res = await api.get<ApiSurveyResponse[]>(
-      `/surveys/${surveyUuid}/responses/?limit=100&offset=${offset}`,
-    )
-    responses.push(...(res.data ?? []).map(mapResponse))
-    pagination = res.meta?.pagination as ApiPagination | undefined
-
-    if (!pagination?.has_next) break
-    offset = pagination.offset + pagination.count
-  } while (pagination)
-
+  const res = await api.get<ApiSurveyResponse[]>(
+    `/surveys/${surveyUuid}/responses/${buildResponseListQuery(options)}`,
+  )
+  const responses = (res.data ?? []).map(mapResponse)
   return {
     responses,
-    pagination: pagination ?? {
+    pagination: res.meta?.pagination as ApiPagination ?? {
       total: responses.length,
       count: responses.length,
-      limit: responses.length,
-      offset: 0,
+      limit: options.limit ?? responses.length,
+      offset: options.offset ?? 0,
       has_next: false,
-      has_prev: false,
+      has_prev: (options.offset ?? 0) > 0,
     },
   }
 }
@@ -552,28 +588,8 @@ export async function fetchResponseAggregates(
   return res.data ?? []
 }
 
-function exportFilename(contentDisposition: string | null, surveyUuid: string): string {
-  const encodedName = contentDisposition?.match(/filename\*=UTF-8''([^;]+)/i)?.[1]
-  if (encodedName) {
-    try {
-      return decodeURIComponent(encodedName)
-    } catch {
-      return encodedName
-    }
-  }
-  const plainName = contentDisposition?.match(/filename="?([^";]+)"?/i)?.[1]
-  return plainName ?? `survey-${surveyUuid}-responses.csv`
-}
-
 export async function exportResponses(surveyUuid: string): Promise<void> {
-  const response = await api.raw.get(`/surveys/${surveyUuid}/responses/export`)
-  const blob = await response.blob()
-  const url = URL.createObjectURL(blob)
-  const anchor = document.createElement("a")
-  anchor.href = url
-  anchor.download = exportFilename(response.headers.get("content-disposition"), surveyUuid)
-  anchor.click()
-  window.setTimeout(() => URL.revokeObjectURL(url), 0)
+  api.download(`/surveys/${surveyUuid}/responses/export`)
 }
 
 export async function eraseResponses(

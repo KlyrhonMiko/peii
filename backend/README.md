@@ -79,14 +79,20 @@ Create a new migration after model changes:
 ./.venv/bin/alembic revision --autogenerate -m "describe change"
 ```
 
-The fresh-database baseline is `20260825_v1`; the current migration head is the Phase 2
-compatibility revision `f77a807cf2f9_expand_distribution_security`. For production, run
-`./.venv/bin/alembic upgrade head` once as the managed-service release job before API replicas
-are promoted. Do not run migrations independently in every replica. The expand revision adds
-SHA-256 token digests, 8-character prefixes, and consent evidence while retaining plaintext
-tokens for the compatibility window. Follow the exact expand -> dual-write/digest-first ->
-reconcile -> digest-only app -> later contract/drop gate sequence in the deployment roadmap;
-plaintext has not yet been removed.
+The fresh-database baseline is `20260825_v1`. The current forward chain is
+`f77a807cf2f9` (distribution security) -> `d1f9bad768ad` (distribution expiry compatibility)
+-> `fb1c93d15474` (Phase 3 retention and withdrawal), and `fb1c93d15474` is the current Alembic
+head. For production, run `./.venv/bin/alembic upgrade head` once as the managed-service
+release job before API replicas are promoted. Do not run migrations independently in every
+replica. Review the Phase 3 survey-policy and response-deadline backfill before activating the
+external purge job.
+
+The Phase 2 expand revision adds SHA-256 token digests, 8-character prefixes, and consent
+evidence while retaining plaintext distribution tokens for the compatibility window. Follow the
+exact expand -> dual-write/digest-first -> reconcile -> digest-only app -> later contract/drop
+gate sequence in the deployment roadmap; plaintext has not yet been removed. Distribution
+expiry remains nullable, and Phase 3 does not fix the outstanding distribution token/expiry
+issues.
 
 ## Survey Access And Lifecycle Policy
 
@@ -99,10 +105,11 @@ plaintext has not yet been removed.
   Admin has all seven; researcher has all except erase; staff has `surveys.read` and
   `survey_responses.read_aggregates`. Existing portal and ML capabilities remain in each
   default role. Raw and CSV export are separately permissioned; erase is admin-default.
-- Every public distribution has an explicit mandatory expiry. Metadata listing never returns
-  tokens; a newly issued or rotated token is returned only once. Archiving a survey revokes
-  unrevoked distributions. Restoring it leaves it inactive, so activation and a new link are
-  explicit follow-up actions.
+- Distribution metadata listings never return tokens; a newly issued or rotated token is
+  returned only once. `expires_at` is nullable: a supplied expiry is validated, while null does
+  not expire automatically. Archiving a survey revokes unrevoked distributions. Restoring it
+  leaves it inactive, so activation and a new link are explicit follow-up actions. Distribution
+  token storage/removal and mandatory-expiry policy remain outside Phase 3.
 - Public distribution links are shared bearer links and do not guarantee respondent uniqueness;
   idempotency protects retries for one distribution/key pair only. Consent is a global,
   versioned contract, and accepted responses retain an immutable notice snapshot. The public
@@ -114,14 +121,31 @@ plaintext has not yet been removed.
   `RATE_LIMIT_READ_FAILURE_POLICY=fail_closed`, approved consent text/contact/retention values,
   configured trusted ingress CIDRs, and verified provider log redaction. Real respondents remain
   blocked until all of these are recorded in the production runbook.
-- `RATE_LIMIT_INCLUDE_CLIENT_IP` remains false unless the complete forwarding chain has been
-  verified; enable it only after confirming that the app-owned resolver receives the expected
-  trusted proxy peer and headers.
-- Aggregate responses use conservative `k=5` suppression and only supported categorical,
-  boolean, multiple-choice, scale, ranking, and matrix question types. Raw responses and
-  long-format CSV export are separate routes and permissions. Selected erasure or all-response
-  erasure writes minimal tombstones and is idempotent; all-scope erasure requires an archived
-  survey.
+- Non-debug startup requires `RATE_LIMIT_INCLUDE_CLIENT_IP=true`; deploy only after confirming
+  that the app-owned resolver receives the expected trusted proxy peer and headers. Withdrawal
+  uses a configurable strict client limit (10/minute by default) before a separate high global
+  circuit breaker (1,000/minute by default).
+- New surveys default to retention enabled for 1,825 days (five years). Each response receives
+  an immutable submission-time `retention_expires_at`; disabled retention gives new responses a
+  null deadline and does not rewrite existing snapshots. Retention settings cannot change after
+  any response row exists, including a tombstone.
+- Raw responses, aggregates, and exports exclude logically deleted and read-time expired rows,
+  but authorized access remains available for archived surveys. Aggregates are available for
+  every survey status, accept no filters, and return exact totals and cells even for one to four
+  responses. Live results can change as responses arrive, and small-group aggregates are not
+  anonymous or privacy-preserving. Raw listing is paginated (default 50, maximum 100) and
+  supports only submission-time range and distribution filters.
+- The browser generates a private 256-bit withdrawal code and shows it once after submission.
+  The backend stores only its HMAC-SHA-256 digest under `WITHDRAWAL_CODE_HMAC_SECRET`; a lost
+  code cannot be recovered. The public withdrawal API is
+  `POST /api/v1/survey/responses/withdraw`, with the frontend page at `/survey/withdraw`.
+- Long-format CSV export is streamed, private/no-store, preflight-capped at 10,000 eligible
+  responses, and bounded to the accepted preflight count even if rows are inserted before the
+  deferred stream runs. Its correlated start, success, and aborted audits distinguish the
+  accepted count from the actual records traversed. Selected erasure or all-response erasure
+  writes minimal tombstones and is idempotent; all-scope erasure requires an archived survey.
+  Retention purge is a bounded external command, not an in-process timer:
+  `./.venv/bin/python scripts/purge_expired_responses.py [--dry-run]`.
 
 See [production decisions](../docs/production-decisions.md),
 [privacy and retention](../docs/privacy-and-retention.md), and the
@@ -181,8 +205,9 @@ Routes are mounted below `API_V1_PREFIX` (normally `/api/v1`):
 - `/rbac`: permissions, roles, and role assignments.
 - `/users` and `/audit-logs`: administration and audit history.
 - `/surveys`: surveys plus nested sections, questions, distributions, and
-  responses.
+  responses, aggregates, streamed export, and erasure.
 - `/survey/{token}`: public survey loading and idempotent response submission.
+- `/survey/responses/withdraw`: public withdrawal by respondent-held code.
 - `/ml`: model catalog and sentiment inference. Model weights load lazily and may require
   substantial network, disk, memory, and CPU resources on first use.
 

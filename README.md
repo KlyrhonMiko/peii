@@ -45,10 +45,10 @@ replica migrate independently. Docker deployment is out of scope.
 
 See [production decisions](docs/production-decisions.md),
 [privacy and retention](docs/privacy-and-retention.md), and the
-[deployment roadmap](docs/deployment-roadmap.md) for the Phase 2 compatibility contract,
-token migration, privacy, recovery, release, and launch-gate policies. Real respondents remain
-blocked until the documented Redis, consent, trusted-ingress, and provider log-redaction checks
-are verified.
+[deployment roadmap](docs/deployment-roadmap.md) for the Phase 2 compatibility and Phase 3
+response-operations contracts, token migration, retention, withdrawal, privacy, recovery,
+release, and launch-gate policies. Real respondents remain blocked until the documented Redis,
+consent, trusted-ingress, purge, and provider logging/streaming checks are verified.
 
 ## Local Development
 

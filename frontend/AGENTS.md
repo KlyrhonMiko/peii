@@ -24,6 +24,9 @@ Read this file first, then the guide closest to the files you are changing:
 - `src/hooks/` owns reusable React hooks.
 - `src/lib/` owns API clients and domain types, authentication/RBAC helpers, Supabase
   server integration, backend-proxy and redirect policy, and utilities such as `cn()`.
+- `src/app/survey/withdraw/` is the public response-withdrawal page. `ClientSurveyForm` creates
+  and displays respondent-held withdrawal codes; authenticated survey response operations remain
+  capability-gated in the researcher surface.
 - `public/` contains static assets served directly by Next.js.
 
 ## Command Surface

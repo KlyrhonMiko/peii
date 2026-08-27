@@ -1,15 +1,29 @@
 # Production Decisions
 
-## Phase 2 compatibility release
+## Current release and migration head
 
-- The canonical fresh-database baseline is `20260825_v1`; the current forward migration is
-  `f77a807cf2f9` (`expand_distribution_security`). Run
-  `./.venv/bin/alembic upgrade head` once as the protected release job before promoting API
-  replicas.
-- This release expands distribution-token security and adds consent evidence. It is a rolling
-  compatibility release: plaintext distribution tokens are **not removed yet**.
-- Frontend and backend artifacts may be released independently, but the API is promoted only
-  after the migration job and release smoke test succeed.
+The current uncommitted tree contains the Phase 3 response-operations implementation. The
+forward migration chain is:
+
+```text
+20260825_v1
+  -> f77a807cf2f9 (distribution security compatibility)
+  -> d1f9bad768ad (distribution expiry compatibility)
+  -> fb1c93d15474 (retention and withdrawal)
+```
+
+`fb1c93d15474` is the current Alembic head. Fresh environments and the production release job
+run `./.venv/bin/alembic upgrade head` once before API replicas are promoted. Phase 3 is **not**
+a rolling or independently deployable frontend/backend release: the request contract and
+retention writes change together. Block public submissions at ingress, drain and stop every old
+API writer, run the migration and reconciliation checks, deploy the API and frontend, purge
+stale frontend caches, complete smoke tests, and only then reopen submissions. Do not run
+migrations independently in every replica or downgrade the baseline as an ad hoc rollback.
+
+Phase 2 remains a rolling compatibility release: distribution rows have SHA-256 token digests
+and 8-character prefixes, but plaintext distribution tokens remain until a later reviewed
+digest-only/drop gate. The Phase 2/compatibility path also leaves distribution expiry nullable;
+Phase 3 does not fix the outstanding distribution token-storage or mandatory-expiry issues.
 
 ## Deployment topology
 
@@ -19,6 +33,7 @@
   and point-in-time recovery (PITR).
 - Authentication: Supabase Auth.
 - Rate limiting: managed Redis; production uses distributed fixed-window limits.
+- Retention purge: one externally scheduled managed job running the backend purge command.
 - Docker Compose remains local development only.
 
 ## Global capability RBAC
@@ -55,40 +70,69 @@ The canonical permission catalog is:
 Defaults remain: `admin` has all 21 capabilities; `researcher` has all except
 `survey_responses.erase`; and `staff` has `portal.access`, `ml.models.read`, `surveys.read`,
 and `survey_responses.read_aggregates`. Raw reads, exports, aggregates, distribution
-management, and erasure remain separate capabilities.
+management, and erasure are separate capabilities. Authentication or survey ownership is not
+an implicit grant.
 
-## Survey, consent, and link privacy
+## Phase 3 response and privacy decisions
 
-- Every public distribution has an explicit expiry. A distribution is a shared bearer link, not
-  an individual invitation. Reusing a link can create responses from multiple people; the
-  application does not guarantee respondent uniqueness. An idempotency key prevents a repeated
-  submission from the same distribution and key from creating a second response, but it does
-  not identify a respondent.
-- Newly issued or rotated plaintext tokens are returned once. Distribution listings never
-  return tokens. New and reconciled rows have a SHA-256 token digest and an 8-character display
-  prefix; the digest is used first for lookup.
-- The current public consent contract is global and versioned. A response requires
-  `accepted=true` and the current `PUBLIC_SURVEY_CONSENT_VERSION`. The response stores the
-  consent version, timestamp, and an immutable snapshot of notice, purpose, retention, and
-  contact values as they appeared at submission. The public response acknowledgement is
-  intentionally minimal: `{"accepted": true}`.
-- Successful respondent IP addresses are not written to response audit events. IPs may exist
-  temporarily in Redis rate-limit keys, whose identifiers are HMAC-SHA-256 digests; do not
-  describe the survey as confidential or promise respondent anonymity.
-- Archiving revokes unrevoked distributions; restoring a survey leaves it inactive. Aggregates
-  use conservative `k=5` suppression. Selected and all-response erasure is idempotent, clears
-  answer/linkage/consent evidence, and retains only minimal receipt or tombstone state; all
-  erasure requires the existing administrator capability and all-scope erasure requires an
-  archived survey.
+### Retention
 
-## Traffic and deployment security
+- New surveys default to `retention_enabled=true` and `retention_days=1825` (five years).
+- Each response receives an immutable `retention_expires_at` snapshot from server submission time
+  plus the survey's retention days. Updating a policy never changes existing response deadlines.
+- Retention settings may be changed only before any response row exists. After the first row,
+  including a withdrawn or erased row, the policy is immutable.
+- When retention is disabled before a survey has responses, new responses receive a null
+  deadline. Null deadlines are not due for purge and are treated as non-expiring by raw reads,
+  aggregates, and exports. Disabling does not rewrite existing snapshots.
+- The Phase 3 migration sets existing survey policies to enabled/1,825 days and backfills
+  existing response deadlines from their submission timestamps. Review this backfill before
+  enabling the purge schedule.
 
-Production must set these values explicitly (the values below are the supported release
-policy):
+### Withdrawal
+
+The browser generates a 32-byte (`256-bit`) random base64url withdrawal code, sends it with the
+submission, and shows it once after the minimal `{"accepted": true}` acknowledgement. The
+backend stores only its HMAC-SHA-256 digest. Production must set the dedicated
+`WITHDRAWAL_CODE_HMAC_SECRET` to a random value of at least 32 bytes; it must not be reused as
+the rate-limit HMAC key. The code is never returned by the backend, persisted in plaintext,
+included in schemas/audits, or logged. A lost code cannot be recovered by PEII.
+
+The public API route is `POST /api/v1/survey/responses/withdraw`; the frontend page is
+`/survey/withdraw`. A valid request tombstones the response and is safe to repeat. User
+withdrawal retains only the digest needed to recognize a repeat; administrative erasure clears
+it.
+
+### Reads, aggregates, exports, and erasure
+
+- Raw reads, aggregates, and exports exclude logically deleted and read-time expired rows. An
+  authorized principal may read, aggregate, or export an archived survey; archive status does
+  not bypass the response expiry predicate.
+- Aggregates are available for every survey status, including live `Active` surveys and archived
+  surveys, and accept no filters. Live results can change as responses arrive. They expose
+  supported categorical/boolean/scale/ranking/matrix cells only, return exact totals and cells
+  even for one to four responses, and enforce 1,000 cells per question/10,000 per survey capacity
+  limits. Small-group aggregates are not anonymous or privacy-preserving and must remain limited
+  to approved aggregate-reader roles.
+- Raw listing uses offset pagination (`limit` 50 by default, maximum 100) and only supports
+  `submitted_from` (inclusive), `submitted_before` (exclusive), and `distribution_id` filters.
+  There is no `include_deleted` or answer-content escape hatch.
+- CSV export is long-format, streamed from the database, preflight-capped at 10,000 eligible
+  responses, and private/no-store. The accepted preflight count bounds the deferred stream, so
+  concurrent inserts cannot add records beyond that count. The start audit commits before
+  streaming; successful and aborted audits use the same export id and report the actual number
+  of response records traversed.
+- Selected erasure accepts up to 100 response ids. All-response erasure requires an archived
+  survey and an expected-count match. Both require a UUID `Idempotency-Key`, explicit
+  confirmation, atomic audit, and retain only minimal tombstone/receipt state.
+
+## Runtime configuration
+
+Production must set these values explicitly:
 
 ```text
 RATE_LIMIT_ENABLED=true
-RATE_LIMIT_INCLUDE_CLIENT_IP=false
+RATE_LIMIT_INCLUDE_CLIENT_IP=true
 # Use either a Redis-compatible URL or both Upstash REST settings:
 REDIS_URL=<managed Redis TLS URL>
 # UPSTASH_REDIS_REST_URL=<Upstash REST URL>
@@ -98,10 +142,15 @@ REDIS_CONNECT_TIMEOUT_SECONDS=2
 REDIS_SOCKET_TIMEOUT_SECONDS=2
 RATE_LIMIT_READ_FAILURE_POLICY=fail_closed
 RATE_LIMIT_KEY_HMAC_SECRET=<random server-side secret, at least 32 bytes>
+WITHDRAWAL_CODE_HMAC_SECRET=<dedicated random server-side secret, at least 32 bytes>
 PUBLIC_SURVEY_READ_LIMIT=60
 PUBLIC_SURVEY_READ_WINDOW_SECONDS=60
 PUBLIC_SURVEY_SUBMIT_LIMIT=10
 PUBLIC_SURVEY_SUBMIT_WINDOW_SECONDS=60
+PUBLIC_SURVEY_WITHDRAWAL_CLIENT_LIMIT=10
+PUBLIC_SURVEY_WITHDRAWAL_CLIENT_WINDOW_SECONDS=60
+PUBLIC_SURVEY_WITHDRAWAL_GLOBAL_LIMIT=1000
+PUBLIC_SURVEY_WITHDRAWAL_GLOBAL_WINDOW_SECONDS=60
 LOGIN_RATE_LIMIT=10
 LOGIN_RATE_WINDOW_SECONDS=60
 PASSWORD_RECOVERY_RATE_LIMIT=5
@@ -119,12 +168,10 @@ PUBLIC_SURVEY_CONTACT=<approved withdrawal/privacy contact>
 ```
 
 Redis outages fail closed in production; do not silently fall back to process-local limits.
-Forwarded client IP headers are trusted only from `TRUSTED_PROXY_CIDRS` and are parsed with the
-configured hop and header-size limits. The trusted ingress must be verified before launch.
-Keep `RATE_LIMIT_INCLUDE_CLIENT_IP=false` by default: public survey, login, and recovery limits
-use only their resource identifiers so shared frontend egress does not throttle unrelated users.
-Enable it only after the complete forwarding chain and the app-owned peer/header resolution have
-been verified in the deployed topology.
+Non-debug startup rejects disabled rate limiting or disabled client-IP buckets. Forwarded client
+IP headers are trusted only from `TRUSTED_PROXY_CIDRS` and are parsed with the configured hop
+and header-size limits. Withdrawal attempts use a strict per-client bucket before a separate
+high global circuit breaker, so one blocked client cannot consume the global allowance.
 Requests larger than 64 KiB are rejected before application parsing.
 
 Public survey pages send `Cache-Control: no-store`, `Referrer-Policy: no-referrer`,
@@ -132,39 +179,68 @@ Public survey pages send `Cache-Control: no-store`, `Referrer-Policy: no-referre
 and `Content-Security-Policy: frame-ancestors 'none'`. Response CSVs additionally send
 `private, no-store`, `Pragma: no-cache`, `nosniff`, and `no-referrer` headers.
 
-## Token migration and rollback
+## Migration, backfill, activation, and rollback
 
-Execute this sequence; do not skip or reorder it:
+Execute this sequence without reordering:
 
-1. **Expand:** apply `f77a807cf2f9`, add nullable digest/prefix and consent columns, and
-   backfill `SHA-256(plaintext)` plus `plaintext[:8]` while retaining the existing plaintext
-   token column.
-2. **Dual-write/digest-first:** deploy the compatibility application, which writes plaintext,
-   digest, and prefix for new/rotated tokens and resolves by digest first with legacy plaintext
-   fallback.
-3. **Reconcile:** verify every live distribution has the expected unique digest and matching
-   8-character prefix; investigate mismatches and confirm all API instances use the compatibility
-   reader.
-4. **Digest-only app:** deploy an application that hashes supplied tokens for lookup and no
-   longer depends on the plaintext column. Keep the column only for the compatibility window.
-5. **Later contract/drop gate:** after reconciliation, a full digest-only rollout, backup/PITR
-   verification, provider log-redaction verification, and an approved rollback plan, add a
-   separate reviewed migration to remove the plaintext column. This release has **not** reached
-   that gate.
+1. Back up the database and confirm the PITR restore procedure before the release job.
+2. Enable the ingress maintenance/write-drain rule for public survey submissions and withdrawal,
+   wait for in-flight writes to finish, and stop every old API replica. Keep submissions blocked
+   until step 6; an old writer after the migration can create a null retention deadline.
+3. Run `./.venv/bin/alembic upgrade head` once. Confirm that `fb1c93d15474` is applied after
+   `d1f9bad768ad`, inspect the survey default backfill, and verify response deadline backfill.
+   Reconcile any enabled-retention response with a null deadline before continuing.
+4. Deploy the Phase 3-compatible API and frontend together and invalidate stale public-form
+   caches. Verify new submissions snapshot enabled and
+   disabled policies correctly, withdrawal codes are one-time displayed/digest-only, and raw,
+   aggregate, export, and erase permission checks pass.
+5. Only after steps 1–4 succeed, activate one external purge schedule. Start with
+   `--dry-run`, compare the due count to expectations, then run the mutating command.
+6. Reconcile audit events, response counts, purge output, provider logs, no-store/streaming
+   behavior, and the old/new client compatibility smoke. Then remove the ingress write block and
+   monitor the first new submissions. A stale pre-Phase-3 form may receive `422` and must be
+   refreshed; it must never be silently accepted without a withdrawal credential.
 
-Application rollback during the compatibility window is allowed only while the plaintext column
-remains available. Do not downgrade the expand revision as an ad hoc rollback: restore a
-validated backup/PITR copy in isolation or use a reviewed forward fix, run release validation,
-then promote it. Migrations still run exactly once as a release job.
+During the Phase 2 compatibility window, application rollback is allowed only while the plaintext
+distribution-token column remains available. Do not downgrade the migration as an ad hoc
+rollback; restore a validated backup/PITR copy in isolation or use a reviewed forward fix, run
+release validation, and then promote it. Distribution token digest-only/drop remains a later
+contract gate.
 
-Provider access logs and observability must redact distribution tokens in URL paths, request
-bodies containing answers/consent, authorization headers, cookies, idempotency keys, and raw
-forwarded identifiers. Confirm provider retention and redaction behavior in the runbook before
-accepting real responses.
+## Retention purge operations and monitoring
+
+Run from `backend/`:
+
+```bash
+./.venv/bin/python scripts/purge_expired_responses.py --dry-run
+./.venv/bin/python scripts/purge_expired_responses.py --batch-size 100
+# Optional deterministic/recovery run:
+./.venv/bin/python scripts/purge_expired_responses.py --cutoff 2026-08-27T00:00:00
+```
+
+The script defaults to a batch size of 100, locks one survey before its response batches, and
+logically tombstones due responses. It has no built-in timer: schedule one instance daily (or
+more frequently if approved) through the managed provider's job/cron facility. Alert on failed
+or missed runs and review stdout fields `purged`, `surveys`, `batches`, `dry_run`, and `cutoff`.
+Use `retention_purge` audit events to reconcile job output, and investigate a growing due-row
+backlog or count mismatch. Dry runs do not mutate rows or create purge audits.
+
+Tombstoning is not immediate physical deletion. Minimal response tombstones, erasure receipts,
+and audit records remain. Database backups and PITR may retain pre-tombstone answers until the
+provider's configured retention window expires; do not claim backups are immediately erased.
+
+## Provider and launch verification
+
+Before launch, configure provider redaction for tokenized URL paths, request bodies, auth/cookie
+headers, idempotency keys, withdrawal codes, and respondent identifiers. Use a smoke request to
+verify the provider does not cache, index, persist, or unexpectedly buffer the streamed CSV;
+confirm `private, no-store` survives the CDN/edge path and that logs do not contain sensitive
+request or response data. Record provider, region, domains, runtime values, backup schedule, PITR
+procedure, purge schedule/owner, monitoring owner, and rollback owner in the production runbook.
 
 ## Release validation and launch gate
 
-Run the full application gate:
+Run the application gate:
 
 ```bash
 # frontend/
@@ -185,14 +261,11 @@ TEST_DATABASE_URL=postgresql+psycopg2://user:password@localhost:5432/peii_test \
   env DEBUG=false ./.venv/bin/pytest -q -m integration --require-postgres
 ```
 
-The focused Phase 2 coverage includes `test_public_survey_privacy.py`,
-`test_public_rate_limits.py`, `test_traffic_security.py`, `test_security_expand_migration.py`,
-and `test_survey_distributions.py`. Rehearse migration and reconciliation on a disposable
-database, verify health/RBAC seed, restore a backup/PITR copy in isolation, and complete a
-release smoke test.
+Rehearse the migration/backfill and rollback on a disposable database, verify health/RBAC seed,
+exercise the public withdrawal and authenticated response operations, restore a backup/PITR copy
+in isolation, and complete an end-to-end smoke test.
 
-Real respondents remain blocked until `RATE_LIMIT_ENABLED=true`, managed Redis connectivity and
-fail-closed behavior, approved consent notice/purpose/contact/retention values, trusted ingress
-CIDRs, and provider log redaction are all verified and recorded. Record provider, region,
-domains, owners, runtime values, backup schedule, PITR procedure, and rollback owner in the
-production runbook.
+Real respondents remain blocked until rate limiting and Redis fail-closed behavior, the dedicated
+withdrawal secret, approved consent/retention/contact values, retention/backups/PITR policy,
+trusted ingress, purge scheduling/monitoring, provider log redaction, and provider
+streaming/no-store behavior are all verified and recorded.

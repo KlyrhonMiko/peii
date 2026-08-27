@@ -15,7 +15,8 @@ Follow the route-area guide when editing a nested route:
 - `page.tsx` is the public PEII landing page.
 - `researcher/` contains authenticated dashboard, analytics, survey, and model routes.
 - `admin/` contains authenticated, permission-gated user and role management routes.
-- `survey/` contains public tokenized alumni survey routes and loading UI.
+- `survey/` contains public tokenized alumni survey routes, loading UI, and the public
+  `/survey/withdraw` response-withdrawal page.
 - `login/`, `forgot-password/`, `reset-password/`, and `auth/confirm/` implement Supabase
   authentication and recovery flows.
 - `api/backend/[...path]/` is the authenticated, allowlisted backend proxy.

@@ -6,10 +6,11 @@ This guide covers `src/lib/`.
 ## Current Responsibilities
 - `utils.ts` provides `cn()` and `formatDate()`.
 - `api.ts` owns the authenticated browser API envelope/error client.
-- `public-survey.ts` owns the public survey contract, submission payload, envelope parsing,
-  and retry-after helpers.
+- `public-survey.ts` owns the public survey contract, submission payload, private 256-bit
+  withdrawal-code generation/request parsing, envelope parsing, and retry-after helpers.
 - `users.ts`, `rbac.ts`, and `surveys.ts` own domain types, mapping, and operations. `surveys.ts`
-  includes explicit distribution, aggregate, raw-response, export, and erasure operations.
+  includes retention-aware survey settings, distribution, aggregate, paginated raw-response,
+  streamed export, and erasure operations.
 - `auth.ts` owns server-side current-user and permission guards.
 - `supabase/` owns the server client and cookie policy.
 - `safe-redirect.ts` and `backend-proxy-policy.ts` own navigation and backend endpoint

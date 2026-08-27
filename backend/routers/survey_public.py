@@ -6,7 +6,11 @@ from sqlmodel import col, select
 from core.config import settings
 from core.deps import AsyncDBSession
 from core.exceptions import AppError
-from core.rate_limit import public_survey_read_rate_limit, public_survey_submit_rate_limit
+from core.rate_limit import (
+    public_survey_read_rate_limit,
+    public_survey_submit_rate_limit,
+    public_survey_withdrawal_rate_limit,
+)
 from core.responses import success_response
 from models.survey import Survey
 from models.survey_question import SurveyQuestion
@@ -14,7 +18,12 @@ from models.survey_section import SurveySection
 from schemas.common import APIResponse
 from schemas.survey_public import PublicSurvey, PublicSurveySection
 from schemas.survey_question import SurveyQuestionRead
-from schemas.survey_response import SurveyResponseAcknowledgement, SurveyResponseSubmit
+from schemas.survey_response import (
+    SurveyResponseAcknowledgement,
+    SurveyResponseSubmit,
+    SurveyResponseWithdrawalRequest,
+    SurveyResponseWithdrawalResult,
+)
 from services import distribution_service, response_service, survey_consent
 
 router = APIRouter()
@@ -139,6 +148,7 @@ async def submit_response(
         idempotency_key=idempotency_key,
         actor_id=settings.SYSTEM_ACTOR_ID,
         consent_version=payload.consent.version,
+        withdrawal_code=payload.withdrawal_code,
     )
     if replayed:
         http_response.status_code = status.HTTP_200_OK
@@ -146,3 +156,19 @@ async def submit_response(
         SurveyResponseAcknowledgement(accepted=True),
         message="Response submitted.",
     )
+
+
+@router.post(
+    "/responses/withdraw",
+    response_model=APIResponse[SurveyResponseWithdrawalResult],
+    dependencies=[Depends(public_survey_withdrawal_rate_limit)],
+    status_code=status.HTTP_200_OK,
+    summary="Withdraw Survey Response",
+    description="Withdraw a response using its respondent-held private code.",
+)
+async def withdraw_response(
+    payload: SurveyResponseWithdrawalRequest,
+    session: AsyncDBSession,
+) -> APIResponse[SurveyResponseWithdrawalResult]:
+    result = await response_service.withdraw_response(session, payload)
+    return success_response(result, message="Response withdrawn.")

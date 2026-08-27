@@ -1,3 +1,4 @@
+import secrets
 from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
@@ -5,9 +6,7 @@ import pytest
 
 from core.deps import Principal, get_current_principal
 from main import app
-from models.question_type import QuestionType
-from models.survey_question import SurveyQuestion
-from services import response_service, survey_privacy
+from services import survey_privacy
 
 pytestmark = pytest.mark.anyio
 EXPIRY = (datetime.now(UTC) + timedelta(days=29)).isoformat()
@@ -64,7 +63,11 @@ async def _create_counted_survey(client, response_count: int) -> dict[str, str]:
     for _ in range(response_count):
         submitted = await client.post(
             f"/api/v1/survey/{token}/respond",
-            json={"answers": {question_id: "answer"}, "consent": CONSENT},
+            json={
+                "answers": {question_id: "answer"},
+                "consent": CONSENT,
+                "withdrawal_code": secrets.token_urlsafe(32),
+            },
             headers={"Idempotency-Key": str(uuid4())},
         )
         assert submitted.status_code == 201
@@ -168,21 +171,3 @@ async def test_response_count_sort_requires_exact_capability(client):
     _override_permissions("surveys.read", "survey_responses.read_raw")
     allowed = await client.get("/api/v1/surveys/?sort_by=responses_count")
     assert allowed.status_code == 200
-
-
-def test_aggregate_suppression_uses_shared_threshold(monkeypatch):
-    question = SurveyQuestion(
-        id=UUID("00000000-0000-0000-0000-000000000011"),
-        survey_id=UUID("00000000-0000-0000-0000-000000000001"),
-        section_id=UUID("00000000-0000-0000-0000-000000000010"),
-        question_text="Choice",
-        question_type=QuestionType.SINGLE_CHOICE,
-        options='["A", "B"]',
-    )
-    state = response_service._new_aggregate_state(question)
-    for _ in range(5):
-        response_service._accumulate_aggregate_answer(state, "A")
-
-    monkeypatch.setattr(survey_privacy, "RESPONSE_COUNT_PRIVACY_THRESHOLD", 6)
-
-    assert response_service._finalize_aggregate(state) is None

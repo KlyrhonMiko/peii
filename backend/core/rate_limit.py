@@ -243,6 +243,16 @@ def rate_limit_policy(name: str) -> RateLimitPolicy:
             settings.PUBLIC_SURVEY_SUBMIT_LIMIT,
             settings.PUBLIC_SURVEY_SUBMIT_WINDOW_SECONDS,
         ),
+        "public-withdrawal-client": RateLimitPolicy(
+            name,
+            settings.PUBLIC_SURVEY_WITHDRAWAL_CLIENT_LIMIT,
+            settings.PUBLIC_SURVEY_WITHDRAWAL_CLIENT_WINDOW_SECONDS,
+        ),
+        "public-withdrawal-global": RateLimitPolicy(
+            name,
+            settings.PUBLIC_SURVEY_WITHDRAWAL_GLOBAL_LIMIT,
+            settings.PUBLIC_SURVEY_WITHDRAWAL_GLOBAL_WINDOW_SECONDS,
+        ),
         "login": RateLimitPolicy(
             name, settings.LOGIN_RATE_LIMIT, settings.LOGIN_RATE_WINDOW_SECONDS
         ),
@@ -307,6 +317,20 @@ async def check_public_survey_submit(request: Request, token: str) -> None:
     )
 
 
+async def check_public_survey_withdrawal(request: Request) -> None:
+    """Rate-limit code guesses without reading or logging the request body."""
+    if settings.RATE_LIMIT_INCLUDE_CLIENT_IP:
+        client_ip = resolve_client_ip(request)
+        await enforce_rate_limit(
+            rate_limit_policy("public-withdrawal-client"),
+            [f"ip:{client_ip or 'unknown'}"],
+        )
+    await enforce_rate_limit(
+        rate_limit_policy("public-withdrawal-global"), ["withdrawal-global"]
+    )
+
+
 # Short aliases make these dependencies convenient to import from the public survey router.
 public_survey_read_rate_limit = check_public_survey_read
 public_survey_submit_rate_limit = check_public_survey_submit
+public_survey_withdrawal_rate_limit = check_public_survey_withdrawal

@@ -1,7 +1,9 @@
+from datetime import UTC, datetime
 from typing import Annotated, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Header, Request, Response, status
+from fastapi import APIRouter, Depends, Header, Query, Request, Response, status
+from fastapi.responses import StreamingResponse
 
 from core.deps import AsyncDBSession, CurrentPrincipal, require_permissions
 from core.exceptions import AppError
@@ -9,26 +11,49 @@ from core.responses import APIResponse, list_meta_response, success_response
 from schemas.survey_response import (
     EraseResponsesRequest,
     ResponseErasureResult,
-    SurveyResponseAggregate,
     SurveyResponseListQueryParams,
     SurveyResponseRead,
 )
-from services import response_service, survey_service
+from services import response_export_service, response_service, survey_service
 
 router = APIRouter()
 
 
 def get_survey_response_list_query_params(
-    limit: int = 50,
-    offset: int = 0,
-    sort_by: str = "created_at",
-    sort_order: Literal["asc", "desc"] = "desc",
+    limit: int = Query(default=50, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    sort_by: Literal["created_at"] = Query(default="created_at"),
+    sort_order: Literal["asc", "desc"] = Query(default="desc"),
+    submitted_from: datetime | None = Query(default=None),
+    submitted_before: datetime | None = Query(default=None),
+    distribution_id: UUID | None = Query(default=None),
 ) -> SurveyResponseListQueryParams:
+    if submitted_from is not None and submitted_before is not None:
+        def normalize(value: datetime) -> datetime:
+            if value.tzinfo is None:
+                return value
+            return value.astimezone(UTC).replace(tzinfo=None)
+
+        if normalize(submitted_from) >= normalize(submitted_before):
+            raise AppError(
+                "submitted_from must be earlier than submitted_before.",
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                errors=[
+                    {
+                        "loc": ["query", "submitted_from"],
+                        "msg": "submitted_from must be earlier than submitted_before.",
+                        "type": "value_error",
+                    }
+                ],
+            )
     return SurveyResponseListQueryParams(
         limit=limit,
         offset=offset,
         sort_by=sort_by,
         sort_order=sort_order,
+        submitted_from=submitted_from,
+        submitted_before=submitted_before,
+        distribution_id=distribution_id,
     )
 
 
@@ -53,7 +78,7 @@ async def list_survey_responses(
 ) -> APIResponse[list[SurveyResponseRead]]:
     http_response.headers["Cache-Control"] = "private, no-store, max-age=0"
     http_response.headers["Pragma"] = "no-cache"
-    await survey_service.resolve_survey(session, survey_id)
+    await survey_service.resolve_survey(session, survey_id, include_deleted=True)
     responses, total = await response_service.list_responses(session, survey_id, params)
     response_data = [SurveyResponseRead.model_validate(r) for r in responses]
     return success_response(
@@ -69,26 +94,8 @@ async def list_survey_responses(
 
 
 @router.get(
-    "/aggregates",
-    response_model=APIResponse[list[SurveyResponseAggregate]],
-    dependencies=[Depends(require_permissions("survey_responses.read_aggregates"))],
-    summary="Aggregate Survey Responses",
-    description="Return conservatively suppressed aggregates for supported question types.",
-)
-async def aggregate_survey_responses(
-    survey_id: UUID,
-    session: AsyncDBSession,
-    http_response: Response,
-    principal: CurrentPrincipal,
-) -> APIResponse[list[SurveyResponseAggregate]]:
-    http_response.headers["Cache-Control"] = "private, no-store, max-age=0"
-    http_response.headers["Pragma"] = "no-cache"
-    return success_response(await response_service.aggregate_responses(session, survey_id))
-
-
-@router.get(
     "/export",
-    response_class=Response,
+    response_class=StreamingResponse,
     dependencies=[Depends(require_permissions("survey_responses.export"))],
     summary="Export Survey Responses",
     description="Download a safe, long-format CSV response export.",
@@ -98,22 +105,27 @@ async def export_survey_responses(
     session: AsyncDBSession,
     request: Request,
     principal: CurrentPrincipal,
-) -> Response:
+) -> StreamingResponse:
     ip_address = request.client.host if request.client else None
-    csv_content = await response_service.export_responses(
+    prepared_export = await response_export_service.prepare_response_export(
         session,
         survey_id,
         actor_id=principal.user.id,
         ip_address=ip_address,
     )
-    return Response(
-        content=csv_content,
+    return StreamingResponse(
+        content=prepared_export.content,
         media_type="text/csv",
         headers={
             "Cache-Control": "private, no-store, max-age=0",
             "Pragma": "no-cache",
             "X-Content-Type-Options": "nosniff",
             "Referrer-Policy": "no-referrer",
+            "Expires": "0",
+            "Content-Security-Policy": "sandbox",
+            "Cross-Origin-Resource-Policy": "same-origin",
+            "X-Accel-Buffering": "no",
+            "X-Export-ID": str(prepared_export.export_id),
             "Content-Disposition": f'attachment; filename="survey-{survey_id}.csv"',
         },
     )

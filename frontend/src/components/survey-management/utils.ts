@@ -1,12 +1,31 @@
+import { DEFAULT_RETENTION_DAYS, DEFAULT_RETENTION_ENABLED } from "@/lib/surveys"
 import type {
   Survey,
   SurveySection,
   SurveyStructurePayload,
-  SurveyResponse,
   EraseAllResponsesPayload,
 } from "@/lib/surveys"
-import type { EditorSection, SurveyCapabilities, ResponseCountMap } from "./types"
+import type { EditorSection, SurveyCapabilities } from "./types"
 import { SURVEY_PERMISSIONS } from "./constants"
+
+export interface SurveyRetentionState {
+  retentionEnabled: boolean
+  retentionDays: number
+}
+
+export function getSurveyRetentionState(
+  survey?: Pick<Survey, "retentionEnabled" | "retentionDays">,
+): SurveyRetentionState {
+  return survey
+    ? {
+        retentionEnabled: survey.retentionEnabled,
+        retentionDays: survey.retentionDays,
+      }
+    : {
+        retentionEnabled: DEFAULT_RETENTION_ENABLED,
+        retentionDays: DEFAULT_RETENTION_DAYS,
+      }
+}
 
 export function createClientId(): string {
   return typeof crypto !== "undefined" && "randomUUID" in crypto
@@ -55,29 +74,6 @@ export function moveInArray<T>(items: T[], from: number, to: number): T[] {
   return next
 }
 
-export function countsFromRawResponses(responses: SurveyResponse[]): ResponseCountMap {
-  const counts: ResponseCountMap = {}
-  for (const response of responses) {
-    for (const [questionId, answer] of Object.entries(response.answers)) {
-      const questionCounts = counts[questionId] ?? {}
-      if (Array.isArray(answer)) {
-        for (const value of answer) {
-          questionCounts[String(value)] = (questionCounts[String(value)] ?? 0) + 1
-        }
-      } else if (typeof answer === "object" && answer !== null) {
-        for (const [row, value] of Object.entries(answer)) {
-          const key = `${row}::${String(value)}`
-          questionCounts[key] = (questionCounts[key] ?? 0) + 1
-        }
-      } else if (typeof answer === "string" || typeof answer === "number" || typeof answer === "boolean") {
-        questionCounts[String(answer)] = (questionCounts[String(answer)] ?? 0) + 1
-      }
-      counts[questionId] = questionCounts
-    }
-  }
-  return counts
-}
-
 export function getSurveyCapabilities(permissions: readonly string[]): SurveyCapabilities {
   const can = (permission: string): boolean => permissions.includes(permission)
   return {
@@ -121,4 +117,3 @@ export function getSurveyResponseResourceId(
 ): string {
   return survey.id
 }
-
