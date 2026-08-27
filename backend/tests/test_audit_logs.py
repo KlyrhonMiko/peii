@@ -4,6 +4,7 @@ import pytest
 
 pytestmark = pytest.mark.anyio
 CONSENT_VERSION = "2026-08-25"
+WITHDRAWAL_CODE = "A" * 42 + "B"
 EXPIRY = (datetime.now(UTC) + timedelta(days=29)).isoformat()
 
 
@@ -198,6 +199,7 @@ async def test_all_mutation_families_create_audits(client):
                 third_question.json()["data"]["id"]: "answer",
             },
             "consent": {"accepted": True, "version": CONSENT_VERSION},
+            "withdrawal_code": WITHDRAWAL_CODE,
         },
         headers={"Idempotency-Key": "018f4a1a-7b3b-7d0e-913a-c5f1c5c1c5c2"},
     )

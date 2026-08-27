@@ -14,9 +14,11 @@ Follow `ui/AGENTS.md` when editing primitive building blocks under `src/componen
 - `ClientCohortTrendChart.tsx`, `ClientPEIIDimensionsChart.tsx`, and
   `ClientSentimentDivergenceChart.tsx` isolate client-only dynamic chart imports.
 - `ClientSurveyForm.tsx` renders the public survey intake with section-per-page navigation.
+- `public-survey/WithdrawalForm.tsx` renders the public code-based response withdrawal flow.
 - `SurveyManagement.tsx` is the client-side shared-workspace survey management surface. It
-  gates CRUD, structure editing, aggregates, raw responses, CSV export, and erasure by the
-  capabilities passed by the route.
+  gates CRUD, retention settings, structure editing, aggregates, raw responses, CSV export, and
+  erasure by the capabilities passed by the route. Response operations preserve separate global
+  RBAC capabilities and archived-survey access rules.
 - `SurveyDistributionManager.tsx` owns distribution lifecycle UI: token-free metadata reloads,
   explicit expiry, one-time token display, rotation, and revocation.
 - `CohortTrendChart.tsx` contains a filter-aware Recharts bar chart;

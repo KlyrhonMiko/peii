@@ -1,5 +1,6 @@
-import { useState, useEffect, useRef, useMemo, useDeferredValue } from "react"
+import { useState, useEffect, useRef, useCallback, useDeferredValue } from "react"
 import type { DragEvent } from "react"
+import { ApiError } from "@/lib/api"
 import {
   fetchSurveys,
   fetchSurvey,
@@ -13,7 +14,7 @@ import {
   exportResponses,
   eraseResponses,
 } from "@/lib/surveys"
-import type { Survey, SurveyStatus, SurveyResponse, SurveyResponseAggregate } from "@/lib/surveys"
+import type { ApiPagination, Survey, SurveyStatus, SurveyResponse, SurveyResponseAggregate } from "@/lib/surveys"
 import { validateSurveyStructure } from "@/lib/survey-structure"
 
 import { ALUMNI_QUESTIONNAIRE } from "./constants"
@@ -23,12 +24,14 @@ import {
   toEditorSections,
   toStructurePayload,
   moveInArray,
-  countsFromRawResponses,
   getSurveyCapabilities,
   canSortSurveysByResponseCount,
   buildEraseAllResponsesPayload,
   getSurveyResponseResourceId,
+  getSurveyRetentionState,
 } from "./utils"
+
+const RAW_RESPONSE_PAGE_SIZE = 25
 
 export interface UseSurveyManagementProps {
   permissions: string[]
@@ -78,35 +81,29 @@ export function useSurveyManagement({ permissions }: UseSurveyManagementProps) {
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null)
   const [surveyTitle, setSurveyTitle] = useState("")
   const [surveyDescription, setSurveyDescription] = useState("")
+  const [retentionEnabled, setRetentionEnabled] = useState(
+    () => getSurveyRetentionState().retentionEnabled,
+  )
+  const [retentionDays, setRetentionDays] = useState(
+    () => getSurveyRetentionState().retentionDays,
+  )
   const [showGeneratePreview, setShowGeneratePreview] = useState(false)
   const [distributeSurveyId, setDistributeSurveyId] = useState<string | null>(null)
   const [surveyResponses, setSurveyResponses] = useState<SurveyResponse[]>([])
   const [responseAggregates, setResponseAggregates] = useState<SurveyResponseAggregate[]>([])
   const [responseSurveyId, setResponseSurveyId] = useState<string | null>(null)
-  const [responsesLoading, setResponsesLoading] = useState(false)
-  const [responsesError, setResponsesError] = useState<string | null>(null)
-  const [selectedResponseIds, setSelectedResponseIds] = useState<string[]>([])
+  const [responsePagination, setResponsePagination] = useState<ApiPagination | null>(null)
+  const [aggregateLoading, setAggregateLoading] = useState(false)
+  const [rawLoading, setRawLoading] = useState(false)
+  const [aggregateError, setAggregateError] = useState<string | null>(null)
+  const [rawError, setRawError] = useState<string | null>(null)
+  const [aggregateLoaded, setAggregateLoaded] = useState(false)
+  const [rawResponsesLoaded, setRawResponsesLoaded] = useState(false)
+  const [selectedResponseIds, setSelectedResponseIdsState] = useState<string[]>([])
   const [responseAction, setResponseAction] = useState<"export" | "erase" | null>(null)
+  const responseRequestRef = useRef(0)
   const [dragItem, setDragItem] = useState<DragItem | null>(null)
   const deferredSearch = useDeferredValue(search)
-
-  const responseCounts = useMemo(
-    () => countsFromRawResponses(surveyResponses),
-    [surveyResponses],
-  )
-  const responseTotals = useMemo(
-    () => Object.fromEntries(responseAggregates.map((aggregate) => [aggregate.question_id, aggregate.total])),
-    [responseAggregates],
-  )
-  const responseTexts = useMemo(() => {
-    const texts: Record<string, string[]> = {}
-    for (const response of surveyResponses) {
-      for (const [questionId, answer] of Object.entries(response.answers)) {
-        if (typeof answer === "string") (texts[questionId] ??= []).push(answer)
-      }
-    }
-    return texts
-  }, [surveyResponses])
 
   const editedSurvey = modalState?.type === "edit"
     ? surveys.find((survey) => survey.id === modalState.id)
@@ -228,13 +225,37 @@ export function useSurveyManagement({ permissions }: UseSurveyManagementProps) {
     })
   }
 
+  const clearResponseState = useCallback(() => {
+    responseRequestRef.current += 1
+    setSurveyResponses([])
+    setResponseAggregates([])
+    setResponsePagination(null)
+    setResponseSurveyId(null)
+    setAggregateLoading(false)
+    setRawLoading(false)
+    setAggregateError(null)
+    setRawError(null)
+    setAggregateLoaded(false)
+    setRawResponsesLoaded(false)
+    setSelectedResponseIdsState([])
+    setResponseAction(null)
+  }, [])
+
+  useEffect(() => () => {
+    clearResponseState()
+  }, [clearResponseState])
+
   const handleCloseModal = () => {
+    clearResponseState()
     setModalState(null)
     setDragItem(null)
     setSections([])
     setOriginalSections([])
     setSurveyTitle("")
     setSurveyDescription("")
+    const retention = getSurveyRetentionState()
+    setRetentionEnabled(retention.retentionEnabled)
+    setRetentionDays(retention.retentionDays)
     setTargetCohort("Class of 2024")
     setSurveyStatus("Inactive")
     setViewTab("questions")
@@ -244,6 +265,9 @@ export function useSurveyManagement({ permissions }: UseSurveyManagementProps) {
     if (!canManage || interactionLocked) return
     setSurveyTitle("")
     setSurveyDescription("")
+    const retention = getSurveyRetentionState()
+    setRetentionEnabled(retention.retentionEnabled)
+    setRetentionDays(retention.retentionDays)
     setTargetCohort("Class of 2024")
     setSurveyStatus("Inactive")
     setSections([{
@@ -264,11 +288,10 @@ export function useSurveyManagement({ permissions }: UseSurveyManagementProps) {
       try {
         const full = await fetchSurvey(survey.surveyId)
         setSurveys((prev) => prev.map((s) => (s.id === id ? { ...s, ...full } : s)))
-        setSurveyResponses([])
-        setResponseAggregates([])
-        setResponseSurveyId(null)
-        setResponsesError(null)
-        setSelectedResponseIds([])
+        const retention = getSurveyRetentionState(full)
+        setRetentionEnabled(retention.retentionEnabled)
+        setRetentionDays(retention.retentionDays)
+        clearResponseState()
         setModalState({ type: "view", id })
       } catch (error) {
         setRequestError(error instanceof Error ? error.message : "We could not load the survey.")
@@ -276,56 +299,98 @@ export function useSurveyManagement({ permissions }: UseSurveyManagementProps) {
     })
   }
 
-  const loadResponseData = async (surveyUuid: string) => {
-    if (!canReadAggregates && !canReadRaw) {
-      setResponsesError("You do not have permission to view survey responses.")
-      return
-    }
-    setResponsesLoading(true)
-    setResponsesError(null)
+  const loadAggregateData = async (surveyUuid: string) => {
+    const requestId = ++responseRequestRef.current
+    setAggregateLoading(true)
+    setAggregateError(null)
     try {
-      const [aggregates, rawResult] = await Promise.all([
-        canReadAggregates
-          ? fetchResponseAggregates(surveyUuid)
-          : Promise.resolve([] as SurveyResponseAggregate[]),
-        canReadRaw
-          ? fetchResponses(surveyUuid)
-          : Promise.resolve(null),
-      ])
+      const aggregates = await fetchResponseAggregates(surveyUuid)
+      if (requestId !== responseRequestRef.current) return
       setResponseAggregates(aggregates)
-      setSurveyResponses(rawResult?.responses ?? [])
-      setResponseSurveyId(surveyUuid)
-      setSelectedResponseIds([])
+      setAggregateLoaded(true)
     } catch (error) {
-      setResponsesError(error instanceof Error ? error.message : "We could not load survey responses.")
+      if (requestId !== responseRequestRef.current) return
+      const message = error instanceof Error ? error.message : "We could not load aggregate responses."
+      if (error instanceof ApiError && (error.status === 401 || error.status === 403)) {
+        clearResponseState()
+        setAggregateError(message)
+      } else {
+        setAggregateError(message)
+      }
     } finally {
-      setResponsesLoading(false)
+      if (requestId === responseRequestRef.current) setAggregateLoading(false)
+    }
+  }
+
+  const handleLoadRawResponses = async (survey: Survey, requestedOffset = 0) => {
+    if (!canReadRaw || rawLoading) return
+    const surveyUuid = getSurveyResponseResourceId(survey)
+    if (responseSurveyId !== surveyUuid) {
+      clearResponseState()
+      setResponseSurveyId(surveyUuid)
+    }
+    const requestId = ++responseRequestRef.current
+    setRawLoading(true)
+    setRawError(null)
+    setSelectedResponseIdsState([])
+    try {
+      const result = await fetchResponses(surveyUuid, {
+        limit: RAW_RESPONSE_PAGE_SIZE,
+        offset: Math.max(0, requestedOffset),
+      })
+      if (requestId !== responseRequestRef.current) return
+      setSurveyResponses(result.responses)
+      setResponsePagination(result.pagination)
+      setRawResponsesLoaded(true)
+    } catch (error) {
+      if (requestId !== responseRequestRef.current) return
+      const message = error instanceof Error ? error.message : "We could not load survey responses."
+      if (error instanceof ApiError && (error.status === 401 || error.status === 403)) {
+        clearResponseState()
+        setRawError(message)
+      } else {
+        setRawError(message)
+      }
+    } finally {
+      if (requestId === responseRequestRef.current) setRawLoading(false)
     }
   }
 
   const handleViewResponses = (survey: Survey) => {
     const surveyUuid = getSurveyResponseResourceId(survey)
+    const surveyChanged = responseSurveyId !== surveyUuid
     setViewTab("responses")
-    if (responseSurveyId !== surveyUuid && !responsesLoading) {
-      void loadResponseData(surveyUuid)
+    if (surveyChanged) {
+      clearResponseState()
+      setResponseSurveyId(surveyUuid)
+    }
+    if (canReadAggregates && (surveyChanged || !aggregateLoaded) && !aggregateLoading) {
+      void loadAggregateData(surveyUuid)
     }
   }
 
   const refreshResponseState = async (survey: Survey) => {
+    const shouldReloadRaw = rawResponsesLoaded
+    const currentOffset = responsePagination?.offset ?? 0
     const refreshed = await fetchSurvey(survey.surveyId)
     setSurveys((previous) => previous.map((item) => item.id === refreshed.id ? refreshed : item))
-    setResponseSurveyId(null)
-    await loadResponseData(getSurveyResponseResourceId(refreshed))
+    clearResponseState()
+    setResponseSurveyId(getSurveyResponseResourceId(refreshed))
+    if (canReadAggregates) await loadAggregateData(getSurveyResponseResourceId(refreshed))
+    if (shouldReloadRaw) await handleLoadRawResponses(refreshed, currentOffset)
   }
 
   const handleExportResponses = async (surveyUuid: string) => {
     if (!canExport || responseAction !== null) return
     setResponseAction("export")
-    setResponsesError(null)
+    setAggregateError(null)
+    setRawError(null)
     try {
       await exportResponses(surveyUuid)
     } catch (error) {
-      setResponsesError(error instanceof Error ? error.message : "We could not export survey responses.")
+      const message = error instanceof Error ? error.message : "We could not export survey responses."
+      setAggregateError(message)
+      setRawError(message)
     } finally {
       setResponseAction(null)
     }
@@ -343,7 +408,8 @@ export function useSurveyManagement({ permissions }: UseSurveyManagementProps) {
       : null
     if (scope === "all" && allPayload === null) {
       const message = "The exact response count is unavailable. Refresh the survey before erasing all responses."
-      setResponsesError(message)
+      setAggregateError(message)
+      setRawError(message)
       setRequestError(message)
       return
     }
@@ -360,7 +426,8 @@ export function useSurveyManagement({ permissions }: UseSurveyManagementProps) {
     if (!confirmed) return
 
     setResponseAction("erase")
-    setResponsesError(null)
+    setAggregateError(null)
+    setRawError(null)
     await runExclusive({ type: "responses", surveyId: survey.id }, async () => {
       try {
         await eraseResponses(
@@ -372,13 +439,18 @@ export function useSurveyManagement({ permissions }: UseSurveyManagementProps) {
           setSurveys((previous) => previous.map((item) => (
             item.id === survey.id ? { ...item, responses: 0 } : item
           )))
+          clearResponseState()
           setListRevision((current) => current + 1)
         } else {
           await refreshResponseState(survey)
         }
       } catch (error) {
         const message = error instanceof Error ? error.message : "We could not erase survey responses."
-        setResponsesError(message)
+        if (error instanceof ApiError && (error.status === 401 || error.status === 403)) {
+          clearResponseState()
+        }
+        setAggregateError(message)
+        setRawError(message)
         if (scope === "all") setRequestError(message)
       }
     })
@@ -396,6 +468,9 @@ export function useSurveyManagement({ permissions }: UseSurveyManagementProps) {
         setSurveys((prev) => prev.map((item) => (item.id === full.id ? full : item)))
         setSurveyTitle(full.title)
         setSurveyDescription(full.description ?? "")
+        const retention = getSurveyRetentionState(full)
+        setRetentionEnabled(retention.retentionEnabled)
+        setRetentionDays(retention.retentionDays)
         setTargetCohort(full.targetCohort ?? "Class of 2024")
         setSurveyStatus(full.status)
         const loaded = toEditorSections(full.sections ?? [])
@@ -458,6 +533,10 @@ export function useSurveyManagement({ permissions }: UseSurveyManagementProps) {
         setSaveError(structureError)
         return
       }
+      if (!Number.isInteger(retentionDays) || retentionDays < 1) {
+        setSaveError("Retention period must be a positive whole number of days.")
+        return
+      }
       if (surveyStatus === "Active") {
         if (sections.length === 0) {
           setSaveError("Add at least one section before activating the survey.")
@@ -478,6 +557,8 @@ export function useSurveyManagement({ permissions }: UseSurveyManagementProps) {
           description: surveyDescription || null,
           target_cohort: targetCohort,
           status: surveyStatus,
+          retention_enabled: retentionEnabled,
+          retention_days: retentionDays,
           ...toStructurePayload(sections),
         })
         setSurveys((prev) => [created, ...prev.filter((survey) => survey.id !== created.id)])
@@ -511,6 +592,8 @@ export function useSurveyManagement({ permissions }: UseSurveyManagementProps) {
           description: surveyDescription || null,
           target_cohort: targetCohort,
           status: surveyStatus,
+          retention_enabled: retentionEnabled,
+          retention_days: retentionDays,
         })
         const refreshed = await fetchSurvey(target.surveyId)
         setSurveys((prev) => prev.map((s) => (s.id === refreshed.id ? refreshed : s)))
@@ -539,6 +622,15 @@ export function useSurveyManagement({ permissions }: UseSurveyManagementProps) {
     if (!canManageDistribution || interactionLocked) return
     setRequestError(null)
     setDistributeSurveyId(surveyId)
+  }
+
+  const setSelectedResponseIds = (responseIds: string[]) => {
+    setSelectedResponseIdsState((current) => {
+      const next = Array.from(new Set(responseIds)).slice(0, 100)
+      return next.length === current.length && next.every((id, index) => id === current[index])
+        ? current
+        : next
+    })
   }
 
   const addSection = () => {
@@ -788,7 +880,7 @@ export function useSurveyManagement({ permissions }: UseSurveyManagementProps) {
   }
 
   return {
-    state: {
+      state: {
       surveys,
       showArchived,
       loading,
@@ -820,24 +912,28 @@ export function useSurveyManagement({ permissions }: UseSurveyManagementProps) {
       deleteConfirmId,
       surveyTitle,
       surveyDescription,
+      retentionEnabled,
+      retentionDays,
       showGeneratePreview,
       distributeSurveyId,
-      surveyResponses,
-      responseAggregates,
-      responseSurveyId,
-      responsesLoading,
-      responsesError,
-      selectedResponseIds,
-      responseAction,
+        surveyResponses,
+        responseAggregates,
+        responseSurveyId,
+        responsePagination,
+        aggregateLoading,
+        rawLoading,
+        aggregateError,
+        rawError,
+        aggregateLoaded,
+        rawResponsesLoaded,
+        selectedResponseIds,
+        responseAction,
       dragItem,
       editedSurvey,
       structureEditable,
       interactionLocked,
       pendingLabel,
-      responseCounts,
-      responseTotals,
-      responseTexts,
-      capabilities,
+        capabilities,
     },
     actions: {
       setShowArchived,
@@ -856,6 +952,7 @@ export function useSurveyManagement({ permissions }: UseSurveyManagementProps) {
       handleOpenCreate,
       handleOpenView,
       handleViewResponses,
+      handleLoadRawResponses,
       handleExportResponses,
       handleEraseResponses,
       handleOpenEdit,
@@ -881,6 +978,8 @@ export function useSurveyManagement({ permissions }: UseSurveyManagementProps) {
       addOption,
       setSurveyTitle,
       setSurveyDescription,
+      setRetentionEnabled,
+      setRetentionDays,
       setTargetCohort,
       setCohortOpen,
       setSurveyStatus,

@@ -10,10 +10,11 @@ SQLModel metadata changes into database schema changes.
 - Generate migrations with
   `./.venv/bin/alembic revision --autogenerate -m "describe change"`.
 - Use the repo-local virtualenv dependencies; do not assume system Alembic is configured.
-- The canonical first-release baseline is `20260825_v1`; the current migration head is the Phase
-  2 compatibility revision `f77a807cf2f9_expand_distribution_security`. Fresh environments run
-  `./.venv/bin/alembic upgrade head`, and production runs that command once as the protected
-  release job.
+- The canonical first-release baseline is `20260825_v1`; the forward revisions are
+  `f77a807cf2f9_expand_distribution_security`, `d1f9bad768ad`, and the Phase 3
+  `fb1c93d15474` retention/withdrawal revision. `fb1c93d15474` is the current migration head.
+  Fresh environments run `./.venv/bin/alembic upgrade head`, and production runs that command
+  once as the protected release job before API replicas are promoted.
 
 ## Autogenerate-First Rule
 - For any `models/` change that alters table shape, generate a migration with
@@ -41,6 +42,10 @@ SQLModel metadata changes into database schema changes.
   changes should be added as forward revisions after `20260825_v1`.
 - The Phase 2 expand revision retains plaintext distribution tokens for compatibility; the later
   digest-only/drop gate must be a separate reviewed forward revision.
+- The Phase 3 revision adds per-survey retention settings, response deadline snapshots,
+  withdrawal-code digests, and their indexes/constraint. It backfills existing surveys to
+  enabled/1,825 days and existing response deadlines from submission timestamps. Review this
+  backfill before activating the externally scheduled retention purge.
 - If an earlier applied migration used the wrong name or shape, add a follow-up revision
   that moves the live schema forward.
 - Keep migration files lintable and readable.

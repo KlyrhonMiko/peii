@@ -146,7 +146,13 @@ describe("backend BFF", () => {
         "x-content-type-options": "nosniff",
         "referrer-policy": "no-referrer",
         "x-request-id": "request-id",
+        "expires": "0",
+        "content-security-policy": "sandbox",
+        "cross-origin-resource-policy": "same-origin",
+        "x-accel-buffering": "no",
+        "x-export-id": "export-id",
         "set-cookie": "backend-session=secret",
+        "server": "internal-backend",
       },
     }))
     vi.stubGlobal("fetch", fetchMock)
@@ -161,7 +167,13 @@ describe("backend BFF", () => {
     expect(response.headers.get("content-disposition")).toBe("attachment; filename=responses.csv")
     expect(response.headers.get("cache-control")).toBe("no-store")
     expect(response.headers.get("x-request-id")).toBe("request-id")
+    expect(response.headers.get("expires")).toBe("0")
+    expect(response.headers.get("content-security-policy")).toBe("sandbox")
+    expect(response.headers.get("cross-origin-resource-policy")).toBe("same-origin")
+    expect(response.headers.get("x-accel-buffering")).toBe("no")
+    expect(response.headers.get("x-export-id")).toBe("export-id")
     expect(response.headers.get("set-cookie")).toBeNull()
+    expect(response.headers.get("server")).toBeNull()
     expect(await response.text()).toBe("id,title\n1,Survey\n")
   })
 

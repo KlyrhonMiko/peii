@@ -24,6 +24,8 @@ export function SurveyEditorModal({ store }: SurveyEditorModalProps) {
     surveyStatus,
     statusOpen,
     surveyDescription,
+    retentionEnabled,
+    retentionDays,
     sections,
     structureEditable,
     editedSurvey,
@@ -39,6 +41,8 @@ export function SurveyEditorModal({ store }: SurveyEditorModalProps) {
     setSurveyStatus,
     setStatusOpen,
     setSurveyDescription,
+    setRetentionEnabled,
+    setRetentionDays,
     addSection,
   } = actions
 
@@ -87,6 +91,10 @@ export function SurveyEditorModal({ store }: SurveyEditorModalProps) {
             setStatusOpen={setStatusOpen}
             surveyDescription={surveyDescription}
             setSurveyDescription={setSurveyDescription}
+            retentionEnabled={retentionEnabled}
+            setRetentionEnabled={setRetentionEnabled}
+            retentionDays={retentionDays}
+            setRetentionDays={setRetentionDays}
           />
 
           {/* Right Main Area: Sections & Questions */}

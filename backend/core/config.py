@@ -43,10 +43,15 @@ class Settings(BaseSettings):
     RATE_LIMIT_INCLUDE_CLIENT_IP: bool = False
     RATE_LIMIT_READ_FAILURE_POLICY: Literal["fail_closed", "fail_open"] = "fail_closed"
     RATE_LIMIT_KEY_HMAC_SECRET: str | None = None
+    WITHDRAWAL_CODE_HMAC_SECRET: str | None = None
     PUBLIC_SURVEY_READ_LIMIT: int = Field(default=60, ge=1)
     PUBLIC_SURVEY_READ_WINDOW_SECONDS: int = Field(default=60, ge=1)
     PUBLIC_SURVEY_SUBMIT_LIMIT: int = Field(default=10, ge=1)
     PUBLIC_SURVEY_SUBMIT_WINDOW_SECONDS: int = Field(default=60, ge=1)
+    PUBLIC_SURVEY_WITHDRAWAL_CLIENT_LIMIT: int = Field(default=10, ge=1)
+    PUBLIC_SURVEY_WITHDRAWAL_CLIENT_WINDOW_SECONDS: int = Field(default=60, ge=1)
+    PUBLIC_SURVEY_WITHDRAWAL_GLOBAL_LIMIT: int = Field(default=1000, ge=1)
+    PUBLIC_SURVEY_WITHDRAWAL_GLOBAL_WINDOW_SECONDS: int = Field(default=60, ge=1)
     LOGIN_RATE_LIMIT: int = Field(default=10, ge=1)
     LOGIN_RATE_WINDOW_SECONDS: int = Field(default=60, ge=1)
     PASSWORD_RECOVERY_RATE_LIMIT: int = Field(default=5, ge=1)
@@ -89,6 +94,22 @@ class Settings(BaseSettings):
             raise ValueError(
                 "RATE_LIMIT_KEY_HMAC_SECRET must be at least 32 bytes when rate limiting is enabled"
             )
+        if not self.DEBUG and not self.RATE_LIMIT_ENABLED:
+            raise ValueError("RATE_LIMIT_ENABLED must be true when DEBUG is false")
+        if self.RATE_LIMIT_ENABLED and not self.DEBUG and not self.RATE_LIMIT_INCLUDE_CLIENT_IP:
+            raise ValueError(
+                "RATE_LIMIT_INCLUDE_CLIENT_IP must be true when rate limiting is enabled "
+                "outside debug mode"
+            )
+        if not self.DEBUG and not self.WITHDRAWAL_CODE_HMAC_SECRET:
+            raise ValueError(
+                "WITHDRAWAL_CODE_HMAC_SECRET is required when DEBUG is false"
+            )
+        if (
+            self.WITHDRAWAL_CODE_HMAC_SECRET is not None
+            and len(self.WITHDRAWAL_CODE_HMAC_SECRET.encode("utf-8")) < 32
+        ):
+            raise ValueError("WITHDRAWAL_CODE_HMAC_SECRET must be at least 32 bytes")
         return self
 
     @property

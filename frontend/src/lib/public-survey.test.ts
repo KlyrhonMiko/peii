@@ -1,6 +1,11 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 
-import { parsePublicSurveyEnvelope } from "./public-survey"
+import {
+  createPublicSurveySubmission,
+  generateWithdrawalCode,
+  parsePublicSurveyEnvelope,
+  parsePublicSurveyWithdrawn,
+} from "./public-survey"
 
 function publicSurveyEnvelope(questionOverrides: Record<string, unknown> = {}) {
   const question = {
@@ -58,5 +63,36 @@ describe("parsePublicSurveyEnvelope", () => {
     { field: "config", value: "malformed" },
   ])("rejects malformed non-null $field values", ({ field, value }) => {
     expect(parsePublicSurveyEnvelope(publicSurveyEnvelope({ [field]: value }))).toBeNull()
+  })
+})
+
+describe("public survey withdrawal helpers", () => {
+  it("generates a 32-byte base64url withdrawal code", () => {
+    const getRandomValues = vi.spyOn(globalThis.crypto, "getRandomValues")
+      .mockImplementation((bytes) => {
+        expect(bytes).toHaveLength(32)
+        return bytes
+      })
+
+    const code = generateWithdrawalCode()
+
+    expect(getRandomValues).toHaveBeenCalledTimes(1)
+    expect(code).toMatch(/^[A-Za-z0-9_-]+$/)
+    expect(code).toHaveLength(43)
+    getRandomValues.mockRestore()
+  })
+
+  it("includes the private code in every response submission", () => {
+    expect(createPublicSurveySubmission({ answer: "value" }, "v1", "private-code")).toEqual({
+      answers: { answer: "value" },
+      consent: { accepted: true, version: "v1" },
+      withdrawal_code: "private-code",
+    })
+  })
+
+  it("parses only an accepted withdrawal response", () => {
+    expect(parsePublicSurveyWithdrawn({ data: { withdrawn: true } })).toEqual({ withdrawn: true })
+    expect(parsePublicSurveyWithdrawn({ data: { withdrawn: false } })).toBeNull()
+    expect(parsePublicSurveyWithdrawn({ data: null })).toBeNull()
   })
 })

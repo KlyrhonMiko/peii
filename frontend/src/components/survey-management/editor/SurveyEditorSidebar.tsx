@@ -1,5 +1,6 @@
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { Switch } from "@/components/ui/switch"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Check, ChevronDown } from "lucide-react"
 import { cn } from "@/lib/utils"
@@ -19,6 +20,10 @@ interface SurveyEditorSidebarProps {
   setStatusOpen: (open: boolean) => void
   surveyDescription: string
   setSurveyDescription: (val: string) => void
+  retentionEnabled: boolean
+  setRetentionEnabled: (val: boolean) => void
+  retentionDays: number
+  setRetentionDays: (val: number) => void
 }
 
 export function SurveyEditorSidebar({
@@ -34,6 +39,10 @@ export function SurveyEditorSidebar({
   setStatusOpen,
   surveyDescription,
   setSurveyDescription,
+  retentionEnabled,
+  setRetentionEnabled,
+  retentionDays,
+  setRetentionDays,
 }: SurveyEditorSidebarProps) {
   return (
     <div className="w-[340px] shrink-0 border-r border-slate-100 bg-white p-8 overflow-y-auto">
@@ -164,6 +173,46 @@ export function SurveyEditorSidebar({
               }
             }}
           />
+        </div>
+
+        <div className="space-y-3 rounded-lg border border-slate-200 bg-slate-50/50 p-3.5">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-[13px] font-medium text-slate-700">Response retention</p>
+              <p id="retention-policy-help" className="mt-1 text-[11px] leading-relaxed text-slate-500">
+                By default, responses are retained for five years from submission (1,825 days).
+                This policy becomes immutable after responses are received.
+              </p>
+            </div>
+            <div className="flex shrink-0 items-center pt-0.5">
+              <label htmlFor="retention-enabled" className="sr-only">
+                Automatically delete responses
+              </label>
+              <Switch
+                id="retention-enabled"
+                aria-label="Automatically delete responses"
+                aria-describedby="retention-policy-help"
+                checked={retentionEnabled}
+                onCheckedChange={(checked) => setRetentionEnabled(checked)}
+              />
+            </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <label htmlFor="retention-days" className="text-[12px] font-medium text-slate-700">
+              Retention period (days)
+            </label>
+            <Input
+              id="retention-days"
+              type="number"
+              min={1}
+              step={1}
+              value={retentionDays}
+              disabled={!retentionEnabled}
+              onChange={(event) => setRetentionDays(Number(event.target.value))}
+              aria-describedby="retention-policy-help"
+            />
+          </div>
         </div>
       </fieldset>
     </div>

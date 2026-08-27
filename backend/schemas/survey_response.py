@@ -1,11 +1,11 @@
+import base64
+import binascii
 import json
 from datetime import datetime
 from typing import Annotated, Any, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
-
-from schemas.common import ListQueryParams
 
 
 class SurveyResponseBaseSchema(BaseModel):
@@ -29,12 +29,29 @@ class SurveyResponseSubmit(BaseModel):
                     "q3": 4,
                 },
                 "consent": {"accepted": True, "version": "20260825_v1"},
+                "withdrawal_code": "QWERTYuiopASDFGHjklZXCVBNM1234567890-_abCdef",
             }
         }
     )
 
     answers: dict[str, Any]
     consent: SurveyConsentSubmit
+    withdrawal_code: str = Field(
+        min_length=43,
+        max_length=128,
+        pattern=r"^[A-Za-z0-9_-]+$",
+    )
+
+    @field_validator("withdrawal_code")
+    @classmethod
+    def require_256_bit_base64url_secret(cls, value: str) -> str:
+        try:
+            decoded = base64.urlsafe_b64decode(value + "=" * (-len(value) % 4))
+        except (binascii.Error, ValueError) as exc:
+            raise ValueError("withdrawal_code must be a valid base64url secret") from exc
+        if len(decoded) < 32:
+            raise ValueError("withdrawal_code must contain at least 256 bits")
+        return value
 
     @field_validator("answers")
     @classmethod
@@ -79,8 +96,16 @@ class SurveyResponseRead(SurveyResponseBaseSchema):
         return v
 
 
-class SurveyResponseListQueryParams(ListQueryParams):
-    sort_by: str = "created_at"
+class SurveyResponseListQueryParams(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    limit: int = Field(default=50, ge=1, le=100)
+    offset: int = Field(default=0, ge=0)
+    sort_by: Literal["created_at"] = "created_at"
+    sort_order: Literal["asc", "desc"] = "desc"
+    submitted_from: datetime | None = None
+    submitted_before: datetime | None = None
+    distribution_id: UUID | None = None
 
 
 class EraseSelectedResponses(BaseModel):
@@ -114,26 +139,26 @@ class ResponseErasureResult(BaseModel):
     erased_count: int
 
 
-AggregateQuestionType = Literal[
-    "single_choice",
-    "boolean",
-    "multiple_choice",
-    "scale",
-    "ranking",
-    "matrix",
-]
+class SurveyResponseWithdrawalRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    withdrawal_code: str = Field(
+        min_length=43,
+        max_length=128,
+        pattern=r"^[A-Za-z0-9_-]+$",
+    )
+
+    @field_validator("withdrawal_code")
+    @classmethod
+    def require_256_bit_base64url_secret(cls, value: str) -> str:
+        try:
+            decoded = base64.urlsafe_b64decode(value + "=" * (-len(value) % 4))
+        except (binascii.Error, ValueError) as exc:
+            raise ValueError("withdrawal_code must be a valid base64url secret") from exc
+        if len(decoded) < 32:
+            raise ValueError("withdrawal_code must contain at least 256 bits")
+        return value
 
 
-class AggregateCell(BaseModel):
-    value: str | int | float | bool
-    count: int
-    rank: int | None = None
-    row: str | None = None
-
-
-class SurveyResponseAggregate(BaseModel):
-    question_id: UUID
-    question_text: str
-    question_type: AggregateQuestionType
-    total: int
-    cells: list[AggregateCell]
+class SurveyResponseWithdrawalResult(BaseModel):
+    withdrawn: Literal[True]

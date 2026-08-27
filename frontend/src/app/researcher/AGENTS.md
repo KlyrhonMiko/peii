@@ -11,9 +11,12 @@ analytics, survey management/detail/settings, and model routes.
 - `analytics/page.tsx` owns interactive filters and renders PEII dimensions and sentiment
   divergence chart wrappers.
 - `survey/page.tsx` authenticates with `surveys.read` and composes the live
-  `SurveyManagement` client component. That component owns survey CRUD, structure
-  editing/reordering, distribution, response, aggregate, raw, export, and erasure workflows;
-  nested detail/settings pages remain placeholders.
+   `SurveyManagement` client component. That component owns survey CRUD, structure
+   editing/reordering, retention settings, distribution, response, aggregate, raw, export, and
+   erasure workflows. Aggregates are available for every survey status and may change while an
+   active survey receives responses. Raw/export reads may access archived surveys but still
+   exclude expired/deleted responses;
+   nested detail/settings pages remain placeholders.
 - `models/page.tsx` loads the authenticated model catalog server-side from
   `BACKEND_INTERNAL_URL`.
 

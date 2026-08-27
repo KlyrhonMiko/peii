@@ -58,6 +58,7 @@ export function SurveyConsentCard({
             name="consent"
             type="checkbox"
             required
+            aria-label="Consent to this data notice"
             checked={consentAccepted}
             onChange={(event) => onConsentChange(event.target.checked)}
             aria-invalid={consentTouched && !consentAccepted}

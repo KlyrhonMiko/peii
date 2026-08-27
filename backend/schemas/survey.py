@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from schemas.common import ListQueryParams
 from schemas.survey_structure import (
@@ -23,6 +23,8 @@ class SurveyBase(SurveyBaseSchema):
     description: str | None = None
     status: SurveyStatus = "Inactive"
     target_cohort: str | None = None
+    retention_enabled: bool = True
+    retention_days: int = Field(default=1825, ge=1)
 
 
 class SurveyCreate(SurveyBase):
@@ -65,6 +67,8 @@ class SurveyUpdate(SurveyBaseSchema):
     description: str | None = None
     status: SurveyStatus | None = None
     target_cohort: str | None = None
+    retention_enabled: bool | None = None
+    retention_days: int | None = Field(default=None, ge=1)
 
 
 class SurveyRead(SurveyBase):

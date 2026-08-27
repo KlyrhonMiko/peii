@@ -24,6 +24,7 @@ SECTION_ID = UUID("30000000-0000-0000-0000-000000000003")
 QUESTION_ID = UUID("30000000-0000-0000-0000-000000000004")
 DISTRIBUTION_ID = UUID("30000000-0000-0000-0000-000000000005")
 TOKEN = "integration-concurrency-token"
+WITHDRAWAL_CODE = "A" * 42 + "B"
 
 
 def _populate_active_survey(database: PostgresTestDatabase) -> None:
@@ -45,9 +46,10 @@ def _populate_active_survey(database: PostgresTestDatabase) -> None:
                 "INSERT INTO surveys "
                 "(id, created_at, updated_at, is_deleted, deleted_at, performed_by, survey_id, "
                 "title, "
-                "description, status, target_cohort, responses_count) "
+                "description, status, target_cohort, responses_count, retention_enabled, "
+                "retention_days) "
                 "VALUES (:id, :ts, :ts, false, NULL, :actor, 'SURV-CONCUR', 'Concurrent survey', "
-                "NULL, 'Active', NULL, 0)"
+                "NULL, 'Active', NULL, 0, true, 1825)"
             ),
             {"id": str(SURVEY_ID), "actor": str(ACTOR_ID), "ts": timestamp},
         )
@@ -225,6 +227,7 @@ async def test_concurrent_idempotent_submissions_persist_one_response_and_audit_
                 answers,
                 ACTOR_ID,
                 idempotency_key=idempotency_key,
+                withdrawal_code=WITHDRAWAL_CODE,
             )
             return response.id, replayed
 

@@ -50,6 +50,15 @@ export interface PublicSurveyConsentSubmission {
 export interface PublicSurveySubmission {
   answers: PublicAnswers
   consent: PublicSurveyConsentSubmission
+  withdrawal_code: string
+}
+
+export interface PublicSurveyWithdrawalRequest {
+  withdrawal_code: string
+}
+
+export interface PublicSurveyWithdrawn {
+  withdrawn: true
 }
 
 export interface PublicSurveyAccepted {
@@ -208,6 +217,11 @@ export function parsePublicSurveyAccepted(value: unknown): PublicSurveyAccepted 
   return { accepted: true }
 }
 
+export function parsePublicSurveyWithdrawn(value: unknown): PublicSurveyWithdrawn | null {
+  if (!isRecord(value) || !isRecord(value.data) || value.data.withdrawn !== true) return null
+  return { withdrawn: true }
+}
+
 export function publicSurveyMessage(value: unknown): string | null {
   return isRecord(value) ? stringValue(value.message) : null
 }
@@ -220,11 +234,27 @@ export function publicSurveyErrorCode(value: unknown): string | null {
 export function createPublicSurveySubmission(
   answers: PublicAnswers,
   version: string,
+  withdrawalCode: string,
 ): PublicSurveySubmission {
   return {
     answers,
     consent: { accepted: true, version },
+    withdrawal_code: withdrawalCode,
   }
+}
+
+export function createPublicSurveyWithdrawalRequest(
+  withdrawalCode: string,
+): PublicSurveyWithdrawalRequest {
+  return { withdrawal_code: withdrawalCode }
+}
+
+export function generateWithdrawalCode(): string {
+  const bytes = new Uint8Array(32)
+  globalThis.crypto.getRandomValues(bytes)
+  let binary = ""
+  for (const byte of bytes) binary += String.fromCharCode(byte)
+  return globalThis.btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "")
 }
 
 export function parseRetryAfter(

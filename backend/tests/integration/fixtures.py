@@ -3,7 +3,8 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
-from collections.abc import Generator
+from collections.abc import Callable, Generator, Iterator
+from contextlib import AbstractContextManager, contextmanager
 from dataclasses import dataclass
 from uuid import uuid4
 
@@ -77,10 +78,11 @@ def assert_current_schema(connection: Connection, expected_schema: str) -> None:
     )
 
 
-@pytest.fixture
-def postgres_database(
+@contextmanager
+def _isolated_postgres_database(
     request: pytest.FixtureRequest,
-) -> Generator[PostgresTestDatabase]:
+    revision: str,
+) -> Iterator[PostgresTestDatabase]:
     raw_url = os.environ.get("TEST_DATABASE_URL")
     if not raw_url:
         if request.config.getoption("--require-postgres"):
@@ -103,7 +105,7 @@ def postgres_database(
         with admin_engine.begin() as connection:
             connection.execute(text(f"CREATE SCHEMA {schema_identifier}"))
         schema_created = True
-        migrate_to(parsed, "head", schema)
+        migrate_to(parsed, revision, schema)
         test_engine = create_engine(
             parsed,
             connect_args={"options": f"-c search_path={schema}"},
@@ -120,6 +122,21 @@ def postgres_database(
             with admin_engine.begin() as connection:
                 connection.execute(text(f"DROP SCHEMA IF EXISTS {schema_identifier} CASCADE"))
         admin_engine.dispose()
+
+
+@pytest.fixture
+def postgres_database(
+    request: pytest.FixtureRequest,
+) -> Generator[PostgresTestDatabase]:
+    with _isolated_postgres_database(request, "head") as database:
+        yield database
+
+
+@pytest.fixture
+def postgres_database_at_revision(
+    request: pytest.FixtureRequest,
+) -> Callable[[str], AbstractContextManager[PostgresTestDatabase]]:
+    return lambda revision: _isolated_postgres_database(request, revision)
 
 
 @pytest.fixture

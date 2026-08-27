@@ -10,6 +10,9 @@ parsing, status codes, response models, and response assembly.
 - Resource modules define their own `APIRouter`.
 - Routes return `APIResponse[...]` and declare `response_model=APIResponse[...]`.
 - Routes call service functions for data access and business behavior.
+- Phase 3 response routes are split between `survey_public.py` (public submission and
+  `POST /survey/responses/withdraw`), `survey_responses.py` (raw listing, streamed export, and
+  erasure), and `survey_analytics.py` (aggregates). They are registered through `routers/api.py`.
 
 ## Router Rules
 - Keep routers thin. They should parse HTTP input, call services, convert models to read

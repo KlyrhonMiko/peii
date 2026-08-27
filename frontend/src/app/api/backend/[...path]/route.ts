@@ -13,6 +13,11 @@ const RESPONSE_HEADERS = [
   "x-content-type-options",
   "referrer-policy",
   "x-request-id",
+  "x-export-id",
+  "expires",
+  "content-security-policy",
+  "cross-origin-resource-policy",
+  "x-accel-buffering",
 ]
 const UNSAFE_METHODS = new Set(["DELETE", "PATCH", "POST", "PUT"])
 

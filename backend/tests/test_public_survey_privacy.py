@@ -15,6 +15,7 @@ from services import survey_consent
 
 pytestmark = pytest.mark.anyio
 EXPIRY = (datetime.now(UTC) + timedelta(days=29)).isoformat()
+WITHDRAWAL_CODE = "A" * 42 + "B"
 
 
 async def _create_public_survey(client):
@@ -89,6 +90,7 @@ async def test_public_consent_contract_and_evidence_are_server_owned(client):
         json={
             "answers": {question_id: "Employed"},
             "consent": _consent(),
+            "withdrawal_code": WITHDRAWAL_CODE,
         },
         headers={"Idempotency-Key": str(uuid4())},
     )
@@ -111,7 +113,10 @@ async def test_public_consent_contract_and_evidence_are_server_owned(client):
 )
 async def test_public_response_requires_current_accepted_consent(client, consent, status):
     token, question_id = await _create_public_survey(client)
-    payload = {"answers": {question_id: "Employed"}}
+    payload = {
+        "answers": {question_id: "Employed"},
+        "withdrawal_code": WITHDRAWAL_CODE,
+    }
     if consent is not None:
         payload["consent"] = consent
 
@@ -131,6 +136,7 @@ async def test_public_response_replay_is_minimal_and_audit_is_private(client):
     payload = {
         "answers": {question_id: "Employed"},
         "consent": _consent(),
+        "withdrawal_code": WITHDRAWAL_CODE,
     }
     first = await client.post(
         f"/api/v1/survey/{token}/respond",
@@ -174,12 +180,15 @@ async def test_public_response_replay_is_minimal_and_audit_is_private(client):
         assert "notice" not in serialized
 
 
-async def test_legacy_answers_only_replay_records_consent_without_duplicate(client):
+async def test_legacy_replay_records_consent_without_binding_attacker_code(client):
     token, question_id = await _create_public_survey(client)
     key = str(uuid4())
+    answers: dict[str, object] = {question_id: "Employed"}
+    attacker_code = "B" * 42 + "C"
     payload = {
-        "answers": {question_id: "Employed"},
+        "answers": answers,
         "consent": _consent(),
+        "withdrawal_code": WITHDRAWAL_CODE,
     }
     first = await client.post(
         f"/api/v1/survey/{token}/respond", json=payload, headers={"Idempotency-Key": key}
@@ -197,29 +206,42 @@ async def test_legacy_answers_only_replay_records_consent_without_duplicate(clie
         stored_before.consent_version = None
         stored_before.consented_at = None
         stored_before.consent_notice_snapshot = None
+        stored_before.withdrawal_credential_digest = None
         session.add(stored_before)
         await session.commit()
     finally:
         await session_generator.aclose()
 
+    replay_payload = {**payload, "withdrawal_code": attacker_code}
     replay = await client.post(
-        f"/api/v1/survey/{token}/respond", json=payload, headers={"Idempotency-Key": key}
+        f"/api/v1/survey/{token}/respond",
+        json=replay_payload,
+        headers={"Idempotency-Key": key},
     )
     assert replay.status_code == 200
+    replay_again = await client.post(
+        f"/api/v1/survey/{token}/respond",
+        json=replay_payload,
+        headers={"Idempotency-Key": key},
+    )
+    assert replay_again.status_code == 200
 
     stored_after = await _stored_response(stored_before.id)
     policy = survey_consent.get_public_consent_policy()
     expected_hash = hashlib.sha256(
-        json.dumps(
-            {"answers": payload["answers"], "consent_version": policy.version},
-            sort_keys=True,
-            separators=(",", ":"),
-        ).encode()
+        json.dumps(answers, sort_keys=True, separators=(",", ":")).encode()
     ).hexdigest()
     assert stored_after.idempotency_hash == expected_hash
+    assert stored_after.withdrawal_credential_digest is None
     assert stored_after.consent_version == policy.version
     assert stored_after.consented_at is not None
     assert stored_after.consent_notice_snapshot == policy.model_dump(mode="json")
+
+    attacker_withdrawal = await client.post(
+        "/api/v1/survey/responses/withdraw", json={"withdrawal_code": attacker_code}
+    )
+    assert attacker_withdrawal.status_code == 404
+    assert attacker_withdrawal.json()["message"] == "Response not found or already withdrawn."
 
     response_list = await client.get(
         f"/api/v1/surveys/{stored_after.survey_id}/responses/"
@@ -250,6 +272,7 @@ async def test_partial_legacy_consent_evidence_fails_closed_with_safe_code(clien
     payload = {
         "answers": {question_id: "Employed"},
         "consent": _consent(),
+        "withdrawal_code": WITHDRAWAL_CODE,
     }
     first = await client.post(
         f"/api/v1/survey/{token}/respond", json=payload, headers={"Idempotency-Key": key}
@@ -276,12 +299,14 @@ async def test_partial_legacy_consent_evidence_fails_closed_with_safe_code(clien
     assert replay.json()["errors"] == {"code": "invalid_consent_evidence"}
 
 
-async def test_complete_consent_evidence_replay_upgrades_legacy_hash(client):
+async def test_complete_consent_evidence_legacy_replay_preserves_legacy_hash(client):
     token, question_id = await _create_public_survey(client)
     key = str(uuid4())
+    answers: dict[str, object] = {question_id: "Employed"}
     payload = {
-        "answers": {question_id: "Employed"},
+        "answers": answers,
         "consent": _consent(),
+        "withdrawal_code": WITHDRAWAL_CODE,
     }
     first = await client.post(
         f"/api/v1/survey/{token}/respond", json=payload, headers={"Idempotency-Key": key}
@@ -289,13 +314,15 @@ async def test_complete_consent_evidence_replay_upgrades_legacy_hash(client):
     assert first.status_code == 201
     stored = await _stored_response()
     response_id = stored.id
+    original_withdrawal_digest = stored.withdrawal_credential_digest
 
     session_generator = app.dependency_overrides[get_async_session]()
     session = await anext(session_generator)
     try:
-        stored.idempotency_hash = hashlib.sha256(
+        legacy_hash = hashlib.sha256(
             json.dumps(payload["answers"], sort_keys=True, separators=(",", ":")).encode()
         ).hexdigest()
+        stored.idempotency_hash = legacy_hash
         session.add(stored)
         await session.commit()
     finally:
@@ -305,18 +332,9 @@ async def test_complete_consent_evidence_replay_upgrades_legacy_hash(client):
         f"/api/v1/survey/{token}/respond", json=payload, headers={"Idempotency-Key": key}
     )
     assert replay.status_code == 200
-    upgraded = await _stored_response(response_id)
-    expected_hash = hashlib.sha256(
-        json.dumps(
-            {
-                "answers": payload["answers"],
-                "consent_version": survey_consent.get_public_consent_policy().version,
-            },
-            sort_keys=True,
-            separators=(",", ":"),
-        ).encode()
-    ).hexdigest()
-    assert upgraded.idempotency_hash == expected_hash
-    assert upgraded.consent_version is not None
-    assert upgraded.consented_at is not None
-    assert upgraded.consent_notice_snapshot is not None
+    preserved = await _stored_response(response_id)
+    assert preserved.idempotency_hash == legacy_hash
+    assert preserved.withdrawal_credential_digest == original_withdrawal_digest
+    assert preserved.consent_version is not None
+    assert preserved.consented_at is not None
+    assert preserved.consent_notice_snapshot is not None

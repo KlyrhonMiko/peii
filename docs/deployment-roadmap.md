@@ -1,49 +1,89 @@
 # Deployment Roadmap
 
-Status: the Phase 2 compatibility implementation is complete as of 2026-08-25. Public launch
-is still blocked by the operational exit gate below; Redis and consent are implemented controls.
+Status: the Phase 3 response-operations implementation is present in the current tree. Public
+launch remains blocked by the operational exit gate below. Redis, consent, response retention,
+withdrawal, protected response operations, and their application contracts are implemented;
+provider and scheduler verification are still deployment responsibilities.
 
-## Current release
+## Current release and migration head
 
-- Fresh databases start at `20260825_v1`; the current forward revision is
-  `f77a807cf2f9_expand_distribution_security`.
+- Fresh databases start at `20260825_v1`. The forward chain is
+  `f77a807cf2f9` (Phase 2 distribution security), `d1f9bad768ad` (nullable distribution expiry),
+  then `fb1c93d15474` (Phase 3 retention and withdrawal). `fb1c93d15474` is the current head.
 - Run `./.venv/bin/alembic upgrade head` once as the protected release job. Promote API replicas
-  only after the job succeeds. Future changes are forward revisions.
-- Supabase authentication, local identity linkage, global capability RBAC, audit logging,
-  survey authoring, public response submission, consent evidence, Redis rate-limit plumbing,
-  and the ML portal are included.
+  only after the migration, backfill review, and smoke test succeed. Future schema changes are
+  forward revisions; do not migrate independently in every replica.
+- Supabase authentication, local identity linkage, global capability RBAC, audit logging, survey
+  authoring, public response submission, consent evidence, Redis rate-limit plumbing, and the ML
+  portal are included.
 - Compose remains local development; production uses managed frontend, Python service,
-  PostgreSQL, Supabase Auth, Redis, and a trusted TLS ingress.
+  PostgreSQL, Supabase Auth, Redis, a trusted TLS ingress, and an external retention job.
 
-## Implemented compatibility and privacy behavior
+## Implemented Phase 3 response behavior
 
-- Every public distribution expires explicitly. It is a shared bearer link, so respondent
-  uniqueness is not guaranteed. Idempotency protects retries for a distribution/key pair only.
-- New and migrated distributions have a SHA-256 token digest and 8-character display prefix;
-  token listings are secret-free and issue/rotation returns plaintext once.
-- The migration and application rollout sequence is exactly:
-  **expand -> dual-write/digest-first -> reconcile -> digest-only app -> later contract/drop
-  gate**. The expand migration retains plaintext for compatibility; no documentation or runbook
-  may claim that plaintext has already been dropped.
-- Consent is a global versioned contract. Current accepted consent is required for production
-  responses, and each response stores an immutable full contract snapshot. The public success
-  body is only `{"accepted": true}`. Successful respondent IP addresses are absent from response
-  audits.
-- Aggregates use `k=5` suppression. Raw reads, exports, aggregates, and erasure remain separate
-  capabilities. Erasure is idempotent and retains only minimal receipt/tombstone state.
+### Retention
 
-## Deployment configuration and safeguards
+- New surveys default to retention enabled for 1,825 days (five years).
+- Each submission snapshots `retention_expires_at` from server submission time plus the survey
+  policy. The deadline is immutable per response. Once any response row exists, including a
+  tombstone, the survey retention policy cannot be changed.
+- A disabled policy applies only before the first response and gives new responses a null
+  deadline. Null deadlines are not purged and are treated as non-expiring. Existing deadlines
+  are never rewritten.
+- The Phase 3 migration sets existing surveys to enabled/1,825 days and backfills existing
+  response deadlines from submission timestamps. Review this backfill before activating purge.
+- Raw reads, aggregates, and exports exclude logically deleted or read-time expired responses;
+  the scheduled purge is not required for that immediate read exclusion.
+
+### Withdrawal
+
+- The browser creates a 32-byte/256-bit base64url withdrawal code, submits it with the response,
+  and shows it once after the minimal `{"accepted": true}` acknowledgement.
+- The backend stores only the HMAC-SHA-256 digest. Production requires the dedicated
+  `WITHDRAWAL_CODE_HMAC_SECRET` (at least 32 random bytes); a lost respondent code cannot be
+  recovered.
+- Public withdrawal is `POST /api/v1/survey/responses/withdraw`; the public frontend page is
+  `/survey/withdraw` and does not require a survey link or portal login. Valid withdrawal is a
+  repeat-safe logical tombstone.
+
+### Protected response operations
+
+- Response authorization is global capability RBAC, not ownership or membership. Raw reads,
+  aggregates, exports, and erasure require, respectively,
+  `survey_responses.read_raw`, `survey_responses.read_aggregates`,
+  `survey_responses.export`, and `survey_responses.erase`.
+- Aggregates are available for every survey status, including live `Active` and archived
+  surveys, and have no filters. Live results can change as responses arrive. They return exact
+  totals and cells for groups of any size and keep bounded aggregate cardinality. Small-group
+  aggregates are not anonymous or privacy-preserving.
+- Raw reads are offset-paginated (default 50, maximum 100), stable-ordered by submission time,
+  and support only `submitted_from`, `submitted_before`, and `distribution_id` filters. Deleted
+  and expired rows remain excluded. Authorized reads, aggregates, and exports work for archived
+  surveys.
+- CSV export is long-format, streamed in bounded partitions/chunks, and preflight-capped at
+  10,000 eligible responses. The accepted preflight count also bounds the deferred stream so
+  concurrent inserts cannot add exported records. It writes a correlated start audit before
+  streaming, then a success or best-effort aborted audit with the same export id and actual
+  traversed response count.
+- Selected erasure is capped at 100 response ids. All-response erasure requires an archived
+  survey and expected-count match. Both use UUID idempotency keys, explicit confirmation, atomic
+  audits, and logical tombstones/receipts.
+
+## Deployment configuration
 
 Set and verify these production values:
 
 ```text
 RATE_LIMIT_ENABLED=true
-RATE_LIMIT_INCLUDE_CLIENT_IP=false
+RATE_LIMIT_INCLUDE_CLIENT_IP=true
 REDIS_URL=<managed Redis TLS URL>
 RATE_LIMIT_READ_FAILURE_POLICY=fail_closed
 RATE_LIMIT_KEY_HMAC_SECRET=<random server-side secret, at least 32 bytes>
+WITHDRAWAL_CODE_HMAC_SECRET=<dedicated random server-side secret, at least 32 bytes>
 PUBLIC_SURVEY_READ_LIMIT=60 / PUBLIC_SURVEY_READ_WINDOW_SECONDS=60
 PUBLIC_SURVEY_SUBMIT_LIMIT=10 / PUBLIC_SURVEY_SUBMIT_WINDOW_SECONDS=60
+PUBLIC_SURVEY_WITHDRAWAL_CLIENT_LIMIT=10 / PUBLIC_SURVEY_WITHDRAWAL_CLIENT_WINDOW_SECONDS=60
+PUBLIC_SURVEY_WITHDRAWAL_GLOBAL_LIMIT=1000 / PUBLIC_SURVEY_WITHDRAWAL_GLOBAL_WINDOW_SECONDS=60
 LOGIN_RATE_LIMIT=10 / LOGIN_RATE_WINDOW_SECONDS=60
 PASSWORD_RECOVERY_RATE_LIMIT=5 / PASSWORD_RECOVERY_RATE_WINDOW_SECONDS=900
 MAX_REQUEST_BODY_BYTES=65536
@@ -59,35 +99,76 @@ PUBLIC_SURVEY_CONTACT=<approved withdrawal/privacy contact>
 ```
 
 Redis is a distributed fixed-window dependency. A Redis outage fails closed; it must not be
-replaced by an in-process fallback. Forwarded IPs are accepted only from the configured trusted
-proxy networks. Keep `RATE_LIMIT_INCLUDE_CLIENT_IP=false` unless the complete forwarding chain is
-verified; enable it only after confirming the app-owned resolver sees the expected trusted peer
-and header chain. Requests over 64 KiB are rejected before parsing. Survey routes send no-store,
+replaced by an in-process fallback. Forwarded IPs are accepted only from configured trusted
+proxy networks. Non-debug startup requires client-IP buckets, so verify the complete forwarding
+chain before deployment. Withdrawal checks the strict client bucket before its separate global
+circuit breaker. Requests over 64 KiB are rejected before parsing. Survey routes send no-store,
 no-referrer, noindex, nosniff, frame-deny, and `frame-ancestors 'none'` headers; CSV exports
 also send private/no-store and no-cache headers.
 
-## Migration, backup, rollback, and log operations
+## Migration, backfill, and activation order
 
-1. Back up the database and confirm PITR before the expand job.
-2. Apply the expand migration once. Verify digest/prefix backfill, nullable compatibility
-   columns, and consent columns.
-3. Deploy dual-write/digest-first readers, then reconcile every distribution and verify all API
-   instances are compatible.
-4. Deploy the digest-only application only after reconciliation. Retain plaintext solely for the
-   compatibility window.
-5. Treat plaintext removal as a separate contract/drop gate requiring a reviewed migration,
-   backup/PITR restore test, provider log-redaction verification, and a documented rollback
-   plan.
+1. Back up the database and confirm the backup/PITR restore procedure before the release job.
+2. Block public response writes at ingress, drain in-flight writes, and stop every old API
+   replica. Phase 3 is not a rolling frontend/backend release.
+3. Apply `./.venv/bin/alembic upgrade head` once. Confirm the revision order through
+   `fb1c93d15474`, inspect the enabled/1,825 survey policy backfill, and verify response deadline
+   backfill from submission timestamps. Reconcile enabled-retention rows with null deadlines.
+4. Deploy the compatible backend and frontend together and invalidate stale public-form caches.
+   Smoke-test enabled and disabled retention,
+   immutable policy updates, read-time expiry exclusion, withdrawal digest handling, archived
+   authorized access, permission separation, exact small-group aggregates, erasure, and export
+   headers.
+5. Only after the migration/backfill and application checks pass, activate one external purge
+   schedule. Begin with a dry run and compare its due count to expectations.
+6. Record the release result and owners for the database, API, frontend, purge job, monitoring,
+   provider logging, and rollback, then reopen public response writes.
 
-Application rollback is permitted during the compatibility window while plaintext remains.
+Phase 2 distribution token compatibility remains a separate rollout: expand ->
+dual-write/digest-first -> reconcile -> digest-only app -> later contract/drop gate. Plaintext
+distribution tokens have not been removed. Distribution expiry also remains outside Phase 3:
+`expires_at` is nullable, and a null value does not expire automatically. Do not describe Phase 3
+as fixing distribution token storage or mandatory-expiry policy.
+
+Application rollback during the compatibility window is permitted only while plaintext remains.
 Never use an ad hoc baseline downgrade. For a database incident, restore a validated backup/PITR
-copy into an isolated database, run the release checks, and promote only after schema, RBAC,
-privacy, and health checks pass; otherwise use a reviewed forward fix.
+copy into an isolated database, run release checks, and promote only after schema, RBAC, privacy,
+and health checks pass; otherwise use a reviewed forward fix.
 
-Before launch, configure provider redaction for tokenized URL paths, request bodies, auth/cookie
-headers, idempotency keys, and respondent identifiers, then verify provider log retention and
-redaction with a smoke request. Record provider/region/domains, trusted ingress, runtime
-configuration, account owners, backup schedule, PITR procedure, and rollback owner.
+## Retention purge runbook and monitoring
+
+The repository provides a bounded command but no in-process scheduler. Run from `backend/`:
+
+```bash
+./.venv/bin/python scripts/purge_expired_responses.py --dry-run
+./.venv/bin/python scripts/purge_expired_responses.py
+./.venv/bin/python scripts/purge_expired_responses.py --batch-size 100
+```
+
+The command defaults to 100 responses per batch and accepts optional `--cutoff` ISO-8601 and
+`--batch-size` values. Schedule one managed job at least daily, prevent overlapping instances,
+and alert on non-zero exit or missed execution. Monitor stdout (`purged`, `surveys`, `batches`,
+`dry_run`, and `cutoff`) and reconcile it against `retention_purge` audit events and the due-row
+backlog. Dry runs do not mutate responses or create purge audits. Purge locks the survey before
+processing response batches and is repeat-safe.
+
+Retention is logical tombstoning, not immediate physical deletion. Minimal tombstones, erasure
+receipts, and audit records remain. Database backups and PITR can retain pre-tombstone answers
+until the provider retention window expires; backups are not immediately erased.
+
+## Provider logging and streaming verification
+
+Before launch, configure provider redaction for tokenized URL paths, request bodies, authorization
+and cookie headers, idempotency keys, withdrawal codes, and respondent identifiers. Send a
+controlled export smoke request through the real CDN/edge path and verify that:
+
+- `private, no-store`, `Pragma: no-cache`, and related safety headers survive the path;
+- the CSV is not cached, indexed, persisted, or unexpectedly buffered/spooled by the provider;
+- provider logs contain neither sensitive request data nor response contents; and
+- the stream can complete or fail with the expected correlated audit behavior.
+
+Record provider/region/domains, trusted ingress, runtime configuration, log retention/redaction,
+backup schedule, PITR procedure, purge schedule, and monitoring owner in the production runbook.
 
 ## Tests and exit gate
 
@@ -112,11 +193,11 @@ TEST_DATABASE_URL=postgresql+psycopg2://user:password@localhost:5432/peii_test \
   env DEBUG=false ./.venv/bin/pytest -q -m integration --require-postgres
 ```
 
-Focused Phase 2 tests cover public consent/snapshots and minimal acknowledgements,
-token compatibility, Redis outage policy, trusted proxy parsing, request-size rejection, and
-the expand migration. Rehearse migration, reconciliation, backup restore, health/RBAC seed,
-and an end-to-end smoke test.
+Rehearse migration/backfill, purge dry-run and mutating run, backup restore, health/RBAC seed,
+public withdrawal, archived authorized access, and an end-to-end export/no-store smoke test.
 
-Real respondents remain blocked until `RATE_LIMIT_ENABLED`, managed Redis connectivity,
-approved consent text/contact/retention, trusted ingress CIDRs, and provider log redaction are
-verified and recorded. Code validation is necessary but does not by itself satisfy this gate.
+Real respondents remain blocked until rate limits and Redis connectivity/fail-closed behavior,
+the dedicated withdrawal secret, approved consent and privacy values, retention and backup/PITR
+policy, trusted ingress, purge scheduling/monitoring, provider log redaction, and provider
+streaming/no-store behavior are verified and recorded. Code validation alone does not satisfy
+this gate.

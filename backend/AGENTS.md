@@ -48,8 +48,9 @@ Read this file first, then the guide closest to the files you are changing.
   also receive asyncpg cache/name connection arguments in `core/database.py`.
 - `SQL_ECHO` controls SQLAlchemy logging; keep normal development output quiet unless debugging SQL specifically.
 - `LOG_JSON` controls whether structured logs are formatted as JSON lines (for production aggregators) or colored console logs (for local development).
-- `RATE_LIMIT_INCLUDE_CLIENT_IP=false` keeps public rate-limit buckets keyed by the resource
-  identifier only. Enable it only after the complete trusted forwarding chain is verified.
+- `RATE_LIMIT_INCLUDE_CLIENT_IP` may be false only in debug/local environments. Non-debug rate
+  limiting requires it to be true; verify the complete trusted forwarding chain before
+  production startup.
 - `BACKEND_CORS_ORIGINS` is parsed as a list by settings. Keep examples valid for Pydantic.
 
 ## Architecture
@@ -121,6 +122,10 @@ Read this file first, then the guide closest to the files you are changing.
   authentication alone is not authorization. Survey authorization is global RBAC. Keep
   `surveys.read`, `surveys.manage`, distribution management, aggregate reads, raw
   reads, export, and erase as separate capabilities.
+- Phase 3 response routes live in `routers/survey_public.py`, `routers/survey_responses.py`, and
+  `routers/survey_analytics.py`; retention and export behavior belongs to the corresponding
+  services. `scripts/purge_expired_responses.py` is an externally scheduled operational command,
+  not an application timer.
 - Password login, recovery, invitation, logout, and password changes delegate to Supabase;
   never persist or log credentials or tokens locally.
 
@@ -130,9 +135,11 @@ Read this file first, then the guide closest to the files you are changing.
 - Review the generated diff before making manual edits. Manual edits should be narrow and explainable from the model change, data backfill, or database limitation.
 - When adding a required business id to an existing table, use a safe migration sequence: add nullable, backfill existing rows with unique prefixed values, alter to non-null, then add the unique index.
 - Add a new revision for new schema work. Do not rewrite older shared or applied revisions.
-- The database uses the canonical first-release baseline `20260825_v1` followed by the Phase 2
-  compatibility revision `f77a807cf2f9_expand_distribution_security`. Fresh environments must
-  run `./.venv/bin/alembic upgrade head`; production runs it once as the protected release job.
+- The database uses the canonical first-release baseline `20260825_v1`, followed by
+  `f77a807cf2f9_expand_distribution_security`, `d1f9bad768ad`, and the Phase 3
+  `fb1c93d15474` revision. `fb1c93d15474` is the current migration head. Fresh environments
+  must run `./.venv/bin/alembic upgrade head`; production runs it once as the protected release
+  job before API replicas are promoted.
 - The compatibility revision stores SHA-256 token digests and 8-character prefixes, but retains
   plaintext distribution tokens until the later digest-only/drop gate. Follow
   expand -> dual-write/digest-first -> reconcile -> digest-only app -> later contract/drop gate;

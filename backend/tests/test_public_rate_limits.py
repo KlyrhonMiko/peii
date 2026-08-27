@@ -62,7 +62,11 @@ def test_rate_limit_keys_do_not_contain_raw_identifiers() -> None:
 
 def test_rate_limit_secret_requires_32_bytes_when_limiting_enabled() -> None:
     values = settings.model_dump()
-    values.update(RATE_LIMIT_ENABLED=True, RATE_LIMIT_KEY_HMAC_SECRET="short")
+    values.update(
+        RATE_LIMIT_ENABLED=True,
+        RATE_LIMIT_INCLUDE_CLIENT_IP=True,
+        RATE_LIMIT_KEY_HMAC_SECRET="short",
+    )
 
     with pytest.raises(ValidationError, match="32"):
         Settings.model_validate(values)
@@ -84,6 +88,48 @@ def test_upstash_rest_settings_must_be_configured_together() -> None:
 
     with pytest.raises(ValidationError, match="configured together"):
         Settings.model_validate(values)
+
+
+def test_withdrawal_rate_limiting_requires_client_ip_in_production() -> None:
+    values = settings.model_dump()
+    values.update(
+        DEBUG=False,
+        RATE_LIMIT_ENABLED=True,
+        RATE_LIMIT_INCLUDE_CLIENT_IP=False,
+        RATE_LIMIT_KEY_HMAC_SECRET="x" * 32,
+        WITHDRAWAL_CODE_HMAC_SECRET="x" * 32,
+    )
+
+    with pytest.raises(ValidationError, match="RATE_LIMIT_INCLUDE_CLIENT_IP"):
+        Settings.model_validate(values)
+
+    values["RATE_LIMIT_INCLUDE_CLIENT_IP"] = True
+    production_settings = Settings.model_validate(values)
+    assert production_settings.RATE_LIMIT_INCLUDE_CLIENT_IP is True
+
+
+def test_rate_limiting_cannot_be_disabled_outside_debug_mode() -> None:
+    values = settings.model_dump()
+    values.update(
+        DEBUG=False,
+        RATE_LIMIT_ENABLED=False,
+        RATE_LIMIT_INCLUDE_CLIENT_IP=False,
+        WITHDRAWAL_CODE_HMAC_SECRET="x" * 32,
+    )
+
+    with pytest.raises(ValidationError, match="RATE_LIMIT_ENABLED"):
+        Settings.model_validate(values)
+
+
+def test_rate_limiting_can_remain_disabled_in_debug_mode() -> None:
+    values = settings.model_dump()
+    values.update(
+        DEBUG=True,
+        RATE_LIMIT_ENABLED=False,
+        RATE_LIMIT_INCLUDE_CLIENT_IP=False,
+    )
+
+    assert Settings.model_validate(values).RATE_LIMIT_ENABLED is False
 
 
 def test_rate_limit_identifiers_use_resource_only_by_default(monkeypatch) -> None:
@@ -308,6 +354,92 @@ async def test_public_buckets_include_resolved_ip_when_enabled(monkeypatch) -> N
         ("public-read", ["ip:203.0.113.20", f"token:{token}"]),
         ("public-submit", ["ip:203.0.113.20", f"token:{token}"]),
     ]
+
+
+@pytest.mark.anyio
+async def test_withdrawal_uses_strict_client_and_separate_global_buckets(monkeypatch) -> None:
+    calls: list[tuple[str, list[str], int, int]] = []
+
+    async def fake_enforce(policy, identifiers, **_kwargs) -> None:
+        calls.append((policy.name, list(identifiers), policy.limit, policy.window_seconds))
+
+    monkeypatch.setattr(rate_limit, "enforce_rate_limit", fake_enforce)
+    monkeypatch.setattr(rate_limit.settings, "RATE_LIMIT_INCLUDE_CLIENT_IP", True)
+    monkeypatch.setattr(rate_limit.settings, "TRUSTED_PROXY_CIDRS", ["10.0.0.0/8"])
+    request = Request(_scope("10.0.0.3", "203.0.113.20, 10.0.0.2"))
+
+    await rate_limit.check_public_survey_withdrawal(request)
+
+    assert calls == [
+        ("public-withdrawal-client", ["ip:203.0.113.20"], 10, 60),
+        ("public-withdrawal-global", ["withdrawal-global"], 1000, 60),
+    ]
+
+
+@pytest.mark.anyio
+async def test_exhausting_one_withdrawal_client_does_not_block_another(monkeypatch) -> None:
+    class CountingRedis:
+        def __init__(self) -> None:
+            self.counts: dict[str, int] = {}
+
+        async def eval(self, *_args: object) -> list[int]:
+            key = str(_args[2])
+            limit = int(str(_args[4]))
+            count = self.counts.get(key, 0) + 1
+            self.counts[key] = count
+            return [int(count <= limit), count, 60]
+
+    monkeypatch.setattr(rate_limit.settings, "RATE_LIMIT_ENABLED", True)
+    monkeypatch.setattr(rate_limit.settings, "RATE_LIMIT_INCLUDE_CLIENT_IP", True)
+    monkeypatch.setattr(rate_limit.settings, "PUBLIC_SURVEY_WITHDRAWAL_CLIENT_LIMIT", 2)
+    redis = CountingRedis()
+    limiter = FixedWindowRateLimiter(
+        redis,
+        secret="x" * 32,
+        settings_obj=rate_limit.settings,
+    )
+    monkeypatch.setattr(rate_limit, "get_rate_limiter", lambda: limiter)
+
+    client_a = Request(_scope("198.51.100.10"))
+    client_b = Request(_scope("198.51.100.11"))
+    await rate_limit.check_public_survey_withdrawal(client_a)
+    await rate_limit.check_public_survey_withdrawal(client_a)
+
+    with pytest.raises(RateLimitExceeded):
+        await rate_limit.check_public_survey_withdrawal(client_a)
+
+    await rate_limit.check_public_survey_withdrawal(client_b)
+
+
+@pytest.mark.anyio
+async def test_withdrawal_global_bucket_is_always_applied_without_client_ip(monkeypatch) -> None:
+    calls: list[tuple[str, list[str]]] = []
+
+    async def fake_enforce(policy, identifiers, **_kwargs) -> None:
+        calls.append((policy.name, list(identifiers)))
+
+    monkeypatch.setattr(rate_limit, "enforce_rate_limit", fake_enforce)
+    monkeypatch.setattr(rate_limit.settings, "RATE_LIMIT_INCLUDE_CLIENT_IP", False)
+    await rate_limit.check_public_survey_withdrawal(Request(_scope("198.51.100.10")))
+
+    assert calls == [("public-withdrawal-global", ["withdrawal-global"])]
+
+
+@pytest.mark.anyio
+async def test_withdrawal_redis_failure_fails_closed(monkeypatch) -> None:
+    monkeypatch.setattr(rate_limit.settings, "RATE_LIMIT_ENABLED", True)
+    monkeypatch.setattr(rate_limit.settings, "RATE_LIMIT_INCLUDE_CLIENT_IP", False)
+    limiter = FixedWindowRateLimiter(
+        FakeRedis(ConnectionError("redis unavailable")),
+        secret="x" * 32,
+        settings_obj=rate_limit.settings,
+    )
+    monkeypatch.setattr(rate_limit, "get_rate_limiter", lambda: limiter)
+
+    with pytest.raises(RedisUnavailableError):
+        await rate_limit.check_public_survey_withdrawal(
+            Request(_scope("198.51.100.10"))
+        )
 
 
 @pytest.mark.anyio
