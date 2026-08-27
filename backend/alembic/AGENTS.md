@@ -11,8 +11,9 @@ SQLModel metadata changes into database schema changes.
   `./.venv/bin/alembic revision --autogenerate -m "describe change"`.
 - Use the repo-local virtualenv dependencies; do not assume system Alembic is configured.
 - The canonical first-release baseline is `20260825_v1`; the forward revisions are
-  `f77a807cf2f9_expand_distribution_security`, `d1f9bad768ad`, and the Phase 3
-  `fb1c93d15474` retention/withdrawal revision. `fb1c93d15474` is the current migration head.
+  `f77a807cf2f9_expand_distribution_security`, `d1f9bad768ad`, the Phase 3
+  `fb1c93d15474` retention/withdrawal revision, and `2bf09a6bc738`.
+  `2bf09a6bc738` is the current migration head.
   Fresh environments run `./.venv/bin/alembic upgrade head`, and production runs that command
   once as the protected release job before API replicas are promoted.
 
@@ -40,8 +41,14 @@ SQLModel metadata changes into database schema changes.
   revision files.
 - The first-release baseline intentionally replaces all predecessor history. Future schema
   changes should be added as forward revisions after `20260825_v1`.
-- The Phase 2 expand revision retains plaintext distribution tokens for compatibility; the later
-  digest-only/drop gate must be a separate reviewed forward revision.
+- The Phase 2 expand revision historically retained plaintext distribution tokens for
+  compatibility. The reviewed `2bf09a6bc738` forward revision is the digest-only/drop gate: it
+  reconciles existing digests and prefixes, makes the digest non-null, and drops the plaintext
+  column. Its downgrade is intentionally irreversible.
+- The database expiry column remains nullable for compatibility with historical rows, but current
+  distribution create/rotate runtime behavior applies the configured default when expiry is
+  omitted (currently 30 days) and rejects explicit expiry beyond the configured maximum (currently
+  30 days).
 - The Phase 3 revision adds per-survey retention settings, response deadline snapshots,
   withdrawal-code digests, and their indexes/constraint. It backfills existing surveys to
   enabled/1,825 days and existing response deadlines from submission timestamps. Review this

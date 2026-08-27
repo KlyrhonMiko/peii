@@ -9,11 +9,14 @@ bearer link. It does not establish a person's identity, guarantee one response p
 support a promise of confidentiality or anonymity. The idempotency key only makes retries safe
 for one distribution/key pair.
 
-Phase 3 does **not** resolve the outstanding distribution token/expiry issues. The Phase 2
-compatibility path still retains the plaintext distribution token until a separately reviewed
-digest-only/drop migration. `expires_at` is nullable in the current schema: a supplied expiry is
-validated, while a null expiry does not expire automatically. Distribution-token removal and a
-mandatory-expiry policy are separate follow-up work, not Phase 3 guarantees.
+The current distribution contract is digest-only. The historical Phase 2 compatibility revision
+retained plaintext tokens while adding a digest and prefix, and the follow-up expiry revision kept
+the database expiry column nullable. The current `2bf09a6bc738` contract revision removed the
+plaintext column after digest reconciliation. Runtime create/rotate stores only the digest and
+prefix; list/revoke metadata is token-free; and create/rotate reveal a newly generated token once.
+Omitted expiry receives the configured server default (currently 30 days), while an explicit future
+expiry cannot exceed the configured maximum (currently 30 days). Legacy rows with null expiry
+remain possible and non-expiring.
 
 ## Consent and immutable evidence
 

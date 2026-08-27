@@ -51,7 +51,6 @@ class SurveyDistributionRead(SurveyDistributionBaseSchema):
     expires_at: datetime | None = None
     revoked_at: datetime | None
     created_at: datetime
-    token: str
 
 class SurveyDistributionSecretRead(SurveyDistributionRead):
-    pass
+    token: str

@@ -49,9 +49,12 @@ pre-commit configuration currently invokes them automatically.
 - For user/auth behavior, assert Supabase identity linkage, invitation timestamps, rejection
   of local password/scalar-role fields, and the absence of credentials in responses.
 - For survey capability behavior, cover the separate aggregate/raw/export/erase permissions,
-  token-free distribution metadata, nullable distribution expiry behavior, exact 0/1/4-response
-  aggregates, separate `k=5` survey-list response-count projection, archive/restore, retention
-  deadline/read-time expiry behavior, withdrawal, and idempotent selected/all erasure.
+  digest-only distribution storage, token-free list/revoke metadata, one-time create/rotate token
+  reveal, omitted-expiry default and explicit maximum, nullable legacy expiry behavior, exact
+  0/1/4-response aggregates, separate `k=5` survey-list response-count projection, archive/restore,
+  retention deadline/read-time expiry behavior, withdrawal, and idempotent selected/all erasure.
+- For RBAC role assignment, cover that an actor cannot grant permissions beyond the actor's
+  effective permissions and that only an active Admin can assign the protected system Admin role.
 
 ## Fixture & Database Override Rules
 - `conftest.py` overrides both sync `get_session` and async `get_async_session` with an in-memory SQLite database (`aiosqlite`).

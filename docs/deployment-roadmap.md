@@ -9,7 +9,8 @@ provider and scheduler verification are still deployment responsibilities.
 
 - Fresh databases start at `20260825_v1`. The forward chain is
   `f77a807cf2f9` (Phase 2 distribution security), `d1f9bad768ad` (nullable distribution expiry),
-  then `fb1c93d15474` (Phase 3 retention and withdrawal). `fb1c93d15474` is the current head.
+  then `fb1c93d15474` (Phase 3 retention and withdrawal), followed by `2bf09a6bc738` (remove
+  plaintext distribution tokens). `2bf09a6bc738` is the current head.
 - Run `./.venv/bin/alembic upgrade head` once as the protected release job. Promote API replicas
   only after the migration, backfill review, and smoke test succeed. Future schema changes are
   forward revisions; do not migrate independently in every replica.
@@ -18,6 +19,16 @@ provider and scheduler verification are still deployment responsibilities.
   portal are included.
 - Compose remains local development; production uses managed frontend, Python service,
   PostgreSQL, Supabase Auth, Redis, a trusted TLS ingress, and an external retention job.
+
+### Current distribution and RBAC contract
+
+- The `2bf09a6bc738` contract revision leaves distribution rows with a token digest and prefix
+  only. Create and rotate reveal a newly generated token once; list and revoke metadata never
+  return it. Omitted expiry uses the configured server default (currently 30 days), while an
+  explicit future expiry cannot exceed the configured maximum (currently 30 days). Legacy rows
+  with null expiry remain possible and non-expiring.
+- Role assignment cannot grant a role whose permissions exceed the actor's effective permissions.
+  Assignment of the protected system Admin role is restricted to active Admins.
 
 ## Implemented Phase 3 response behavior
 
@@ -96,6 +107,8 @@ PUBLIC_SURVEY_PRIVACY_NOTICE=<approved notice>
 PUBLIC_SURVEY_PURPOSE=<approved purpose>
 PUBLIC_SURVEY_RETENTION=<approved retention duration/statement>
 PUBLIC_SURVEY_CONTACT=<approved withdrawal/privacy contact>
+SURVEY_DISTRIBUTION_DEFAULT_EXPIRY_DAYS=30
+SURVEY_DISTRIBUTION_MAX_EXPIRY_DAYS=30
 ```
 
 Redis is a distributed fixed-window dependency. A Redis outage fails closed; it must not be
@@ -112,8 +125,9 @@ also send private/no-store and no-cache headers.
 2. Block public response writes at ingress, drain in-flight writes, and stop every old API
    replica. Phase 3 is not a rolling frontend/backend release.
 3. Apply `./.venv/bin/alembic upgrade head` once. Confirm the revision order through
-   `fb1c93d15474`, inspect the enabled/1,825 survey policy backfill, and verify response deadline
-   backfill from submission timestamps. Reconcile enabled-retention rows with null deadlines.
+   `2bf09a6bc738`, verify distribution digests are populated and the plaintext token column is
+   absent, inspect the enabled/1,825 survey policy backfill, and verify response deadline backfill
+   from submission timestamps. Reconcile enabled-retention rows with null deadlines.
 4. Deploy the compatible backend and frontend together and invalidate stale public-form caches.
    Smoke-test enabled and disabled retention,
    immutable policy updates, read-time expiry exclusion, withdrawal digest handling, archived
@@ -124,16 +138,17 @@ also send private/no-store and no-cache headers.
 6. Record the release result and owners for the database, API, frontend, purge job, monitoring,
    provider logging, and rollback, then reopen public response writes.
 
-Phase 2 distribution token compatibility remains a separate rollout: expand ->
-dual-write/digest-first -> reconcile -> digest-only app -> later contract/drop gate. Plaintext
-distribution tokens have not been removed. Distribution expiry also remains outside Phase 3:
-`expires_at` is nullable, and a null value does not expire automatically. Do not describe Phase 3
-as fixing distribution token storage or mandatory-expiry policy.
+The Phase 2 distribution compatibility sequence is historical: expand -> dual-write/digest-first
+-> reconcile -> digest-only app -> contract/drop gate. `2bf09a6bc738` completed that gate and
+plaintext distribution tokens are no longer stored. The `d1f9bad768ad` nullable database expiry
+shape is also historical compatibility behavior; current create/rotate applies the configured
+default and maximum validation described above.
 
-Application rollback during the compatibility window is permitted only while plaintext remains.
-Never use an ad hoc baseline downgrade. For a database incident, restore a validated backup/PITR
-copy into an isolated database, run release checks, and promote only after schema, RBAC, privacy,
-and health checks pass; otherwise use a reviewed forward fix.
+Before `2bf09a6bc738`, application rollback during the compatibility window was permitted only
+while plaintext remained. At the current head, plaintext cannot be reconstructed. Never use an ad
+hoc baseline downgrade. For a database incident, restore a validated backup/PITR copy into an
+isolated database, run release checks, and promote only after schema, RBAC, privacy, and health
+checks pass; otherwise use a reviewed forward fix.
 
 ## Retention purge runbook and monitoring
 

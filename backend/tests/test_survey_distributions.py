@@ -9,7 +9,7 @@ from sqlmodel import select
 from core.database import get_async_session
 from main import app
 from models.survey_distribution import SurveyDistribution
-from schemas.survey_distribution import SurveyDistributionRead
+from schemas.survey_distribution import SurveyDistributionRead, SurveyDistributionSecretRead
 from services import distribution_service
 
 pytestmark = pytest.mark.anyio
@@ -22,7 +22,10 @@ def configured_distribution_expiry(monkeypatch):
     monkeypatch.setattr(
         distribution_service,
         "settings",
-        SimpleNamespace(SURVEY_DISTRIBUTION_MAX_EXPIRY_DAYS=36500),
+        SimpleNamespace(
+            SURVEY_DISTRIBUTION_DEFAULT_EXPIRY_DAYS=30,
+            SURVEY_DISTRIBUTION_MAX_EXPIRY_DAYS=36500,
+        ),
     )
 
 
@@ -30,11 +33,14 @@ def test_distribution_expiry_is_optional_in_model_and_read_contract():
     table = getattr(SurveyDistribution, "__table__")
     assert table.c.expires_at.nullable is True
     assert not SurveyDistributionRead.model_fields["expires_at"].is_required()
+    assert "token" not in SurveyDistributionRead.model_fields
+    assert SurveyDistributionSecretRead.model_fields["token"].is_required()
 
 
-def test_distribution_token_compatibility_columns_are_nullable_and_constrained():
+def test_distribution_token_storage_is_digest_only_and_constrained():
     table = getattr(SurveyDistribution, "__table__")
-    assert table.c.token_digest.nullable is True
+    assert "token" not in table.c
+    assert table.c.token_digest.nullable is False
     assert table.c.token_digest.type.length == 64
     assert table.c.token_digest.unique is True
     assert table.c.token_prefix.nullable is True
@@ -82,35 +88,34 @@ async def test_create_and_list_distributions(client):
     list_resp = await client.get(f"/api/v1/surveys/{survey_uuid}/distributions/")
     assert list_resp.status_code == 200
     assert list_resp.json()["data"][0]["status"] == "active"
-    assert "token" in list_resp.json()["data"][0]
+    assert "token" not in list_resp.json()["data"][0]
 
     stored = await _stored_distribution(dist_resp.json()["data"]["id"])
     token = dist_resp.json()["data"]["token"]
-    assert stored.token == token
     assert stored.token_digest == sha256(token.encode()).hexdigest()
     assert stored.token_prefix == token[:8]
 
 
-async def test_legacy_plaintext_distribution_token_still_resolves(client):
+async def test_public_distribution_lookup_uses_digest_only(client):
     survey_uuid = await _create_active_survey(client)
-    legacy_token = "legacy-plaintext-distribution-token"
+    token = "digest-only-distribution-token"
     session_generator = app.dependency_overrides[get_async_session]()
     session = await anext(session_generator)
     try:
         session.add(
             SurveyDistribution(
                 survey_id=UUID(survey_uuid),
-                token=legacy_token,
+                token_digest=sha256(token.encode()).hexdigest(),
+                token_prefix=token[:8],
                 expires_at=datetime(2099, 1, 1),
             )
         )
         await session.commit()
-        resolved = await distribution_service.get_distribution_by_token(session, legacy_token)
+        resolved = await distribution_service.get_distribution_by_token(session, token)
     finally:
         await session_generator.aclose()
 
-    assert resolved.token == legacy_token
-    assert resolved.token_digest is None
+    assert resolved.token_digest == sha256(token.encode()).hexdigest()
 
 
 async def test_create_and_rotate_return_secret_once_without_listing_it(client):
@@ -122,7 +127,7 @@ async def test_create_and_rotate_return_secret_once_without_listing_it(client):
     distribution_id = created.json()["data"]["id"]
 
     listed = await client.get(f"/api/v1/surveys/{survey_uuid}/distributions/")
-    assert "token" in listed.json()["data"][0]
+    assert "token" not in listed.json()["data"][0]
 
     rotated = await client.post(
         f"/api/v1/surveys/{survey_uuid}/distributions/{distribution_id}/rotate",
@@ -130,9 +135,20 @@ async def test_create_and_rotate_return_secret_once_without_listing_it(client):
     )
     second_token = rotated.json()["data"]["token"]
     assert first_token != second_token
-    assert "token" in (
+    assert "token" not in (
         await client.get(f"/api/v1/surveys/{survey_uuid}/distributions/")
     ).json()["data"][0]
+
+
+async def test_omitted_expiry_uses_configured_default(client):
+    survey_uuid = await _create_active_survey(client)
+    response = await client.post(f"/api/v1/surveys/{survey_uuid}/distributions/", json={})
+
+    assert response.status_code == 201
+    stored = await _stored_distribution(response.json()["data"]["id"])
+    now = datetime.now()
+    assert stored.expires_at is not None
+    assert now + timedelta(days=29, seconds=50) <= stored.expires_at <= now + timedelta(days=30)
 
 
 async def test_distribution_rejects_expiry_beyond_configured_maximum(client, monkeypatch):

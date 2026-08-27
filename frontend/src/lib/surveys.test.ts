@@ -73,6 +73,21 @@ describe("mapDistribution", () => {
     })
     expect("token" in distribution).toBe(false)
   })
+
+  it("does not copy a token if an ordinary metadata response includes one", () => {
+    const distribution = mapDistribution({
+      id: "distribution-id",
+      survey_id: "survey-id",
+      status: "active",
+      is_active: true,
+      expires_at: null,
+      revoked_at: null,
+      created_at: "2026-01-01T00:00:00Z",
+      token: "must-not-be-exposed",
+    } as Parameters<typeof mapDistribution>[0])
+
+    expect("token" in distribution).toBe(false)
+  })
 })
 
 describe("buildSurveyListQuery", () => {

@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+from hashlib import sha256
 from uuid import UUID
 
 import pytest
@@ -14,6 +15,8 @@ RESPONSE_ID = UUID("40000000-0000-0000-0000-000000000002")
 DUPLICATE_RESPONSE_ID = UUID("40000000-0000-0000-0000-000000000003")
 CREATED_AT = datetime(2021, 1, 2, 3, 4, 5)
 WITHDRAWAL_DIGEST = "a" * 64
+DISTRIBUTION_ID = UUID("40000000-0000-0000-0000-000000000004")
+DISTRIBUTION_TOKEN = "legacy-distribution-token"
 
 
 def _seed_legacy_survey_and_response(database: PostgresTestDatabase) -> None:
@@ -131,3 +134,80 @@ def test_phase3_migration_backfills_legacy_rows_and_enforces_new_schema(
                         "digest": WITHDRAWAL_DIGEST,
                     },
                 )
+
+
+def test_distribution_token_migration_backfills_and_drops_plaintext_catalog_entries(
+    postgres_database_at_revision,
+) -> None:
+    with postgres_database_at_revision("fb1c93d15474") as database:
+        with database.engine.begin() as connection:
+            connection.execute(
+                text(
+                    "INSERT INTO surveys "
+                    "(id, created_at, updated_at, is_deleted, deleted_at, performed_by, survey_id, "
+                    "title, description, status, target_cohort, responses_count, "
+                    "retention_enabled, retention_days) VALUES "
+                    "(:id, :created_at, :created_at, false, NULL, NULL, 'SURV-TOKEN-MIGRATION', "
+                    "'Token migration survey', NULL, 'Active', NULL, 0, true, 1825)"
+                ),
+                {"id": str(SURVEY_ID), "created_at": CREATED_AT},
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO survey_distributions "
+                    "(id, created_at, updated_at, is_deleted, deleted_at, performed_by, survey_id, "
+                    "token, token_digest, token_prefix, expires_at, revoked_at) VALUES "
+                    "(:id, :created_at, :created_at, false, NULL, NULL, :survey_id, "
+                    ":token, NULL, NULL, '2099-01-01 00:00:00', NULL)"
+                ),
+                {
+                    "id": str(DISTRIBUTION_ID),
+                    "created_at": CREATED_AT,
+                    "survey_id": str(SURVEY_ID),
+                    "token": DISTRIBUTION_TOKEN,
+                },
+            )
+
+        migrate_to(database.url, "2bf09a6bc738", database.schema)
+
+        with database.engine.connect() as connection:
+            distribution = connection.execute(
+                text(
+                    "SELECT token_digest, token_prefix FROM survey_distributions "
+                    "WHERE id = :id"
+                ),
+                {"id": str(DISTRIBUTION_ID)},
+            ).one()
+            columns = set(
+                connection.execute(
+                    text(
+                        "SELECT column_name FROM information_schema.columns "
+                        "WHERE table_schema = current_schema() "
+                        "AND table_name = 'survey_distributions'"
+                    )
+                ).scalars()
+            )
+            indexes = set(
+                connection.execute(
+                    text(
+                        "SELECT indexname FROM pg_indexes "
+                        "WHERE schemaname = current_schema() "
+                        "AND tablename = 'survey_distributions'"
+                    )
+                ).scalars()
+            )
+            digest_nullability = connection.execute(
+                text(
+                    "SELECT is_nullable FROM information_schema.columns "
+                    "WHERE table_schema = current_schema() "
+                    "AND table_name = 'survey_distributions' "
+                    "AND column_name = 'token_digest'"
+                )
+            ).scalar_one()
+
+    assert distribution.token_digest == sha256(DISTRIBUTION_TOKEN.encode()).hexdigest()
+    assert distribution.token_prefix == DISTRIBUTION_TOKEN[:8]
+    assert "token" not in columns
+    assert "ix_survey_distributions_token" not in indexes
+    assert "ix_survey_distributions_token_digest" in indexes
+    assert digest_nullability == "NO"

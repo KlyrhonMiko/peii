@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 from datetime import datetime
 from typing import Any
@@ -176,8 +177,8 @@ def _seed_retention_fixture(database: PostgresTestDatabase) -> None:
             text(
                 "INSERT INTO survey_distributions "
                 "(id, created_at, updated_at, is_deleted, deleted_at, performed_by, survey_id, "
-                "token, token_digest, token_prefix, expires_at, revoked_at) VALUES "
-                "(:id, :ts, :ts, false, NULL, :actor, :survey, 'retention-token', :digest, "
+                "token_digest, token_prefix, expires_at, revoked_at) VALUES "
+                "(:id, :ts, :ts, false, NULL, :actor, :survey, :digest, "
                 "'retentio', '2099-01-01 00:00:00', NULL)"
             ),
             {
@@ -185,7 +186,7 @@ def _seed_retention_fixture(database: PostgresTestDatabase) -> None:
                 "ts": timestamp,
                 "actor": str(ACTOR_ID),
                 "survey": str(RETENTION_SURVEY_ID),
-                "digest": "a" * 64,
+                "digest": hashlib.sha256(b"retention-token").hexdigest(),
             },
         )
         connection.execute(

@@ -7,6 +7,7 @@ from sqlmodel import SQLModel, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from core.exceptions import AppError
+from models.audit_log import AuditLog
 from models.rbac import Permission, Role, RolePermission, UserRole
 from models.user import User
 from schemas.rbac import RoleUpdate
@@ -70,6 +71,32 @@ async def create_rbac_state(
     return actor, admin_user, second_admin, admin_role, staff_role, permission
 
 
+async def create_role(
+    session: AsyncSession, name: str, permission_codes: list[str]
+) -> Role:
+    role = Role(name=name)
+    session.add(role)
+    await session.flush()
+    for code in permission_codes:
+        permission = (await session.exec(select(Permission).where(Permission.code == code))).first()
+        if permission is None:
+            permission = Permission(code=code, description=code)
+            session.add(permission)
+            await session.flush()
+        session.add(RolePermission(role_id=role.id, permission_id=permission.id))
+    await session.flush()
+    return role
+
+
+async def assign_role(session: AsyncSession, user: User, role: Role) -> None:
+    session.add(UserRole(user_id=user.id, role_id=role.id))
+    await session.flush()
+
+
+async def audit_count(session: AsyncSession) -> int:
+    return len((await session.exec(select(AuditLog))).all())
+
+
 async def test_system_admin_permissions_cannot_be_replaced():
     async with rbac_session() as session:
         actor, _, _, admin_role, _, permission = await create_rbac_state(session)
@@ -120,6 +147,111 @@ async def test_final_administrator_cannot_be_removed_by_another_user():
             )
 
         assert error.value.status_code == 409
+
+
+async def test_non_admin_cannot_assign_system_admin_even_with_matching_permissions():
+    async with rbac_session() as session:
+        actor, _, target, admin_role, _, _ = await create_rbac_state(session)
+        assigner_role = await create_role(
+            session, "assigner", ["users.read", "users.assign_roles"]
+        )
+        await assign_role(session, actor, assigner_role)
+        await session.commit()
+        initial_audits = await audit_count(session)
+
+        with pytest.raises(AppError, match="Only active administrators") as error:
+            await rbac_service.set_user_roles(
+                session,
+                target,
+                [admin_role.id],
+                actor.id,
+                None,
+            )
+
+        assert error.value.status_code == 403
+        assignments = await session.exec(select(UserRole).where(UserRole.user_id == target.id))
+        assert assignments.all() == []
+        assert await audit_count(session) == initial_audits
+
+
+async def test_actor_cannot_assign_custom_role_with_superior_permissions():
+    async with rbac_session() as session:
+        actor, _, target, _, staff_role, _ = await create_rbac_state(session)
+        actor_role = await create_role(session, "assigner", ["users.assign_roles"])
+        superior_role = await create_role(
+            session, "superior", ["users.assign_roles", "users.read"]
+        )
+        await assign_role(session, actor, actor_role)
+        await assign_role(session, target, staff_role)
+        await session.commit()
+        initial_audits = await audit_count(session)
+
+        with pytest.raises(AppError, match="exceeding your own") as error:
+            await rbac_service.set_user_roles(
+                session,
+                target,
+                [superior_role.id],
+                actor.id,
+                None,
+            )
+
+        assert error.value.status_code == 403
+        assignments = await session.exec(select(UserRole).where(UserRole.user_id == target.id))
+        assert [assignment.role_id for assignment in assignments.all()] == [staff_role.id]
+        assert await audit_count(session) == initial_audits
+
+
+async def test_actor_cannot_escalate_themselves_with_superior_role():
+    async with rbac_session() as session:
+        actor, _, _, _, _, _ = await create_rbac_state(session)
+        actor_role = await create_role(session, "assigner", ["users.assign_roles"])
+        superior_role = await create_role(
+            session, "superior", ["users.assign_roles", "users.read"]
+        )
+        await assign_role(session, actor, actor_role)
+        await session.commit()
+        initial_audits = await audit_count(session)
+
+        with pytest.raises(AppError, match="exceeding your own"):
+            await rbac_service.set_user_roles(
+                session,
+                actor,
+                [superior_role.id],
+                actor.id,
+                None,
+            )
+
+        assignments = await session.exec(select(UserRole).where(UserRole.user_id == actor.id))
+        assert [assignment.role_id for assignment in assignments.all()] == [actor_role.id]
+        assert await audit_count(session) == initial_audits
+
+
+async def test_active_admin_can_assign_system_admin_role():
+    async with rbac_session() as session:
+        _, admin_user, target, admin_role, _, _ = await create_rbac_state(session)
+
+        await rbac_service.set_user_roles(session, target, [admin_role.id], admin_user.id, None)
+
+        assignments = await session.exec(select(UserRole).where(UserRole.user_id == target.id))
+        assert [assignment.role_id for assignment in assignments.all()] == [admin_role.id]
+
+
+async def test_duplicate_role_ids_create_one_assignment_and_one_audit_event():
+    async with rbac_session() as session:
+        _, admin_user, target, _, staff_role, _ = await create_rbac_state(session)
+        initial_audits = await audit_count(session)
+
+        await rbac_service.set_user_roles(
+            session,
+            target,
+            [staff_role.id, staff_role.id],
+            admin_user.id,
+            None,
+        )
+
+        assignments = await session.exec(select(UserRole).where(UserRole.user_id == target.id))
+        assert [assignment.role_id for assignment in assignments.all()] == [staff_role.id]
+        assert await audit_count(session) == initial_audits + 1
 
 
 async def test_administrator_cannot_deactivate_or_delete_themselves():

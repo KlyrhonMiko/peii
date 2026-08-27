@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from hashlib import sha256
 from uuid import UUID, uuid4
 
 import pytest
@@ -90,14 +91,15 @@ def _populate_active_survey(database: PostgresTestDatabase) -> None:
             text(
                 "INSERT INTO survey_distributions "
                 "(id, created_at, updated_at, is_deleted, deleted_at, performed_by, survey_id, "
-                "token, expires_at, revoked_at) VALUES (:id, :ts, :ts, false, NULL, :actor, "
-                ":survey, :token, :expires_at, NULL)"
+                "token_digest, token_prefix, expires_at, revoked_at) VALUES (:id, :ts, :ts, "
+                "false, NULL, :actor, :survey, :token_digest, :token_prefix, :expires_at, NULL)"
             ),
             {
                 "id": str(DISTRIBUTION_ID),
                 "survey": str(SURVEY_ID),
                 "actor": str(ACTOR_ID),
-                "token": TOKEN,
+                "token_digest": sha256(TOKEN.encode()).hexdigest(),
+                "token_prefix": TOKEN[:8],
                 "expires_at": "2099-01-01 00:00:00",
                 "ts": timestamp,
             },
