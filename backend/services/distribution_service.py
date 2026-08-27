@@ -5,7 +5,6 @@ from hashlib import sha256
 from uuid import UUID
 
 from fastapi import status
-from sqlalchemy import or_
 from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -41,10 +40,10 @@ def _public_token_error() -> AppError:
 
 
 def _normalize_expiry(expires_at: datetime | None) -> datetime | None:
-    if expires_at is None:
-        return None
-    normalized = expires_at.astimezone(UTC).replace(tzinfo=None)
     now = utc_now()
+    if expires_at is None:
+        return now + timedelta(days=settings.SURVEY_DISTRIBUTION_DEFAULT_EXPIRY_DAYS)
+    normalized = expires_at.astimezone(UTC).replace(tzinfo=None)
     if normalized <= now:
         raise AppError(
             "Distribution expiry must be in the future.",
@@ -118,12 +117,7 @@ async def _generate_token(session: AsyncSession) -> _GeneratedToken:
         token = secrets.token_urlsafe(32)
         digest = sha256(token.encode("utf-8")).hexdigest()
         result = await session.exec(
-            select(SurveyDistribution.id).where(
-                or_(
-                    col(SurveyDistribution.token) == token,
-                    col(SurveyDistribution.token_digest) == digest,
-                )
-            )
+            select(SurveyDistribution.id).where(col(SurveyDistribution.token_digest) == digest)
         )
         if result.first() is None:
             return _GeneratedToken(token, digest, token[:8])
@@ -144,7 +138,6 @@ async def create_distribution(
     generated_token = await _generate_token(session)
     distribution = SurveyDistribution(
         survey_id=survey_id,
-        token=generated_token.plaintext,
         token_digest=generated_token.digest,
         token_prefix=generated_token.prefix,
         expires_at=_normalize_expiry(payload.expires_at),
@@ -263,7 +256,6 @@ async def rotate_distribution(
     generated_token = await _generate_token(session)
     replacement = SurveyDistribution(
         survey_id=survey_id,
-        token=generated_token.plaintext,
         token_digest=generated_token.digest,
         token_prefix=generated_token.prefix,
         expires_at=_normalize_expiry(payload.expires_at),
@@ -366,15 +358,6 @@ async def get_distribution_token_reference(
         )
     )
     distribution = result.first()
-    if distribution is None:
-        result = await session.exec(
-            select(SurveyDistribution).where(
-                col(SurveyDistribution.token) == token,
-                col(SurveyDistribution.token_digest).is_(None),
-                col(SurveyDistribution.is_deleted).is_(False),
-            )
-        )
-        distribution = result.first()
     if not distribution:
         raise _public_token_error()
     return distribution

@@ -1,5 +1,6 @@
 import secrets
 from datetime import UTC, datetime, timedelta
+from hashlib import sha256
 from uuid import UUID, uuid4
 
 import pytest
@@ -474,7 +475,8 @@ async def test_invalid_active_survey_cannot_be_distributed_or_submitted(client):
     try:
         distribution = SurveyDistribution(
             survey_id=UUID(survey_uuid),
-            token="empty-active-survey-token",
+            token_digest=sha256(b"empty-active-survey-token").hexdigest(),
+            token_prefix="empty-ac",
             expires_at=datetime(2099, 1, 1),
         )
         session.add(distribution)

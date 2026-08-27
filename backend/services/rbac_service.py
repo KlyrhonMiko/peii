@@ -140,6 +140,26 @@ async def user_has_protected_admin_role(session: AsyncSession, user_id: UUID) ->
     return result.first() is not None
 
 
+async def user_is_active_admin(session: AsyncSession, user_id: UUID, admin_role_id: UUID) -> bool:
+    result = await session.exec(
+        select(UserRole.id)
+        .join(Role, col(Role.id) == UserRole.role_id)
+        .join(User, col(User.id) == UserRole.user_id)
+        .where(
+            col(UserRole.user_id) == user_id,
+            col(UserRole.role_id) == admin_role_id,
+            col(UserRole.is_deleted).is_(False),
+            col(Role.name) == ADMIN_ROLE_NAME,
+            col(Role.is_system).is_(True),
+            col(Role.is_active).is_(True),
+            col(Role.is_deleted).is_(False),
+            col(User.is_active).is_(True),
+            col(User.is_deleted).is_(False),
+        )
+    )
+    return result.first() is not None
+
+
 async def assert_eligible_admin_remains(
     session: AsyncSession, excluded_user_id: UUID | None = None
 ) -> None:
@@ -270,26 +290,44 @@ async def set_user_roles(
     session: AsyncSession, user: User, role_ids: list[UUID], actor_id: UUID, ip_address: str | None
 ) -> None:
     admin_role = await lock_admin_role(session)
+    requested_role_ids = set(role_ids)
     roles = list(
         (
             await session.exec(
                 select(Role).where(
-                    col(Role.id).in_(set(role_ids)),
+                    col(Role.id).in_(requested_role_ids),
                     col(Role.is_active).is_(True),
                     col(Role.is_deleted).is_(False),
                 )
             )
         ).all()
     )
-    if len(roles) != len(set(role_ids)):
+    if len(roles) != len(requested_role_ids):
         raise AppError(
             "One or more roles are unavailable.", status_code=status.HTTP_422_UNPROCESSABLE_CONTENT
         )
+    actor_permissions = await effective_permissions(session, actor_id)
+    for role in roles:
+        if role.id == admin_role.id and not await user_is_active_admin(
+            session, actor_id, admin_role.id
+        ):
+            raise AppError(
+                "Only active administrators may assign the system Admin role.",
+                status_code=status.HTTP_403_FORBIDDEN,
+            )
+        role_permissions = {
+            permission.code for permission in await get_role_permissions(session, role)
+        }
+        if not role_permissions.issubset(actor_permissions):
+            raise AppError(
+                "You cannot assign a role with permissions exceeding your own.",
+                status_code=status.HTTP_403_FORBIDDEN,
+            )
     current = list(
         (await session.exec(select(UserRole).where(col(UserRole.user_id) == user.id))).all()
     )
     currently_admin = await user_has_admin_role(session, user.id, admin_role.id)
-    will_remain_admin = admin_role.id in set(role_ids)
+    will_remain_admin = admin_role.id in requested_role_ids
     if user.id == actor_id and currently_admin and not will_remain_admin:
         raise AppError(
             "Administrators cannot remove their own Admin role.",

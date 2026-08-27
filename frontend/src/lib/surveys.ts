@@ -15,7 +15,6 @@ export interface Distribution {
   expiresAt: string | null
   revokedAt: string | null
   createdAt: string
-  token?: string
 }
 
 export interface DistributionSecret extends Distribution {
@@ -151,7 +150,6 @@ export interface ApiDistribution {
   expires_at: string | null
   revoked_at: string | null
   created_at: string
-  token?: string
 }
 
 export interface ApiDistributionSecret extends ApiDistribution {
@@ -286,7 +284,6 @@ export function mapDistribution(api: ApiDistribution): Distribution {
     expiresAt: api.expires_at,
     revokedAt: api.revoked_at,
     createdAt: api.created_at,
-    ...(api.token !== undefined ? { token: api.token } : {}),
   }
 }
 

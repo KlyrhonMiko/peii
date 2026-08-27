@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react"
+import { useState } from "react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import type { Distribution, DistributionSecret } from "@/lib/surveys"
@@ -72,56 +73,56 @@ describe("SurveyDistributionManager", () => {
     vi.restoreAllMocks()
   })
 
-  it("loads metadata when opened without auto-creating a link or revealing a token", async () => {
-    mocks.fetchDistributions.mockResolvedValue([distribution()])
+  it("loads token-free metadata and renders every lifecycle state", async () => {
+    mocks.fetchDistributions.mockResolvedValue([
+      distribution({ id: "active", status: "active" }),
+      distribution({ id: "suspended", status: "suspended", isActive: false }),
+      distribution({ id: "expired", status: "expired", isActive: false }),
+      distribution({ id: "revoked", status: "revoked", isActive: false }),
+    ])
 
-    renderManager()
+    renderManager(false)
     await waitForLoaded()
 
     expect(mocks.fetchDistributions).toHaveBeenCalledTimes(1)
     expect(mocks.createDistribution).not.toHaveBeenCalled()
     expect(screen.getByText("Active")).toBeInTheDocument()
+    expect(screen.getByText("Suspended")).toBeInTheDocument()
+    expect(screen.getByText("Expired")).toBeInTheDocument()
+    expect(screen.getByText("Revoked")).toBeInTheDocument()
+    expect(screen.getByText("This link can accept responses until it expires.")).toBeInTheDocument()
+    expect(screen.getByText("This link is suspended and cannot accept responses until it is restored by the backend.")).toBeInTheDocument()
+    expect(screen.getByText("This link has expired. Issue a new link with a new expiry date.")).toBeInTheDocument()
+    expect(screen.getByText("This link was revoked and cannot accept responses. Issue a new link to continue.")).toBeInTheDocument()
     expect(screen.queryByText(/one-time-token|\/survey\//)).not.toBeInTheDocument()
   })
 
-  it("creates a link with the selected expiry and displays its token only after creation", async () => {
+  it("uses the server-owned 30-day default and displays its one-time secret", async () => {
     const created = secret({ token: "created-token" })
     mocks.createDistribution.mockResolvedValue(created)
     renderManager()
     await waitForLoaded()
 
-    const expiry = "2030-01-02T03:04"
-    fireEvent.change(screen.getByLabelText("Distribution expiry"), {
-      target: { value: expiry },
-    })
-    fireEvent.click(screen.getByRole("button", { name: "Issue new link" }))
+    fireEvent.click(screen.getByRole("button", { name: "Enable Link" }))
 
-    await waitFor(() => expect(mocks.createDistribution).toHaveBeenCalledWith(
-      surveyId,
-      new Date(expiry).toISOString(),
-    ))
+    await waitFor(() => expect(mocks.createDistribution).toHaveBeenCalledWith(surveyId, null))
     expect(screen.getByText(`${window.location.origin}/survey/created-token`)).toBeInTheDocument()
   })
 
-  it("rotates an active link with the selected expiry and displays the replacement token", async () => {
+  it("keeps the replacement secret when the metadata reload omits the token", async () => {
     const current = distribution()
     const replacement = secret({ id: "replacement-id", token: "replacement-token" })
+    const replacementMetadata = distribution({ id: "replacement-id" })
     mocks.fetchDistributions
       .mockResolvedValueOnce([current])
-      .mockResolvedValueOnce([replacement])
+      .mockResolvedValueOnce([replacementMetadata])
     mocks.rotateDistribution.mockResolvedValue(replacement)
 
     renderManager()
     await waitForLoaded()
-    const issueButtons = screen.getAllByRole("button", { name: "Issue new link" })
-    expect(issueButtons).toHaveLength(2)
-    fireEvent.click(issueButtons[1]!)
+    fireEvent.click(screen.getByRole("button", { name: "Generate new link" }))
 
-    await waitFor(() => expect(mocks.rotateDistribution).toHaveBeenCalledWith(
-      surveyId,
-      current.id,
-      expect.any(String),
-    ))
+    await waitFor(() => expect(mocks.rotateDistribution).toHaveBeenCalledWith(surveyId, current.id, null))
     expect(screen.getByText(`${window.location.origin}/survey/replacement-token`)).toBeInTheDocument()
     expect(mocks.fetchDistributions).toHaveBeenCalledTimes(2)
   })
@@ -140,26 +141,41 @@ describe("SurveyDistributionManager", () => {
     expect(screen.queryByRole("button", { name: "Revoke" })).not.toBeInTheDocument()
   })
 
-  it("shows lifecycle status and expiry guidance for every backend state", async () => {
-    mocks.fetchDistributions.mockResolvedValue([
-      distribution({ id: "active", status: "active" }),
-      distribution({ id: "suspended", status: "suspended", isActive: false }),
-      distribution({ id: "expired", status: "expired", isActive: false }),
-      distribution({ id: "revoked", status: "revoked", isActive: false }),
-    ])
-
-    renderManager(false)
+  it("does not offer the unsupported 90-day expiry", async () => {
+    renderManager()
     await waitForLoaded()
 
-    expect(screen.getByText("Active")).toBeInTheDocument()
-    expect(screen.getByText("This link can accept responses until it expires.")).toBeInTheDocument()
-    expect(screen.getByText("Suspended")).toBeInTheDocument()
-    expect(screen.getByText("This link is suspended and cannot accept responses until it is restored by the backend.")).toBeInTheDocument()
-    expect(screen.getByText("Expired")).toBeInTheDocument()
-    expect(screen.getByText("This link has expired. Issue a new link with a new expiry date.")).toBeInTheDocument()
-    expect(screen.getByText("Revoked")).toBeInTheDocument()
-    expect(screen.getByText("This link was revoked and cannot accept responses. Issue a new link to continue.")).toBeInTheDocument()
-    expect(screen.getAllByText(/Expires:/)).toHaveLength(4)
+    fireEvent.click(screen.getByRole("button", { name: "30 days (Default)" }))
+    expect(screen.queryByText("90 days")).not.toBeInTheDocument()
+  })
+
+  it("clears a one-time secret when the manager is closed", async () => {
+    mocks.createDistribution.mockResolvedValue(secret({ token: "close-token" }))
+
+    function ControlledManager() {
+      const [open, setOpen] = useState(true)
+      return (
+        <>
+          <button type="button" onClick={() => setOpen(true)}>Reopen manager</button>
+          <SurveyDistributionManager
+            surveyId={surveyId}
+            open={open}
+            canManage
+            onOpenChange={setOpen}
+          />
+        </>
+      )
+    }
+
+    render(<ControlledManager />)
+    await waitForLoaded()
+    fireEvent.click(screen.getByRole("button", { name: "Enable Link" }))
+    expect(await screen.findByText(`${window.location.origin}/survey/close-token`)).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole("button", { name: "Close" }))
+    fireEvent.click(screen.getByRole("button", { name: "Reopen manager" }))
+
+    expect(screen.queryByText(`${window.location.origin}/survey/close-token`)).not.toBeInTheDocument()
   })
 
   it("shows load errors", async () => {
@@ -175,7 +191,7 @@ describe("SurveyDistributionManager", () => {
     renderManager()
     await waitForLoaded()
 
-    fireEvent.click(screen.getByRole("button", { name: "Issue new link" }))
+    fireEvent.click(screen.getByRole("button", { name: "Enable Link" }))
 
     expect(await screen.findByRole("alert")).toHaveTextContent("create failed")
   })
@@ -186,8 +202,7 @@ describe("SurveyDistributionManager", () => {
     renderManager()
     await waitForLoaded()
 
-    const issueButtons = screen.getAllByRole("button", { name: "Issue new link" })
-    fireEvent.click(issueButtons[1]!)
+    fireEvent.click(screen.getByRole("button", { name: "Generate new link" }))
 
     expect(await screen.findByRole("alert")).toHaveTextContent("rotate failed")
   })
@@ -212,7 +227,7 @@ describe("SurveyDistributionManager", () => {
     mocks.createDistribution.mockResolvedValue(secret({ token: "copy-token" }))
     renderManager()
     await waitForLoaded()
-    fireEvent.click(screen.getByRole("button", { name: "Issue new link" }))
+    fireEvent.click(screen.getByRole("button", { name: "Enable Link" }))
     const copyButton = await screen.findByRole("button", { name: "Copy" })
 
     fireEvent.click(copyButton)

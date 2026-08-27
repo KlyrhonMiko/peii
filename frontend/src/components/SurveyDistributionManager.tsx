@@ -16,7 +16,7 @@ import { Switch } from "@/components/ui/switch"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { createDistribution, fetchDistributions, revokeDistribution, rotateDistribution } from "@/lib/surveys"
 import { cn } from "@/lib/utils"
-import type { Distribution } from "@/lib/surveys"
+import type { Distribution, DistributionSecret } from "@/lib/surveys"
 
 interface SurveyDistributionManagerProps {
   surveyId: string
@@ -37,11 +37,10 @@ function ExpirySelect({
   const [open, setOpen] = useState(false)
   
   const options = [
-    { value: 0, label: "Never (Default)" },
+    { value: 0, label: "30 days (Default)" },
     { value: 1, label: "1 day" },
     { value: 7, label: "7 days" },
     { value: 30, label: "30 days" },
-    { value: 90, label: "90 days" },
   ]
   
   const selectedLabel = options.find((o) => o.value === value)?.label
@@ -93,6 +92,88 @@ function ExpirySelect({
   )
 }
 
+function formatDistributionDate(value: string | null): string {
+  return value ? new Date(value).toLocaleString() : "Never"
+}
+
+function statusLabel(status: Distribution["status"]): string {
+  return status[0]?.toUpperCase() + status.slice(1)
+}
+
+function statusGuidance(status: Distribution["status"]): string {
+  switch (status) {
+    case "active":
+      return "This link can accept responses until it expires."
+    case "suspended":
+      return "This link is suspended and cannot accept responses until it is restored by the backend."
+    case "expired":
+      return "This link has expired. Issue a new link with a new expiry date."
+    case "revoked":
+      return "This link was revoked and cannot accept responses. Issue a new link to continue."
+  }
+}
+
+function distributionMetadata(secret: DistributionSecret): Distribution {
+  return {
+    id: secret.id,
+    surveyId: secret.surveyId,
+    status: secret.status,
+    isActive: secret.isActive,
+    expiresAt: secret.expiresAt,
+    revokedAt: secret.revokedAt,
+    createdAt: secret.createdAt,
+  }
+}
+
+function DistributionLifecycle({
+  distributions,
+  canManage,
+  action,
+  onRevoke,
+}: {
+  distributions: Distribution[]
+  canManage: boolean
+  action: "create" | "rotate" | "revoke" | null
+  onRevoke: (distributionId: string) => void
+}) {
+  if (distributions.length === 0) return null
+
+  return (
+    <div className="space-y-4 pt-4 border-t border-slate-200/60">
+      <h3 className="text-sm font-semibold text-slate-900 tracking-tight">Link lifecycle</h3>
+      {distributions.map((distribution) => (
+        <div key={distribution.id} className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <span className={cn("size-2 rounded-full", distribution.status === "active" ? "bg-emerald-500" : "bg-slate-400")} />
+                <span className="font-medium text-slate-800">{statusLabel(distribution.status)}</span>
+              </div>
+              <p className="mt-1 text-xs text-slate-500">{statusGuidance(distribution.status)}</p>
+            </div>
+            {canManage && distribution.status === "active" && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => onRevoke(distribution.id)}
+                disabled={action !== null}
+                className="text-red-600 hover:bg-red-50 hover:text-red-700"
+              >
+                {action === "revoke" ? <Loader2 className="animate-spin" data-icon="inline-start" /> : null}
+                Revoke
+              </Button>
+            )}
+          </div>
+          <dl className="mt-3 grid gap-1 text-xs text-slate-500 sm:grid-cols-2">
+            <div><dt className="inline font-medium text-slate-600">Created: </dt><dd className="inline">{formatDistributionDate(distribution.createdAt)}</dd></div>
+            <div><dt className="inline font-medium text-slate-600">Expires: </dt><dd className="inline">{formatDistributionDate(distribution.expiresAt)}</dd></div>
+          </dl>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 
 export function SurveyDistributionManager({
   surveyId,
@@ -101,6 +182,7 @@ export function SurveyDistributionManager({
   onOpenChange,
 }: SurveyDistributionManagerProps) {
   const [distributions, setDistributions] = useState<Distribution[]>([])
+  const [secret, setSecret] = useState<DistributionSecret | null>(null)
   const [expiryDays, setExpiryDays] = useState<number>(0)
   const [loading, setLoading] = useState(false)
   const [action, setAction] = useState<"create" | "rotate" | "revoke" | null>(null)
@@ -112,13 +194,10 @@ export function SurveyDistributionManager({
   const activeDistribution = distributions.find((d) => d.status === "active")
   const hasActiveLink = !!activeDistribution
 
-  const load = useCallback(async (hideSecret: boolean) => {
+  const load = useCallback(async () => {
     const requestId = ++loadId.current
     setLoading(true)
     setError(null)
-    if (hideSecret) {
-      setCopied(false)
-    }
     try {
       const nextDistributions = await fetchDistributions(surveyId)
       if (requestId === loadId.current) setDistributions(nextDistributions)
@@ -134,15 +213,15 @@ export function SurveyDistributionManager({
   useEffect(() => {
     if (!open) return
     const timeoutId = window.setTimeout(() => {
-      void load(true)
+      void load()
     }, 0)
     return () => window.clearTimeout(timeoutId)
   }, [load, open])
 
   const issuedUrl = useMemo(() => {
-    if (!activeDistribution?.token || typeof window === "undefined") return null
-    return `${window.location.origin}/survey/${activeDistribution.token}`
-  }, [activeDistribution?.token])
+    if (!secret || secret.surveyId !== surveyId || typeof window === "undefined") return null
+    return `${window.location.origin}/survey/${secret.token}`
+  }, [secret, surveyId])
 
   const performCreate = async () => {
     if (!canManage) return
@@ -150,14 +229,15 @@ export function SurveyDistributionManager({
     setError(null)
     setClipboardError(null)
     try {
-      let expiresAtValue = null
+      let expiresAtValue: string | null = null
       if (expiryDays > 0) {
         const expiry = new Date()
         expiry.setDate(expiry.getDate() + expiryDays)
         expiresAtValue = expiry.toISOString()
       }
       const created = await createDistribution(surveyId, expiresAtValue)
-      setDistributions((current) => [created, ...current.filter((item) => item.id !== created.id)])
+      setSecret(created)
+      setDistributions((current) => [distributionMetadata(created), ...current.filter((item) => item.id !== created.id)])
     } catch (createError) {
       setError(createError instanceof Error ? createError.message : "We could not issue a distribution link.")
     } finally {
@@ -171,7 +251,7 @@ export function SurveyDistributionManager({
     setError(null)
     setClipboardError(null)
     try {
-      let expiresAtValue = null
+      let expiresAtValue: string | null = null
       if (expiryDays > 0) {
         const expiry = new Date()
         expiry.setDate(expiry.getDate() + expiryDays)
@@ -182,8 +262,9 @@ export function SurveyDistributionManager({
         distributionId,
         expiresAtValue,
       )
-      setDistributions((current) => [replacement, ...current.filter((item) => item.id !== replacement.id)])
-      await load(false)
+      setSecret(replacement)
+      setDistributions((current) => [distributionMetadata(replacement), ...current.filter((item) => item.id !== replacement.id)])
+      await load()
     } catch (rotateError) {
       setError(rotateError instanceof Error ? rotateError.message : "We could not rotate the distribution link.")
     } finally {
@@ -197,7 +278,7 @@ export function SurveyDistributionManager({
     setError(null)
     try {
       await revokeDistribution(surveyId, distributionId)
-      await load(false)
+      await load()
     } catch (revokeError) {
       setError(revokeError instanceof Error ? revokeError.message : "We could not revoke the distribution link.")
     } finally {
@@ -229,6 +310,7 @@ export function SurveyDistributionManager({
   const handleOpenChange = (nextOpen: boolean) => {
     if (!nextOpen) {
       loadId.current += 1
+      setSecret(null)
       setCopied(false)
       setClipboardError(null)
     }
@@ -329,7 +411,7 @@ export function SurveyDistributionManager({
                   <div className="flex flex-col gap-3 min-w-0">
                     <label className="text-sm font-medium text-slate-700">Shareable Link</label>
                     <div className="flex flex-col sm:flex-row sm:items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 p-2 pl-3 min-w-0">
-                      <code className="min-w-0 flex-1 truncate text-sm text-emerald-900">{issuedUrl || "Loading link..."}</code>
+                      <code className="min-w-0 flex-1 truncate text-sm text-emerald-900">{issuedUrl || "Token unavailable after reload."}</code>
                       <Button variant="outline" size="sm" onClick={() => void copyLink()} disabled={!issuedUrl} className="w-full sm:w-auto shrink-0 bg-white">
                         {copied ? <CheckCircle2 data-icon="inline-start" className="mr-1.5 size-4" /> : <Copy data-icon="inline-start" className="mr-1.5 size-4" />}
                         {copied ? "Copied" : "Copy"}
@@ -371,6 +453,12 @@ export function SurveyDistributionManager({
                   )}
                 </div>
               )}
+              <DistributionLifecycle
+                distributions={distributions}
+                canManage={canManage}
+                action={action}
+                onRevoke={(distributionId) => void performRevoke(distributionId)}
+              />
             </div>
           )}
         </div>

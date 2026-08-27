@@ -9,8 +9,9 @@ database change log, not as scratch files.
 - The directory contains the canonical first-release baseline `20260825_v1`, the Phase 2
   compatibility revision `f77a807cf2f9_expand_distribution_security`, the follow-up
   `d1f9bad768ad` expiry compatibility revision, the Phase 3 `fb1c93d15474` retention/withdrawal
-  revision, and this guide. Future revisions may follow these revisions, but predecessor history
-  must not be reintroduced.
+  revision, the current `2bf09a6bc738` digest-only distribution-token revision, and this guide.
+  `2bf09a6bc738` is the current head. Future revisions may follow these revisions, but predecessor
+  history must not be reintroduced.
 - Start model-driven migrations with Alembic autogenerate, then edit only after reviewing
   the generated diff.
 - Keep each revision focused on the schema change it represents.
@@ -30,6 +31,9 @@ database change log, not as scratch files.
   supported database path.
 - The Phase 3 backfill uses each response's recorded submission timestamp and the survey's
   enabled/1,825-day policy. Do not activate retention purge until that backfill has been reviewed.
+- The `f77a807cf2f9` revision's plaintext-token compatibility behavior is historical. The
+  `2bf09a6bc738` revision backfills missing digests/prefixes and removes the plaintext token
+  column; it cannot be downgraded to recover those values.
 
 ## Consistency Checks
 - Confirm the final migration state matches the current SQLModel definitions.

@@ -10,9 +10,10 @@ forward migration chain is:
   -> f77a807cf2f9 (distribution security compatibility)
   -> d1f9bad768ad (distribution expiry compatibility)
   -> fb1c93d15474 (retention and withdrawal)
+  -> 2bf09a6bc738 (remove plaintext distribution tokens)
 ```
 
-`fb1c93d15474` is the current Alembic head. Fresh environments and the production release job
+`2bf09a6bc738` is the current Alembic head. Fresh environments and the production release job
 run `./.venv/bin/alembic upgrade head` once before API replicas are promoted. Phase 3 is **not**
 a rolling or independently deployable frontend/backend release: the request contract and
 retention writes change together. Block public submissions at ingress, drain and stop every old
@@ -20,10 +21,17 @@ API writer, run the migration and reconciliation checks, deploy the API and fron
 stale frontend caches, complete smoke tests, and only then reopen submissions. Do not run
 migrations independently in every replica or downgrade the baseline as an ad hoc rollback.
 
-Phase 2 remains a rolling compatibility release: distribution rows have SHA-256 token digests
-and 8-character prefixes, but plaintext distribution tokens remain until a later reviewed
-digest-only/drop gate. The Phase 2/compatibility path also leaves distribution expiry nullable;
-Phase 3 does not fix the outstanding distribution token-storage or mandatory-expiry issues.
+The Phase 2 compatibility behavior is historical: `f77a807cf2f9` added SHA-256 token digests and
+8-character prefixes while retaining plaintext distribution tokens, and `d1f9bad768ad` made the
+database expiry column nullable. The current `2bf09a6bc738` contract revision reconciles existing
+digests/prefixes, requires the digest, and drops the plaintext token column. Its downgrade cannot
+reconstruct plaintext tokens.
+
+Under the current runtime contract, create and rotate persist only a token digest and prefix.
+List and revoke metadata are token-free, while create and rotate reveal a newly generated bearer
+token once. Omitted expiry receives the configured server default (currently 30 days); explicit
+expiry must be in the future and cannot exceed the configured maximum (currently 30 days). Legacy
+rows with a null expiry remain possible and non-expiring.
 
 ## Deployment topology
 
@@ -72,6 +80,10 @@ Defaults remain: `admin` has all 21 capabilities; `researcher` has all except
 and `survey_responses.read_aggregates`. Raw reads, exports, aggregates, distribution
 management, and erasure are separate capabilities. Authentication or survey ownership is not
 an implicit grant.
+
+Role assignment is additionally constrained by the actor's effective permissions: an actor cannot
+grant a role with permissions exceeding their own. Assignment of the protected system Admin role
+is restricted to active Admins.
 
 ## Phase 3 response and privacy decisions
 
@@ -165,6 +177,8 @@ PUBLIC_SURVEY_PRIVACY_NOTICE=<approved notice text>
 PUBLIC_SURVEY_PURPOSE=<approved purpose>
 PUBLIC_SURVEY_RETENTION=<approved retention statement>
 PUBLIC_SURVEY_CONTACT=<approved withdrawal/privacy contact>
+SURVEY_DISTRIBUTION_DEFAULT_EXPIRY_DAYS=30
+SURVEY_DISTRIBUTION_MAX_EXPIRY_DAYS=30
 ```
 
 Redis outages fail closed in production; do not silently fall back to process-local limits.
@@ -187,11 +201,13 @@ Execute this sequence without reordering:
 2. Enable the ingress maintenance/write-drain rule for public survey submissions and withdrawal,
    wait for in-flight writes to finish, and stop every old API replica. Keep submissions blocked
    until step 6; an old writer after the migration can create a null retention deadline.
-3. Run `./.venv/bin/alembic upgrade head` once. Confirm that `fb1c93d15474` is applied after
-   `d1f9bad768ad`, inspect the survey default backfill, and verify response deadline backfill.
-   Reconcile any enabled-retention response with a null deadline before continuing.
-4. Deploy the Phase 3-compatible API and frontend together and invalidate stale public-form
-   caches. Verify new submissions snapshot enabled and
+3. Run `./.venv/bin/alembic upgrade head` once. Confirm that `2bf09a6bc738` is applied after
+   `fb1c93d15474`, verify distribution digests are populated and the plaintext token column is
+   absent, inspect the survey default backfill, and verify response deadline backfill. Reconcile
+   any enabled-retention response with a null deadline before continuing.
+4. Deploy the compatible API and frontend together and invalidate stale public-form caches. Verify
+   new distribution create/rotate responses reveal tokens once, list/revoke metadata stays
+   token-free, expiry defaults and maximum validation work, and new submissions snapshot enabled and
    disabled policies correctly, withdrawal codes are one-time displayed/digest-only, and raw,
    aggregate, export, and erase permission checks pass.
 5. Only after steps 1–4 succeed, activate one external purge schedule. Start with
@@ -201,11 +217,11 @@ Execute this sequence without reordering:
    monitor the first new submissions. A stale pre-Phase-3 form may receive `422` and must be
    refreshed; it must never be silently accepted without a withdrawal credential.
 
-During the Phase 2 compatibility window, application rollback is allowed only while the plaintext
-distribution-token column remains available. Do not downgrade the migration as an ad hoc
-rollback; restore a validated backup/PITR copy in isolation or use a reviewed forward fix, run
-release validation, and then promote it. Distribution token digest-only/drop remains a later
-contract gate.
+Before `2bf09a6bc738`, application rollback during the Phase 2 compatibility window was allowed
+only while the plaintext distribution-token column remained available. At the current head,
+plaintext tokens cannot be reconstructed. Do not downgrade the migration as an ad hoc rollback;
+restore a validated backup/PITR copy in isolation or use a reviewed forward fix, run release
+validation, and then promote it.
 
 ## Retention purge operations and monitoring
 

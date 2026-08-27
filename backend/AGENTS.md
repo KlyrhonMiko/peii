@@ -128,6 +128,9 @@ Read this file first, then the guide closest to the files you are changing.
   not an application timer.
 - Password login, recovery, invitation, logout, and password changes delegate to Supabase;
   never persist or log credentials or tokens locally.
+- User role assignment is capability-safe: an actor cannot grant a role whose permissions exceed
+  the actor's effective permissions, and the protected system Admin role may be assigned only by
+  an active Admin.
 
 ## Migrations
 - For every `models/` change that alters table shape, run
@@ -136,14 +139,20 @@ Read this file first, then the guide closest to the files you are changing.
 - When adding a required business id to an existing table, use a safe migration sequence: add nullable, backfill existing rows with unique prefixed values, alter to non-null, then add the unique index.
 - Add a new revision for new schema work. Do not rewrite older shared or applied revisions.
 - The database uses the canonical first-release baseline `20260825_v1`, followed by
-  `f77a807cf2f9_expand_distribution_security`, `d1f9bad768ad`, and the Phase 3
-  `fb1c93d15474` revision. `fb1c93d15474` is the current migration head. Fresh environments
+  `f77a807cf2f9_expand_distribution_security`, `d1f9bad768ad`, the Phase 3 `fb1c93d15474`
+  revision, and `2bf09a6bc738`. `2bf09a6bc738` is the current migration head. Fresh environments
   must run `./.venv/bin/alembic upgrade head`; production runs it once as the protected release
   job before API replicas are promoted.
-- The compatibility revision stores SHA-256 token digests and 8-character prefixes, but retains
-  plaintext distribution tokens until the later digest-only/drop gate. Follow
-  expand -> dual-write/digest-first -> reconcile -> digest-only app -> later contract/drop gate;
-  do not claim plaintext has already been removed.
+- Historically, the `f77a807cf2f9` compatibility revision added SHA-256 token digests and
+  8-character prefixes while retaining plaintext distribution tokens, and `d1f9bad768ad` made
+  the database expiry column nullable. The current `2bf09a6bc738` contract revision backfills
+  and requires digests, then drops the plaintext token column; it is irreversible because
+  plaintext tokens cannot be reconstructed.
+- Under the current runtime contract, distribution create/rotate stores only the token digest and
+  prefix. List and revoke metadata are token-free; create and rotate reveal the generated bearer
+  token once. Omitted expiry uses the configured server default (currently 30 days), and an
+  explicit expiry must not exceed the configured maximum (currently 30 days). Legacy nullable
+  expiry values remain possible for pre-existing rows.
 - Keep model, schema, service/router contract, tests, and migration files in sync when one feature touches all of them.
 
 ## Testing Standards

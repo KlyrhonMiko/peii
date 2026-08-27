@@ -81,18 +81,30 @@ Create a new migration after model changes:
 
 The fresh-database baseline is `20260825_v1`. The current forward chain is
 `f77a807cf2f9` (distribution security) -> `d1f9bad768ad` (distribution expiry compatibility)
--> `fb1c93d15474` (Phase 3 retention and withdrawal), and `fb1c93d15474` is the current Alembic
-head. For production, run `./.venv/bin/alembic upgrade head` once as the managed-service
-release job before API replicas are promoted. Do not run migrations independently in every
-replica. Review the Phase 3 survey-policy and response-deadline backfill before activating the
-external purge job.
+-> `fb1c93d15474` (Phase 3 retention and withdrawal) -> `2bf09a6bc738` (remove plaintext
+distribution tokens). `2bf09a6bc738` is the current Alembic head. For production, run
+`./.venv/bin/alembic upgrade head` once as the managed-service release job before API replicas
+are promoted. Do not run migrations independently in every replica. Review the Phase 3
+survey-policy and response-deadline backfill before activating the external purge job.
 
-The Phase 2 expand revision adds SHA-256 token digests, 8-character prefixes, and consent
-evidence while retaining plaintext distribution tokens for the compatibility window. Follow the
-exact expand -> dual-write/digest-first -> reconcile -> digest-only app -> later contract/drop
-gate sequence in the deployment roadmap; plaintext has not yet been removed. Distribution
-expiry remains nullable, and Phase 3 does not fix the outstanding distribution token/expiry
-issues.
+Historically, the Phase 2 expand revision added SHA-256 token digests, 8-character prefixes, and
+consent evidence while retaining plaintext distribution tokens for its compatibility window;
+`d1f9bad768ad` also made the database expiry column nullable. The current `2bf09a6bc738` contract
+revision backfills and requires token digests, then drops the plaintext token column. Runtime
+create/rotate stores digest plus prefix only, list/revoke metadata is token-free, and create/rotate
+reveal the generated token once. Omitted expiry receives the configured server default (currently
+30 days); explicit expiry is limited by the configured maximum (currently 30 days). Historical
+rows with a null expiry remain possible and non-expiring.
+
+The runtime values are configured with `SURVEY_DISTRIBUTION_DEFAULT_EXPIRY_DAYS` and
+`SURVEY_DISTRIBUTION_MAX_EXPIRY_DAYS` (both currently `30`).
+
+## RBAC role-assignment safety
+
+Role assignment is constrained by the acting principal's effective permissions: an actor cannot
+grant a role that contains permissions beyond their own. The protected system Admin role can be
+assigned only by an active Admin. These checks apply in addition to the `users.assign_roles`
+capability requirement.
 
 ## Survey Access And Lifecycle Policy
 
@@ -106,10 +118,11 @@ issues.
   `survey_responses.read_aggregates`. Existing portal and ML capabilities remain in each
   default role. Raw and CSV export are separately permissioned; erase is admin-default.
 - Distribution metadata listings never return tokens; a newly issued or rotated token is
-  returned only once. `expires_at` is nullable: a supplied expiry is validated, while null does
-  not expire automatically. Archiving a survey revokes unrevoked distributions. Restoring it
-  leaves it inactive, so activation and a new link are explicit follow-up actions. Distribution
-  token storage/removal and mandatory-expiry policy remain outside Phase 3.
+  returned only once, and revoke responses also return metadata without a token. New create and
+  rotate requests use the configured default expiry when omitted (currently 30 days); supplied
+  expiry must be in the future and within the configured maximum (currently 30 days). Historical
+  null expiry values remain non-expiring. Archiving a survey revokes unrevoked distributions.
+  Restoring it leaves it inactive, so activation and a new link are explicit follow-up actions.
 - Public distribution links are shared bearer links and do not guarantee respondent uniqueness;
   idempotency protects retries for one distribution/key pair only. Consent is a global,
   versioned contract, and accepted responses retain an immutable notice snapshot. The public
