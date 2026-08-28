@@ -11,9 +11,10 @@ forward migration chain is:
   -> d1f9bad768ad (distribution expiry compatibility)
   -> fb1c93d15474 (retention and withdrawal)
   -> 2bf09a6bc738 (remove plaintext distribution tokens)
+  -> d5a4f7c91e2b (Supabase Data API RLS/ACL lockdown)
 ```
 
-`2bf09a6bc738` is the current Alembic head. Fresh environments and the production release job
+`d5a4f7c91e2b` is the current Alembic head. Fresh environments and the production release job
 run `./.venv/bin/alembic upgrade head` once before API replicas are promoted. Phase 3 is **not**
 a rolling or independently deployable frontend/backend release: the request contract and
 retention writes change together. Block public submissions at ingress, drain and stop every old
@@ -26,6 +27,15 @@ The Phase 2 compatibility behavior is historical: `f77a807cf2f9` added SHA-256 t
 database expiry column nullable. The current `2bf09a6bc738` contract revision reconciles existing
 digests/prefixes, requires the digest, and drops the plaintext token column. Its downgrade cannot
 reconstruct plaintext tokens.
+
+The `d5a4f7c91e2b` release step enables RLS for all protected application tables and revokes
+effective table/column privileges and schema creation from `PUBLIC`, `anon`, `authenticated`,
+and `service_role`. Its default-privilege revokes are limited to objects subsequently created by
+the current migration role (`current_user`) in the current schema; provider-owned/global
+defaults and defaults for other object creators are not mutated and require separate
+provider/admin configuration. It creates no policies, validates the RLS/ACL postconditions, and
+has an intentionally fail-closed irreversible downgrade. The API remains the application access
+boundary; direct Supabase Data API access is not a substitute for its authorization checks.
 
 Under the current runtime contract, create and rotate persist only a token digest and prefix.
 List and revoke metadata are token-free, while create and rotate reveal a newly generated bearer
@@ -179,6 +189,7 @@ PUBLIC_SURVEY_RETENTION=<approved retention statement>
 PUBLIC_SURVEY_CONTACT=<approved withdrawal/privacy contact>
 SURVEY_DISTRIBUTION_DEFAULT_EXPIRY_DAYS=30
 SURVEY_DISTRIBUTION_MAX_EXPIRY_DAYS=30
+DATABASE_TLS_MODE=require
 ```
 
 Redis outages fail closed in production; do not silently fall back to process-local limits.
@@ -187,6 +198,22 @@ IP headers are trusted only from `TRUSTED_PROXY_CIDRS` and are parsed with the c
 and header-size limits. Withdrawal attempts use a strict per-client bucket before a separate
 high global circuit breaker, so one blocked client cannot consume the global allowance.
 Requests larger than 64 KiB are rejected before application parsing.
+
+Local Compose uses `DATABASE_TLS_MODE=disable`; Supabase production requires
+`DATABASE_TLS_MODE=require`. This configures psycopg2/Alembic with `sslmode=require`, which
+encrypts transport but does not verify the server certificate or hostname. Asyncpg uses
+`ssl="require"` so the Supavisor pooler connection follows the same encryption-only transition.
+Deploy and verify the TLS-capable client before enabling provider SSL enforcement. Provider SSL
+enforcement and eventual CA-backed `verify-full` for every database path remain manual follow-up
+items with an explicit owner and deadline. `BACKEND_CORS_ORIGINS` is an exact HTTPS-origin allowlist: no wildcard, path,
+or trailing slash, and the production `APP_ORIGIN` must be included. `DEBUG=false` disables
+Swagger, ReDoc, and OpenAPI routes. Next.js owns browser/document headers; FastAPI owns public
+survey API headers, and the real ingress/provider must be checked rather than assumed.
+
+Compose never forwards the root `.env` wholesale. Its frontend, backend, PostgreSQL, and opt-in
+Adminer `tools` profile each receive explicit service-specific environment allowlists, and
+development ports are loopback-bound. This is a local configuration boundary, not a replacement
+for production secret management.
 
 Public survey pages send `Cache-Control: no-store`, `Referrer-Policy: no-referrer`,
 `X-Robots-Tag: noindex, nofollow`, `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`,
@@ -201,10 +228,11 @@ Execute this sequence without reordering:
 2. Enable the ingress maintenance/write-drain rule for public survey submissions and withdrawal,
    wait for in-flight writes to finish, and stop every old API replica. Keep submissions blocked
    until step 6; an old writer after the migration can create a null retention deadline.
-3. Run `./.venv/bin/alembic upgrade head` once. Confirm that `2bf09a6bc738` is applied after
-   `fb1c93d15474`, verify distribution digests are populated and the plaintext token column is
-   absent, inspect the survey default backfill, and verify response deadline backfill. Reconcile
-   any enabled-retention response with a null deadline before continuing.
+3. Run `./.venv/bin/alembic upgrade head` once. Confirm that `d5a4f7c91e2b` is applied after
+   `2bf09a6bc738`, verify distribution digests are populated and the plaintext token column is
+   absent, inspect the survey default backfill, verify response deadline backfill, and verify
+   the RLS/ACL lockdown postconditions. Reconcile any enabled-retention response with a null
+   deadline before continuing.
 4. Deploy the compatible API and frontend together and invalidate stale public-form caches. Verify
    new distribution create/rotate responses reveal tokens once, list/revoke metadata stays
    token-free, expiry defaults and maximum validation work, and new submissions snapshot enabled and
@@ -219,9 +247,10 @@ Execute this sequence without reordering:
 
 Before `2bf09a6bc738`, application rollback during the Phase 2 compatibility window was allowed
 only while the plaintext distribution-token column remained available. At the current head,
-plaintext tokens cannot be reconstructed. Do not downgrade the migration as an ad hoc rollback;
+plaintext tokens cannot be reconstructed, and `d5a4f7c91e2b` cannot be downgraded because its
+lockdown is intentionally fail-closed. Do not downgrade the migration as an ad hoc rollback;
 restore a validated backup/PITR copy in isolation or use a reviewed forward fix, run release
-validation, and then promote it.
+validation including RLS/ACL checks, and then promote it.
 
 ## Retention purge operations and monitoring
 
@@ -255,6 +284,14 @@ the streamed CSV; confirm `private, no-store` survives the CDN/edge path and tha
 contain sensitive request or response data. Record provider, region, domains, runtime values,
 backup schedule, PITR procedure, purge schedule/owner, monitoring owner, and rollback owner in the
 production runbook.
+
+Required provider actions remain manual and are not claimed as completed here: rotate any
+credentials exposed during development; remove `public` from the Supabase Data API exposed
+schemas/tables; enable Supabase SSL enforcement only after the TLS client rollout; track eventual
+CA-backed `verify-full` for all database paths; and configure HSTS on both Vercel and
+Render. Manually verify exact CORS, production docs-off behavior,
+application-owned headers through the real ingress, service-specific environment exposure,
+provider redaction/no-store behavior, backups/PITR, and purge scheduling before launch.
 
 ## Release validation and launch gate
 

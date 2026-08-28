@@ -12,8 +12,12 @@ SQLModel metadata changes into database schema changes.
 - Use the repo-local virtualenv dependencies; do not assume system Alembic is configured.
 - The canonical first-release baseline is `20260825_v1`; the forward revisions are
   `f77a807cf2f9_expand_distribution_security`, `d1f9bad768ad`, the Phase 3
-  `fb1c93d15474` retention/withdrawal revision, and `2bf09a6bc738`.
-  `2bf09a6bc738` is the current migration head.
+  `fb1c93d15474` retention/withdrawal revision, `2bf09a6bc738`, and the
+  `d5a4f7c91e2b` Supabase Data API lockdown revision.
+  `d5a4f7c91e2b` is the current migration head.
+  That revision requires the migration identity to own every protected table before changing
+  privileges or RLS, retains RLS on `alembic_version`, and `env.py` preflights owner-or-BYPASSRLS
+  access plus effective CRUD privileges on that table for later migrations.
   Fresh environments run `./.venv/bin/alembic upgrade head`, and production runs that command
   once as the protected release job before API replicas are promoted.
 

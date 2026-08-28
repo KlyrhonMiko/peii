@@ -10,7 +10,8 @@ provider and scheduler verification are still deployment responsibilities.
 - Fresh databases start at `20260825_v1`. The forward chain is
   `f77a807cf2f9` (Phase 2 distribution security), `d1f9bad768ad` (nullable distribution expiry),
   then `fb1c93d15474` (Phase 3 retention and withdrawal), followed by `2bf09a6bc738` (remove
-  plaintext distribution tokens). `2bf09a6bc738` is the current head.
+  plaintext distribution tokens), and `d5a4f7c91e2b` (Supabase Data API RLS/ACL lockdown).
+  `d5a4f7c91e2b` is the current head.
 - Run `./.venv/bin/alembic upgrade head` once as the protected release job. Promote API replicas
   only after the migration, backfill review, and smoke test succeed. Future schema changes are
   forward revisions; do not migrate independently in every replica.
@@ -19,6 +20,13 @@ provider and scheduler verification are still deployment responsibilities.
   portal are included.
 - Compose remains local development; production uses managed frontend, Python service,
   PostgreSQL, Supabase Auth, Redis, a trusted TLS ingress, and an external retention job.
+- The `d5a4f7c91e2b` migration enables RLS on protected application tables and revokes effective
+  table/column privileges and schema creation from `PUBLIC`, `anon`, `authenticated`, and
+  `service_role`. Its default-privilege revokes are limited to objects subsequently created by
+  the current migration role (`current_user`) in the current schema; provider-owned/global
+  defaults and defaults for other object creators are not mutated and require separate
+  provider/admin configuration. It creates no Data API policies, validates its postconditions,
+  and has an intentionally fail-closed, irreversible downgrade.
 
 ### Current distribution and RBAC contract
 
@@ -109,7 +117,23 @@ PUBLIC_SURVEY_RETENTION=<approved retention duration/statement>
 PUBLIC_SURVEY_CONTACT=<approved withdrawal/privacy contact>
 SURVEY_DISTRIBUTION_DEFAULT_EXPIRY_DAYS=30
 SURVEY_DISTRIBUTION_MAX_EXPIRY_DAYS=30
+DATABASE_TLS_MODE=require
 ```
+
+`DATABASE_TLS_MODE=disable` is the local Compose default. For Supabase production,
+`DATABASE_TLS_MODE=require` configures psycopg2/Alembic with `sslmode=require`, which encrypts
+transport but does not verify the server certificate or hostname. Asyncpg uses `ssl="require"`
+so the Supavisor pooler connection follows the same encryption-only transition. Provider-side SSL
+enforcement and eventual CA-backed `verify-full` for every database path remain manual follow-up
+items; record an owner and deadline for both before launch. Set `BACKEND_CORS_ORIGINS` to exact HTTPS
+`APP_ORIGIN` value(s) only—no wildcard, path, or trailing slash. With `DEBUG=false`, FastAPI does
+not expose Swagger, ReDoc, or OpenAPI routes.
+
+The root Compose file uses explicit environment allowlists and never passes the root `.env`
+wholesale. Frontend, backend, PostgreSQL, and the opt-in Adminer `tools` profile receive only the
+settings they use; published development ports bind to `127.0.0.1`. Next.js owns browser/document
+security headers, while FastAPI owns public survey API headers. Provider/CDN behavior must be
+verified independently.
 
 Redis is a distributed fixed-window dependency. A Redis outage fails closed; it must not be
 replaced by an in-process fallback. Forwarded IPs are accepted only from configured trusted
@@ -125,9 +149,10 @@ also send private/no-store and no-cache headers.
 2. Block public response writes at ingress, drain in-flight writes, and stop every old API
    replica. Phase 3 is not a rolling frontend/backend release.
 3. Apply `./.venv/bin/alembic upgrade head` once. Confirm the revision order through
-   `2bf09a6bc738`, verify distribution digests are populated and the plaintext token column is
-   absent, inspect the enabled/1,825 survey policy backfill, and verify response deadline backfill
-   from submission timestamps. Reconcile enabled-retention rows with null deadlines.
+   `d5a4f7c91e2b`, verify distribution digests are populated and the plaintext token column is
+   absent, inspect the enabled/1,825 survey policy backfill, verify response deadline backfill
+   from submission timestamps, and verify the RLS/ACL lockdown postconditions. Reconcile
+   enabled-retention rows with null deadlines.
 4. Deploy the compatible backend and frontend together and invalidate stale public-form caches.
    Smoke-test enabled and disabled retention,
    immutable policy updates, read-time expiry exclusion, withdrawal digest handling, archived
@@ -145,10 +170,11 @@ shape is also historical compatibility behavior; current create/rotate applies t
 default and maximum validation described above.
 
 Before `2bf09a6bc738`, application rollback during the compatibility window was permitted only
-while plaintext remained. At the current head, plaintext cannot be reconstructed. Never use an ad
-hoc baseline downgrade. For a database incident, restore a validated backup/PITR copy into an
-isolated database, run release checks, and promote only after schema, RBAC, privacy, and health
-checks pass; otherwise use a reviewed forward fix.
+while plaintext remained. At the current head, plaintext cannot be reconstructed, and the
+`d5a4f7c91e2b` lockdown downgrade is disabled. Never use an ad hoc baseline downgrade. For a
+database incident, restore a validated backup/PITR copy into an isolated database, run release
+checks, and promote only after schema, RLS/ACL, RBAC, privacy, and health checks pass; otherwise
+use a reviewed forward fix.
 
 ## Retention purge runbook and monitoring
 
@@ -187,6 +213,14 @@ through the real CDN/edge path and verify that:
 Record provider/region/domains, trusted ingress, runtime configuration, log retention/redaction,
 backup schedule, PITR procedure, purge schedule, and monitoring owner in the production runbook.
 
+Required provider actions remain manual and are not claimed as completed here: rotate any
+credentials exposed during development; remove `public` from the Supabase Data API exposed
+schemas/tables; enable Supabase SSL enforcement only after the TLS client rollout; track the
+eventual CA-backed `verify-full` follow-up for all database paths; and configure HSTS
+on both Vercel and Render. Manually verify exact CORS, production docs-off behavior,
+application-owned headers through the real ingress, service-specific environment exposure,
+provider redaction/no-store behavior, backups/PITR, and purge scheduling before launch.
+
 ## Tests and exit gate
 
 Run from the repository application directories:
@@ -216,5 +250,6 @@ deployments; the export/no-store smoke test becomes mandatory before a later rel
 
 Real respondents remain blocked until rate limits and Redis connectivity/fail-closed behavior,
 the dedicated withdrawal secret, approved consent and privacy values, retention and backup/PITR
-policy, trusted ingress, purge scheduling/monitoring, provider log redaction, and public-survey
-no-store behavior are verified and recorded. Code validation alone does not satisfy this gate.
+policy, trusted ingress, purge scheduling/monitoring, provider log redaction, exact CORS,
+production docs-off behavior, headers through the real ingress, and public-survey no-store
+behavior are verified and recorded. Code validation alone does not satisfy this gate.

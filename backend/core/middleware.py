@@ -112,6 +112,32 @@ class RequestSizeLimitMiddleware:
         await send({"type": "http.response.body", "body": body})
 
 
+class SecurityHeadersMiddleware:
+    """Apply baseline browser security headers without weakening route-specific policy."""
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        async def send_wrapper(message: Any) -> None:
+            if message["type"] == "http.response.start":
+                headers = MutableHeaders(scope=message)
+                headers.setdefault("X-Content-Type-Options", "nosniff")
+                headers.setdefault("X-Frame-Options", "DENY")
+                headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+                headers.setdefault(
+                    "Permissions-Policy",
+                    "camera=(), geolocation=(), microphone=(), payment=()",
+                )
+            await send(message)
+
+        await self.app(scope, receive, send_wrapper)
+
+
 class PublicSurveySecurityHeadersMiddleware:
     """Prevent caching, indexing, framing, and referrer leakage on token routes."""
 

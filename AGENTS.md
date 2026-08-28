@@ -74,8 +74,9 @@ Backend commands run from `backend/`:
 - `./.venv/bin/alembic upgrade head`
 - `./.venv/bin/alembic revision --autogenerate -m "describe change"`
 
-Use `docker compose up --build` from the repo root when you need the full stack:
-frontend, backend, PostgreSQL, and Adminer.
+Use `docker compose up --build` from the repo root for the local frontend, backend, PostgreSQL,
+and Redis stack. Adminer is an opt-in `tools` profile: use
+`docker compose --profile tools up adminer` when database inspection is needed.
 
 ## Validation
 Before committing frontend work, run from `frontend/`:

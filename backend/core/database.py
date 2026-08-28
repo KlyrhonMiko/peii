@@ -22,7 +22,11 @@ from models import (  # noqa: F401
     UserRole,
 )
 
-sync_connect_args = {"check_same_thread": False} if settings.is_sqlite else {}
+sync_connect_args = (
+    {"check_same_thread": False}
+    if settings.is_sqlite
+    else settings.database_sync_tls_args
+)
 async_connect_args: dict[str, Any] = (
     {"check_same_thread": False}
     if settings.is_sqlite
@@ -32,6 +36,8 @@ async_connect_args: dict[str, Any] = (
         "prepared_statement_name_func": lambda: f"__asyncpg_{uuid.uuid4()}__",
     }
 )
+if not settings.is_sqlite:
+    async_connect_args.update(settings.database_async_tls_args)
 
 engine = create_engine(
     settings.database_url,
