@@ -5,6 +5,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Header, Query, Request, Response, status
 from fastapi.responses import StreamingResponse
 
+from core.config import settings
 from core.deps import AsyncDBSession, CurrentPrincipal, require_permissions
 from core.exceptions import AppError
 from core.responses import APIResponse, list_meta_response, success_response
@@ -62,6 +63,14 @@ ResponseListParams = Annotated[
 ]
 
 
+def require_csv_export_enabled() -> None:
+    if not settings.CSV_EXPORT_ENABLED:
+        raise AppError(
+            "Not found.",
+            status_code=status.HTTP_404_NOT_FOUND,
+        )
+
+
 @router.get(
     "/",
     dependencies=[Depends(require_permissions("survey_responses.read_raw"))],
@@ -96,7 +105,10 @@ async def list_survey_responses(
 @router.get(
     "/export",
     response_class=StreamingResponse,
-    dependencies=[Depends(require_permissions("survey_responses.export"))],
+    dependencies=[
+        Depends(require_csv_export_enabled),
+        Depends(require_permissions("survey_responses.export")),
+    ],
     summary="Export Survey Responses",
     description="Download a safe, long-format CSV response export.",
 )

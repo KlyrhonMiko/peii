@@ -174,8 +174,10 @@ until the provider retention window expires; backups are not immediately erased.
 ## Provider logging and streaming verification
 
 Before launch, configure provider redaction for tokenized URL paths, request bodies, authorization
-and cookie headers, idempotency keys, withdrawal codes, and respondent identifiers. Send a
-controlled export smoke request through the real CDN/edge path and verify that:
+and cookie headers, idempotency keys, withdrawal codes, and respondent identifiers. Keep
+`CSV_EXPORT_ENABLED=false` in both the backend and Next.js server environments for the initial
+online release. Before enabling export in a later release, send a controlled export smoke request
+through the real CDN/edge path and verify that:
 
 - `private, no-store`, `Pragma: no-cache`, and related safety headers survive the path;
 - the CSV is not cached, indexed, persisted, or unexpectedly buffered/spooled by the provider;
@@ -209,10 +211,10 @@ TEST_DATABASE_URL=postgresql+psycopg2://user:password@localhost:5432/peii_test \
 ```
 
 Rehearse migration/backfill, purge dry-run and mutating run, backup restore, health/RBAC seed,
-public withdrawal, archived authorized access, and an end-to-end export/no-store smoke test.
+public withdrawal, and archived authorized access. Verify `CSV_EXPORT_ENABLED=false` on both
+deployments; the export/no-store smoke test becomes mandatory before a later release enables it.
 
 Real respondents remain blocked until rate limits and Redis connectivity/fail-closed behavior,
 the dedicated withdrawal secret, approved consent and privacy values, retention and backup/PITR
-policy, trusted ingress, purge scheduling/monitoring, provider log redaction, and provider
-streaming/no-store behavior are verified and recorded. Code validation alone does not satisfy
-this gate.
+policy, trusted ingress, purge scheduling/monitoring, provider log redaction, and public-survey
+no-store behavior are verified and recorded. Code validation alone does not satisfy this gate.

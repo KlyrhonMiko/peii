@@ -59,6 +59,8 @@ parsing, status codes, response models, and response assembly.
 - Survey routes use explicit capability checks over a global RBAC workspace; authentication
   alone does not grant survey access. Keep raw
   reads, aggregates, export, distribution management, and erasure separately permissioned.
+- The CSV export route additionally fails closed behind `CSV_EXPORT_ENABLED`; keep its feature
+  guard separate from the `survey_responses.export` permission dependency.
 - Public token routes remain intentionally unauthenticated and must not expose token secrets in
   metadata responses.
 - Frontend guards never replace backend authorization.

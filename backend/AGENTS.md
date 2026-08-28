@@ -51,6 +51,8 @@ Read this file first, then the guide closest to the files you are changing.
 - `RATE_LIMIT_INCLUDE_CLIENT_IP` may be false only in debug/local environments. Non-debug rate
   limiting requires it to be true; verify the complete trusted forwarding chain before
   production startup.
+- `CSV_EXPORT_ENABLED` is a server-side release flag. Keep it false for the initial online
+  deployment; enabling export also requires the existing `survey_responses.export` capability.
 - `BACKEND_CORS_ORIGINS` is parsed as a list by settings. Keep examples valid for Pydantic.
 
 ## Architecture

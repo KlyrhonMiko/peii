@@ -91,7 +91,7 @@ Authentication alone is insufficient, and each operation has its own capability:
 | --- | --- | --- |
 | Raw page | `GET /api/v1/surveys/{survey_id}/responses/` | `survey_responses.read_raw` |
 | Aggregate | `GET /api/v1/surveys/{survey_id}/responses/aggregates` | `survey_responses.read_aggregates` |
-| CSV export | `GET /api/v1/surveys/{survey_id}/responses/export` | `survey_responses.export` |
+| CSV export | `GET /api/v1/surveys/{survey_id}/responses/export` | `CSV_EXPORT_ENABLED=true` and `survey_responses.export` |
 | Erasure | `POST /api/v1/surveys/{survey_id}/responses/erase` | `survey_responses.erase` plus request confirmation and UUID `Idempotency-Key` |
 
 The public routes are deliberately separate from these protected operations:
@@ -129,6 +129,11 @@ results over time. Aggregate access must remain limited to approved roles. Capac
 bounded to 1,000 cells per question and 10,000 cells per survey.
 
 ### Streamed CSV export
+
+CSV export is implemented but disabled for the initial online deployment. FastAPI returns a
+generic `404` and the frontend hides the export action unless the server-only
+`CSV_EXPORT_ENABLED` flag is explicitly `true` in both deployments. The following contract
+applies when export is enabled.
 
 Exports use the same live-response predicate, allow authorized access to archived surveys, and
 have no client-side filters. A preflight count is performed before the stream starts; more than

@@ -44,6 +44,7 @@ class Settings(BaseSettings):
     RATE_LIMIT_READ_FAILURE_POLICY: Literal["fail_closed", "fail_open"] = "fail_closed"
     RATE_LIMIT_KEY_HMAC_SECRET: str | None = None
     WITHDRAWAL_CODE_HMAC_SECRET: str | None = None
+    CSV_EXPORT_ENABLED: bool = False
     PUBLIC_SURVEY_READ_LIMIT: int = Field(default=60, ge=1)
     PUBLIC_SURVEY_READ_WINDOW_SECONDS: int = Field(default=60, ge=1)
     PUBLIC_SURVEY_SUBMIT_LIMIT: int = Field(default=10, ge=1)

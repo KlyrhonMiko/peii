@@ -454,7 +454,7 @@ async def test_expired_token_rejects_public_access(client, monkeypatch):
     assert submit.status_code == 404
 
 
-async def test_response_routes_require_separate_permissions(client):
+async def test_response_routes_require_separate_permissions(client, csv_export_enabled):
     survey, _questions, _token = await _create_survey_with_question_specs(
         client,
         {"text": {"question_text": "Text", "question_type": "text"}},
@@ -682,7 +682,7 @@ async def _return_questions(questions):
     return questions
 
 
-async def test_export_is_long_form_canonical_and_formula_safe(client):
+async def test_export_is_long_form_canonical_and_formula_safe(client, csv_export_enabled):
     survey, questions, token = await _create_survey_with_question_specs(
         client,
         {

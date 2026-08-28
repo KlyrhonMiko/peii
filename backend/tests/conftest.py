@@ -36,6 +36,7 @@ os.environ["PUBLIC_SURVEY_RETENTION"] = (
 )
 os.environ["PUBLIC_SURVEY_CONTACT"] = "privacy@example.gov.ph"
 
+from core.config import settings  # noqa: E402
 from core.database import get_async_session, get_session  # noqa: E402
 from core.deps import Principal, get_current_principal  # noqa: E402
 from main import app  # noqa: E402
@@ -63,6 +64,11 @@ def pytest_addoption(parser: pytest.Parser) -> None:
 @pytest.fixture
 def anyio_backend() -> str:
     return "asyncio"
+
+
+@pytest.fixture
+def csv_export_enabled(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(settings, "CSV_EXPORT_ENABLED", True)
 
 
 @pytest.fixture

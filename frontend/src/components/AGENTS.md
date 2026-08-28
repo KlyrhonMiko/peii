@@ -38,6 +38,8 @@ Follow `ui/AGENTS.md` when editing primitive building blocks under `src/componen
 - Keep capability checks explicit and separate: aggregate, raw, export, and erase are not
   interchangeable permissions. The shared workspace is global RBAC, not survey ownership or
   membership.
+- Treat export availability as permission plus the server-provided release flag. Client
+  components must not read deployment environment variables directly.
 
 ## Server And Client Boundaries
 - Add `"use client"` only to components that need hooks, browser APIs, event handlers, or

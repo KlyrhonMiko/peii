@@ -79,6 +79,13 @@ def test_short_rate_limit_secret_is_allowed_when_limiting_disabled() -> None:
     assert Settings.model_validate(values).RATE_LIMIT_KEY_HMAC_SECRET == "short"
 
 
+def test_csv_export_is_disabled_when_omitted_from_settings() -> None:
+    values = settings.model_dump()
+    values.pop("CSV_EXPORT_ENABLED", None)
+
+    assert Settings.model_validate(values).CSV_EXPORT_ENABLED is False
+
+
 def test_upstash_rest_settings_must_be_configured_together() -> None:
     values = settings.model_dump()
     values.update(

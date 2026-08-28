@@ -43,7 +43,7 @@ Run frontend commands from `frontend/`:
 `dev`, `build`, and `start` use `scripts/run-next.mjs` to load Next environment
 configuration from the repository root. `lint` and `test` invoke their tools directly.
 Runtime keys include `BACKEND_INTERNAL_URL`, `NEXT_PUBLIC_API_URL`, `SUPABASE_URL`,
-`SUPABASE_PUBLISHABLE_KEY`, and `APP_ORIGIN`.
+`SUPABASE_PUBLISHABLE_KEY`, `APP_ORIGIN`, and the server-only `CSV_EXPORT_ENABLED` release flag.
 
 No tracked pre-commit configuration currently runs frontend checks automatically.
 

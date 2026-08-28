@@ -74,7 +74,10 @@ export function moveInArray<T>(items: T[], from: number, to: number): T[] {
   return next
 }
 
-export function getSurveyCapabilities(permissions: readonly string[]): SurveyCapabilities {
+export function getSurveyCapabilities(
+  permissions: readonly string[],
+  csvExportEnabled: boolean,
+): SurveyCapabilities {
   const can = (permission: string): boolean => permissions.includes(permission)
   return {
     read: can("surveys.read"),
@@ -82,7 +85,7 @@ export function getSurveyCapabilities(permissions: readonly string[]): SurveyCap
     distributionManage: can(SURVEY_PERMISSIONS.distributionManage),
     readAggregates: can(SURVEY_PERMISSIONS.readAggregates),
     readRaw: can(SURVEY_PERMISSIONS.readRaw),
-    export: can(SURVEY_PERMISSIONS.export),
+    export: csvExportEnabled && can(SURVEY_PERMISSIONS.export),
     erase: can(SURVEY_PERMISSIONS.erase),
   }
 }

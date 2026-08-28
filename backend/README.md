@@ -152,7 +152,9 @@ capability requirement.
   The backend stores only its HMAC-SHA-256 digest under `WITHDRAWAL_CODE_HMAC_SECRET`; a lost
   code cannot be recovered. The public withdrawal API is
   `POST /api/v1/survey/responses/withdraw`, with the frontend page at `/survey/withdraw`.
-- Long-format CSV export is streamed, private/no-store, preflight-capped at 10,000 eligible
+- Long-format CSV export is available only when the server-side `CSV_EXPORT_ENABLED` flag is
+  `true`; keep it `false` for the initial online deployment. When enabled, export is streamed,
+  private/no-store, preflight-capped at 10,000 eligible
   responses, and bounded to the accepted preflight count even if rows are inserted before the
   deferred stream runs. Its correlated start, success, and aborted audits distinguish the
   accepted count from the actual records traversed. Selected erasure or all-response erasure

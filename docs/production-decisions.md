@@ -248,11 +248,13 @@ provider's configured retention window expires; do not claim backups are immedia
 ## Provider and launch verification
 
 Before launch, configure provider redaction for tokenized URL paths, request bodies, auth/cookie
-headers, idempotency keys, withdrawal codes, and respondent identifiers. Use a smoke request to
-verify the provider does not cache, index, persist, or unexpectedly buffer the streamed CSV;
-confirm `private, no-store` survives the CDN/edge path and that logs do not contain sensitive
-request or response data. Record provider, region, domains, runtime values, backup schedule, PITR
-procedure, purge schedule/owner, monitoring owner, and rollback owner in the production runbook.
+headers, idempotency keys, withdrawal codes, and respondent identifiers. Keep the server-only
+`CSV_EXPORT_ENABLED` flag `false` for the initial deployment. Before a later release enables it,
+use a smoke request to verify the provider does not cache, index, persist, or unexpectedly buffer
+the streamed CSV; confirm `private, no-store` survives the CDN/edge path and that logs do not
+contain sensitive request or response data. Record provider, region, domains, runtime values,
+backup schedule, PITR procedure, purge schedule/owner, monitoring owner, and rollback owner in the
+production runbook.
 
 ## Release validation and launch gate
 
@@ -284,4 +286,5 @@ in isolation, and complete an end-to-end smoke test.
 Real respondents remain blocked until rate limiting and Redis fail-closed behavior, the dedicated
 withdrawal secret, approved consent/retention/contact values, retention/backups/PITR policy,
 trusted ingress, purge scheduling/monitoring, provider log redaction, and provider
-streaming/no-store behavior are all verified and recorded.
+public-survey no-store behavior are all verified and recorded. Export streaming verification is
+required before any later release sets `CSV_EXPORT_ENABLED=true`.

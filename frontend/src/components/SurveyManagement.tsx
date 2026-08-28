@@ -11,10 +11,11 @@ export * from "./survey-management/utils"
 
 export interface SurveyManagementProps {
   permissions?: string[]
+  csvExportEnabled: boolean
 }
 
-export function SurveyManagement({ permissions }: SurveyManagementProps) {
-  const store = useSurveyManagement({ permissions: permissions ?? [] })
+export function SurveyManagement({ permissions, csvExportEnabled }: SurveyManagementProps) {
+  const store = useSurveyManagement({ permissions: permissions ?? [], csvExportEnabled })
   const { state, actions } = store
   const { distributeSurveyId } = state
   const { setDistributeSurveyId } = actions
