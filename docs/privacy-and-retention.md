@@ -12,8 +12,12 @@ for one distribution/key pair.
 The current distribution contract is digest-only. The historical Phase 2 compatibility revision
 retained plaintext tokens while adding a digest and prefix, and the follow-up expiry revision kept
 the database expiry column nullable. The current `2bf09a6bc738` contract revision removed the
-plaintext column after digest reconciliation. Runtime create/rotate stores only the digest and
-prefix; list/revoke metadata is token-free; and create/rotate reveal a newly generated token once.
+plaintext column after digest reconciliation, and `d5a4f7c91e2b` is the current Alembic head for
+the Supabase Data API RLS/ACL lockdown. That final revision enables RLS, removes effective public
+table/column access and schema creation from `PUBLIC`, `anon`, `authenticated`, and
+`service_role`, and creates no policies. Its downgrade is intentionally fail-closed and
+irreversible. Runtime create/rotate stores only the digest and prefix; list/revoke metadata is
+token-free; and create/rotate reveal a newly generated token once.
 Omitted expiry receives the configured server default (currently 30 days), while an explicit future
 expiry cannot exceed the configured maximum (currently 30 days). Legacy rows with null expiry
 remain possible and non-expiring.
@@ -91,7 +95,7 @@ Authentication alone is insufficient, and each operation has its own capability:
 | --- | --- | --- |
 | Raw page | `GET /api/v1/surveys/{survey_id}/responses/` | `survey_responses.read_raw` |
 | Aggregate | `GET /api/v1/surveys/{survey_id}/responses/aggregates` | `survey_responses.read_aggregates` |
-| CSV export | `GET /api/v1/surveys/{survey_id}/responses/export` | `survey_responses.export` |
+| CSV export | `GET /api/v1/surveys/{survey_id}/responses/export` | `CSV_EXPORT_ENABLED=true` and `survey_responses.export` |
 | Erasure | `POST /api/v1/surveys/{survey_id}/responses/erase` | `survey_responses.erase` plus request confirmation and UUID `Idempotency-Key` |
 
 The public routes are deliberately separate from these protected operations:
@@ -129,6 +133,11 @@ results over time. Aggregate access must remain limited to approved roles. Capac
 bounded to 1,000 cells per question and 10,000 cells per survey.
 
 ### Streamed CSV export
+
+CSV export is implemented but disabled for the initial online deployment. FastAPI returns a
+generic `404` and the frontend hides the export action unless the server-only
+`CSV_EXPORT_ENABLED` flag is explicitly `true` in both deployments. The following contract
+applies when export is enabled.
 
 Exports use the same live-response predicate, allow authorized access to archived surveys, and
 have no client-side filters. A preflight count is performed before the stream starts; more than
@@ -206,6 +215,21 @@ Survey pages use no-store, no-referrer, noindex, nosniff, frame-deny, and
 `frame-ancestors 'none'` headers. Provider logs must redact tokenized URL paths, request bodies,
 authorization/cookie headers, idempotency keys, withdrawal codes, and respondent identifiers.
 Verify those controls and provider retention settings before accepting real responses.
+
+FastAPI owns these public survey API headers; Next.js owns browser/document headers. Exact
+`BACKEND_CORS_ORIGINS` HTTPS origins are required in production, with no wildcard, path, or
+trailing slash. Local Compose uses `DATABASE_TLS_MODE=disable`; Supabase production requires
+`DATABASE_TLS_MODE=require`. This configures psycopg2/Alembic with `sslmode=require`, which
+encrypts transport but does not verify the server certificate or hostname. Asyncpg uses
+`ssl="require"` so the Supavisor pooler connection follows the same encryption-only transition.
+Provider SSL enforcement and eventual CA-backed `verify-full` for every database path remain
+manual follow-up items with an owner and deadline. Provider/CDN behavior must be verified on the real ingress.
+
+Before launch, operators must rotate any credentials exposed during development, remove `public`
+from Supabase Data API exposed schemas/tables, enable Supabase SSL enforcement after TLS client
+deployment, track eventual CA-backed `verify-full` for all database paths, configure
+HSTS on Vercel and Render, and verify log redaction, no-store behavior,
+backups/PITR, and purge scheduling. This document does not claim those provider actions have run.
 
 Real respondents remain blocked until rate limiting and Redis fail-closed behavior, the approved
 consent and privacy contact, retention and backup/PITR policy, trusted ingress, purge scheduling

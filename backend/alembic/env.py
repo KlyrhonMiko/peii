@@ -64,10 +64,12 @@ def run_migrations_online() -> None:
         config.get_section(config.config_ini_section, {}),
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
+        connect_args=settings.database_sync_tls_args,
     )
 
     with connectable.connect() as connection:
         _assert_expected_schema(connection)
+        _assert_rls_migration_version_access(connection)
         context.configure(
             connection=connection,
             target_metadata=target_metadata,
@@ -77,6 +79,64 @@ def run_migrations_online() -> None:
 
         with context.begin_transaction():
             context.run_migrations()
+
+
+def _assert_rls_migration_version_access(connection: Connection) -> None:
+    """Guard future migrations from losing access to an RLS-protected version table."""
+
+    if connection.dialect.name != "postgresql":
+        return
+
+    try:
+        row = connection.execute(
+            text(
+                "SELECT c.relrowsecurity, "
+                "pg_get_userbyid(c.relowner) = current_user, "
+                "migration_role.rolbypassrls, "
+                "has_table_privilege(current_user, "
+                "format('%I.%I', n.nspname, c.relname), 'SELECT'), "
+                "has_table_privilege(current_user, "
+                "format('%I.%I', n.nspname, c.relname), 'INSERT'), "
+                "has_table_privilege(current_user, "
+                "format('%I.%I', n.nspname, c.relname), 'UPDATE'), "
+                "has_table_privilege(current_user, "
+                "format('%I.%I', n.nspname, c.relname), 'DELETE'), "
+                "current_user "
+                "FROM pg_class AS c "
+                "JOIN pg_namespace AS n ON n.oid = c.relnamespace "
+                "JOIN pg_roles AS migration_role "
+                "ON migration_role.rolname = current_user "
+                "WHERE n.nspname = current_schema() "
+                "AND c.relname = 'alembic_version' "
+                "AND c.relkind IN ('r', 'p')"
+            )
+        ).one_or_none()
+        connection.commit()
+    except BaseException:
+        connection.rollback()
+        raise
+
+    # Fresh databases do not have alembic_version until Alembic creates it.
+    if row is None or not row[0]:
+        return
+
+    required_privileges = ("SELECT", "INSERT", "UPDATE", "DELETE")
+    missing_privileges = tuple(
+        privilege
+        for privilege, granted in zip(required_privileges, row[3:7], strict=True)
+        if not granted
+    )
+    if (not row[1] and not row[2]) or missing_privileges:
+        access_basis = (
+            "owner or BYPASSRLS role" if not (row[1] or row[2]) else "effective privileges"
+        )
+        missing = ", ".join(missing_privileges) or "none"
+        raise RuntimeError(
+            "Alembic migration preflight failed: RLS-enabled alembic_version "
+            f"requires the current migration identity {row[7]!r} to have "
+            f"{access_basis} and effective SELECT/INSERT/UPDATE/DELETE access "
+            f"(missing: {missing})."
+        )
 
 
 def _assert_expected_schema(connection: Connection) -> None:

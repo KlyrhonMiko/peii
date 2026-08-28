@@ -32,3 +32,6 @@ analytics, survey management/detail/settings, and model routes.
   shadows, and indigo/slate accents.
 - Pass explicit capability data from the route. Do not treat portal authentication as survey
   authorization; the shared survey workspace is global RBAC without ownership or membership.
+- CSV export availability requires both `survey_responses.export` and the server-only
+  `CSV_EXPORT_ENABLED` release flag passed by `survey/page.tsx`; never expose that flag through a
+  `NEXT_PUBLIC_*` variable.

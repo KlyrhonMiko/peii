@@ -25,6 +25,8 @@ backend without knowing about one resource such as users.
   `async_database_url`, and `is_sqlite`. Core application settings fail fast when missing;
   traffic-security and public-policy settings have local-safe defaults. Production must provide
   the dedicated `WITHDRAWAL_CODE_HMAC_SECRET` (at least 32 bytes) for respondent withdrawal.
+  `CSV_EXPORT_ENABLED` is a fail-closed release flag and remains false for the initial online
+  deployment.
 - `auth.py` parses bearer headers, caches Supabase JWKS, validates JWTs, and defines
   `AuthClaims`.
 - `database.py` owns both sync (`engine`/`get_session`) and async (`async_engine`/`get_async_session`) database engines and session factories. It configures PgBouncer-compatible connection args for async operations.

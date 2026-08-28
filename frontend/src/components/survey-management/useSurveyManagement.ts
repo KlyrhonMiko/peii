@@ -35,10 +35,11 @@ const RAW_RESPONSE_PAGE_SIZE = 25
 
 export interface UseSurveyManagementProps {
   permissions: string[]
+  csvExportEnabled: boolean
 }
 
-export function useSurveyManagement({ permissions }: UseSurveyManagementProps) {
-  const capabilities = getSurveyCapabilities(permissions)
+export function useSurveyManagement({ permissions, csvExportEnabled }: UseSurveyManagementProps) {
+  const capabilities = getSurveyCapabilities(permissions, csvExportEnabled)
   const canManage = capabilities.manage
   const canManageDistribution = capabilities.distributionManage
   const canReadAggregates = capabilities.readAggregates

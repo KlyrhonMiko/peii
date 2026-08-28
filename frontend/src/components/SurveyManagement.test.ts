@@ -35,8 +35,22 @@ describe("survey response count privacy helpers", () => {
 })
 
 describe("getSurveyCapabilities", () => {
+  it.each([
+    { hasPermission: false, csvExportEnabled: false, expectedExport: false },
+    { hasPermission: false, csvExportEnabled: true, expectedExport: false },
+    { hasPermission: true, csvExportEnabled: false, expectedExport: false },
+    { hasPermission: true, csvExportEnabled: true, expectedExport: true },
+  ])(
+    "enables export only when permission and CSV export feature flag are enabled",
+    ({ hasPermission, csvExportEnabled, expectedExport }) => {
+      const permissions = hasPermission ? ["survey_responses.export"] : []
+
+      expect(getSurveyCapabilities(permissions, csvExportEnabled).export).toBe(expectedExport)
+    },
+  )
+
   it("allows a read-only user to reveal archived survey rows without management", () => {
-    expect(getSurveyCapabilities(["surveys.read", "survey_responses.erase"])).toMatchObject({
+    expect(getSurveyCapabilities(["surveys.read", "survey_responses.erase"], false)).toMatchObject({
       read: true,
       manage: false,
       erase: true,
@@ -50,7 +64,7 @@ describe("getSurveyCapabilities", () => {
       "survey_distributions.manage",
       "survey_responses.read_aggregates",
       "survey_responses.export",
-    ])).toEqual({
+    ], true)).toEqual({
       read: true,
       manage: true,
       distributionManage: true,
@@ -68,7 +82,7 @@ describe("getSurveyCapabilities", () => {
       "survey_responses.read_raw.extra",
       "survey_responses.exported",
       "survey_responses.erase.extra",
-    ])).toEqual({
+    ], true)).toEqual({
       read: false,
       manage: false,
       distributionManage: false,

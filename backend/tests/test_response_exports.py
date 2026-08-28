@@ -9,6 +9,7 @@ import pytest
 from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from core.config import settings
 from core.deps import Principal, get_current_principal
 from core.exceptions import AppError
 from main import app
@@ -86,7 +87,47 @@ async def _session() -> tuple[AsyncSession, Any]:
     return await anext(generator), generator
 
 
-async def test_export_permission_headers_and_correlated_start_success_audits(client):
+async def test_disabled_export_returns_not_found_before_preparation_or_audit(
+    client, monkeypatch
+):
+    survey_id = uuid4()
+    _override_permissions("survey_responses.export")
+    monkeypatch.setattr(settings, "CSV_EXPORT_ENABLED", False)
+    calls = 0
+
+    async def prepare(*_args: Any, **_kwargs: Any):
+        nonlocal calls
+        calls += 1
+        raise AssertionError("disabled export must not be prepared")
+
+    monkeypatch.setattr(response_export_service, "prepare_response_export", prepare)
+    response = await client.get(f"/api/v1/surveys/{survey_id}/responses/export")
+
+    assert response.status_code == 404
+    body = response.json()
+    assert body["data"] is None
+    assert body["errors"] is None
+    assert "request_id" in body["meta"]
+    assert calls == 0
+
+    session, generator = await _session()
+    try:
+        audits = (
+            await session.exec(
+                select(AuditLog).where(
+                    col(AuditLog.resource_id) == str(survey_id),
+                    col(AuditLog.action).in_(["export_started", "export"]),
+                )
+            )
+        ).all()
+    finally:
+        await generator.aclose()
+    assert audits == []
+
+
+async def test_export_permission_headers_and_correlated_start_success_audits(
+    client, csv_export_enabled
+):
     survey, question_id, token = await _create_export_survey(client)
     assert (await _submit(client, token, question_id, "answer")).status_code == 201
     _override_permissions("surveys.manage")
@@ -125,7 +166,7 @@ async def test_export_permission_headers_and_correlated_start_success_audits(cli
         assert set(audit.changes) <= {"export_id", "response_count", "answer_row_count"}
 
 
-async def test_export_has_stable_long_form_columns_and_safety(client):
+async def test_export_has_stable_long_form_columns_and_safety(client, csv_export_enabled):
     survey, question_id, token = await _create_export_survey(client)
     response = await _submit(client, token, question_id, "=SUM(A1)\x00")
     assert response.status_code == 201
@@ -143,7 +184,9 @@ async def test_export_has_stable_long_form_columns_and_safety(client):
     assert "\x00" not in exported.text
 
 
-async def test_export_excludes_expired_deleted_and_allows_archived_access(client):
+async def test_export_excludes_expired_deleted_and_allows_archived_access(
+    client, csv_export_enabled
+):
     survey, question_id, token = await _create_export_survey(client)
     for answer in ("deleted", "expired", "live"):
         assert (await _submit(client, token, question_id, answer)).status_code == 201

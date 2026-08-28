@@ -9,9 +9,13 @@ database change log, not as scratch files.
 - The directory contains the canonical first-release baseline `20260825_v1`, the Phase 2
   compatibility revision `f77a807cf2f9_expand_distribution_security`, the follow-up
   `d1f9bad768ad` expiry compatibility revision, the Phase 3 `fb1c93d15474` retention/withdrawal
-  revision, the current `2bf09a6bc738` digest-only distribution-token revision, and this guide.
-  `2bf09a6bc738` is the current head. Future revisions may follow these revisions, but predecessor
+  revision, the current `2bf09a6bc738` digest-only distribution-token revision, the
+  `d5a4f7c91e2b` Supabase Data API lockdown revision, and this guide.
+  `d5a4f7c91e2b` is the current head. Future revisions may follow these revisions, but predecessor
   history must not be reintroduced.
+  The lockdown revision requires its migration identity to own every protected table before
+  changing privileges or RLS and retains RLS on `alembic_version`; `alembic/env.py` guards later
+  migrations with an owner-or-BYPASSRLS and effective CRUD preflight.
 - Start model-driven migrations with Alembic autogenerate, then edit only after reviewing
   the generated diff.
 - Keep each revision focused on the schema change it represents.

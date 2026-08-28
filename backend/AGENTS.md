@@ -51,11 +51,14 @@ Read this file first, then the guide closest to the files you are changing.
 - `RATE_LIMIT_INCLUDE_CLIENT_IP` may be false only in debug/local environments. Non-debug rate
   limiting requires it to be true; verify the complete trusted forwarding chain before
   production startup.
+- `CSV_EXPORT_ENABLED` is a server-side release flag. Keep it false for the initial online
+  deployment; enabling export also requires the existing `survey_responses.export` capability.
 - `BACKEND_CORS_ORIGINS` is parsed as a list by settings. Keep examples valid for Pydantic.
 
 ## Architecture
 - `main.py` wires the FastAPI app, CORS, exception handlers, the versioned router from `routers/api.py`, and the ASGI `RequestIdMiddleware`.
-- Going to the root URL `/` redirects visitors directly to `/api/v1/docs` (OpenAPI Swagger UI).
+- In `DEBUG=true`, the root URL `/` redirects visitors to `/api/v1/docs`; with
+  `DEBUG=false`, production documentation and the root route are absent.
 - Keep route registration centralized in `routers/api.py`; do not mount feature routers directly from `main.py`.
 - Keep routers thin: parse HTTP input, depend on shared async dependencies, call services,
   and assemble the shared response envelope. Endpoint handlers are `async def`.
@@ -140,7 +143,7 @@ Read this file first, then the guide closest to the files you are changing.
 - Add a new revision for new schema work. Do not rewrite older shared or applied revisions.
 - The database uses the canonical first-release baseline `20260825_v1`, followed by
   `f77a807cf2f9_expand_distribution_security`, `d1f9bad768ad`, the Phase 3 `fb1c93d15474`
-  revision, and `2bf09a6bc738`. `2bf09a6bc738` is the current migration head. Fresh environments
+  revision, `2bf09a6bc738`, and `d5a4f7c91e2b`. `d5a4f7c91e2b` is the current migration head. Fresh environments
   must run `./.venv/bin/alembic upgrade head`; production runs it once as the protected release
   job before API replicas are promoted.
 - Historically, the `f77a807cf2f9` compatibility revision added SHA-256 token digests and
@@ -153,6 +156,13 @@ Read this file first, then the guide closest to the files you are changing.
   token once. Omitted expiry uses the configured server default (currently 30 days), and an
   explicit expiry must not exceed the configured maximum (currently 30 days). Legacy nullable
   expiry values remain possible for pre-existing rows.
+- The `d5a4f7c91e2b` revision enables RLS and removes effective public/anon/authenticated/
+  service-role table and column access and schema creation for protected application tables.
+  It requires the migration identity to own all protected tables before making any changes,
+  retains RLS on `alembic_version`, and has an Alembic preflight that verifies later migration
+  identities retain owner-or-BYPASSRLS access plus effective CRUD privileges. It is policy-free,
+  validates its ACL/RLS postconditions, and has a fail-closed irreversible downgrade. Production
+  must verify this lockdown during the one-time release migration.
 - Keep model, schema, service/router contract, tests, and migration files in sync when one feature touches all of them.
 
 ## Testing Standards

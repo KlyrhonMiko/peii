@@ -103,6 +103,7 @@ describe("useSurveyManagement aggregate loading", () => {
 
       const { result } = renderHook(() => useSurveyManagement({
         permissions: ["survey_responses.read_aggregates"],
+        csvExportEnabled: false,
       }))
 
       await waitFor(() => expect(result.current.state.surveys).toEqual([currentSurvey]))
@@ -128,6 +129,7 @@ describe("useSurveyManagement aggregate loading", () => {
           "survey_responses.read_raw",
           "survey_responses.erase",
         ],
+        csvExportEnabled: false,
       }))
 
       await waitFor(() => expect(result.current.state.surveys).toEqual([currentSurvey]))

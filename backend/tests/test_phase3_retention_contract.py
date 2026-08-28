@@ -52,6 +52,9 @@ def test_withdrawal_hmac_secret_is_required_in_production() -> None:
         RATE_LIMIT_INCLUDE_CLIENT_IP=True,
         RATE_LIMIT_KEY_HMAC_SECRET="r" * 32,
         WITHDRAWAL_CODE_HMAC_SECRET=None,
+        DATABASE_TLS_MODE="require",
+        APP_ORIGIN="https://app.example.com",
+        BACKEND_CORS_ORIGINS=["https://app.example.com"],
     )
 
     with pytest.raises(ValidationError, match="WITHDRAWAL_CODE_HMAC_SECRET"):

@@ -43,7 +43,9 @@ Run frontend commands from `frontend/`:
 `dev`, `build`, and `start` use `scripts/run-next.mjs` to load Next environment
 configuration from the repository root. `lint` and `test` invoke their tools directly.
 Runtime keys include `BACKEND_INTERNAL_URL`, `NEXT_PUBLIC_API_URL`, `SUPABASE_URL`,
-`SUPABASE_PUBLISHABLE_KEY`, and `APP_ORIGIN`.
+`SUPABASE_PUBLISHABLE_KEY`, `APP_ORIGIN`, and the server-only `CSV_EXPORT_ENABLED` release flag.
+The root Compose file passes these through an explicit frontend-only environment allowlist; it
+never passes the root `.env` wholesale and never exposes `SUPABASE_SECRET_KEY` to this service.
 
 No tracked pre-commit configuration currently runs frontend checks automatically.
 
@@ -144,6 +146,9 @@ before assuming it is not active.
 - Server-side auth and model requests use `BACKEND_INTERNAL_URL`.
 - Public survey loading/submission and the development sentiment page use
   `NEXT_PUBLIC_API_URL` directly.
+- Next.js owns browser/document security headers, including the stricter no-store/no-referrer
+  policy for `/survey`; FastAPI owns the corresponding public survey API headers. Production
+  `DEBUG=false` keeps backend API documentation routes disabled.
 
 ## Navigation And Browser APIs
 - Use `next/link` for internal navigation in route/page code.

@@ -82,7 +82,8 @@ Create a new migration after model changes:
 The fresh-database baseline is `20260825_v1`. The current forward chain is
 `f77a807cf2f9` (distribution security) -> `d1f9bad768ad` (distribution expiry compatibility)
 -> `fb1c93d15474` (Phase 3 retention and withdrawal) -> `2bf09a6bc738` (remove plaintext
-distribution tokens). `2bf09a6bc738` is the current Alembic head. For production, run
+distribution tokens) -> `d5a4f7c91e2b` (Supabase Data API RLS/ACL lockdown).
+`d5a4f7c91e2b` is the current Alembic head. For production, run
 `./.venv/bin/alembic upgrade head` once as the managed-service release job before API replicas
 are promoted. Do not run migrations independently in every replica. Review the Phase 3
 survey-policy and response-deadline backfill before activating the external purge job.
@@ -98,6 +99,26 @@ rows with a null expiry remain possible and non-expiring.
 
 The runtime values are configured with `SURVEY_DISTRIBUTION_DEFAULT_EXPIRY_DAYS` and
 `SURVEY_DISTRIBUTION_MAX_EXPIRY_DAYS` (both currently `30`).
+
+The `d5a4f7c91e2b` migration enables RLS for the protected application tables and revokes
+effective table/column privileges and schema creation from `PUBLIC`, `anon`, `authenticated`,
+and `service_role`. Its default-privilege revokes are limited to objects subsequently created by
+the current migration role (`current_user`) in the current schema; provider-owned/global
+defaults and defaults for other object creators are not mutated and require separate
+provider/admin configuration. It creates no policies, so direct Data API access remains denied;
+the FastAPI service uses its database owner/service connection. Before changing privileges or RLS,
+it requires `current_user` to own every protected table. On later Alembic runs, the environment
+preflight also requires an existing RLS-enabled `alembic_version` table to be owned by (or
+accessible to a `BYPASSRLS` migration role) and to grant that identity effective `SELECT`,
+`INSERT`, `UPDATE`, and `DELETE`; it is a no-op before that table exists. The migration validates
+its postconditions and its downgrade intentionally raises instead of attempting an unsafe reversal.
+Treat it as an irreversible, fail-closed release step.
+
+For production Supabase connections, `DATABASE_TLS_MODE=require` gives psycopg2/Alembic
+`sslmode=require`, which provides encryption only and does not verify the server certificate or
+hostname. Asyncpg uses `ssl="require"` so the Supavisor pooler connection follows the same
+encryption-only transition. Provider SSL enforcement and eventual CA-backed `verify-full` for all
+database paths remain manual follow-up items; record an owner and deadline before launch.
 
 ## RBAC role-assignment safety
 
@@ -152,7 +173,9 @@ capability requirement.
   The backend stores only its HMAC-SHA-256 digest under `WITHDRAWAL_CODE_HMAC_SECRET`; a lost
   code cannot be recovered. The public withdrawal API is
   `POST /api/v1/survey/responses/withdraw`, with the frontend page at `/survey/withdraw`.
-- Long-format CSV export is streamed, private/no-store, preflight-capped at 10,000 eligible
+- Long-format CSV export is available only when the server-side `CSV_EXPORT_ENABLED` flag is
+  `true`; keep it `false` for the initial online deployment. When enabled, export is streamed,
+  private/no-store, preflight-capped at 10,000 eligible
   responses, and bounded to the accepted preflight count even if rows are inserted before the
   deferred stream runs. Its correlated start, success, and aborted audits distinguish the
   accepted count from the actual records traversed. Selected erasure or all-response erasure
@@ -191,8 +214,9 @@ From the repo root:
 docker compose up --build
 ```
 
-PostgreSQL and Adminer always start with the full Compose graph. `DB_MODE=supabase`
-changes the database URL selected by the backend but does not disable those services.
+PostgreSQL and Redis start with the application graph. Adminer is an opt-in Compose `tools`
+profile. `DB_MODE=supabase` changes the database URL selected by the backend but does not disable
+the local PostgreSQL service.
 
 Compose does not currently apply Alembic migrations automatically. Initialize a fresh
 database before using the application.
@@ -200,14 +224,21 @@ database before using the application.
 For local database containers only:
 
 ```bash
-docker compose up postgres adminer
+docker compose --profile tools up postgres adminer
 ```
+
+All published development ports bind to `127.0.0.1`. Compose passes explicit per-service
+environment allowlists rather than the root `.env`: only backend settings go to the backend,
+only `POSTGRES_DB`, `POSTGRES_USER`, and `POSTGRES_PASSWORD` go to PostgreSQL, and Adminer gets
+only `ADMINER_DEFAULT_SERVER`. The frontend receives only the URLs, public Supabase key, app
+origin, telemetry, and export flag it uses. Never treat a container environment as a production
+secret boundary; provider credentials still require rotation before launch.
 
 Services:
 
 - Frontend: `http://localhost:3000`
 - Backend: `http://localhost:8000`
-- Adminer: `http://localhost:8080`
+- Adminer (with `tools` profile): `http://localhost:8080`
 - PostgreSQL: `localhost:5432`
 
 ## API Surface

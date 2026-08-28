@@ -79,6 +79,13 @@ def test_short_rate_limit_secret_is_allowed_when_limiting_disabled() -> None:
     assert Settings.model_validate(values).RATE_LIMIT_KEY_HMAC_SECRET == "short"
 
 
+def test_csv_export_is_disabled_when_omitted_from_settings() -> None:
+    values = settings.model_dump()
+    values.pop("CSV_EXPORT_ENABLED", None)
+
+    assert Settings.model_validate(values).CSV_EXPORT_ENABLED is False
+
+
 def test_upstash_rest_settings_must_be_configured_together() -> None:
     values = settings.model_dump()
     values.update(
@@ -98,6 +105,9 @@ def test_withdrawal_rate_limiting_requires_client_ip_in_production() -> None:
         RATE_LIMIT_INCLUDE_CLIENT_IP=False,
         RATE_LIMIT_KEY_HMAC_SECRET="x" * 32,
         WITHDRAWAL_CODE_HMAC_SECRET="x" * 32,
+        DATABASE_TLS_MODE="require",
+        APP_ORIGIN="https://app.example.com",
+        BACKEND_CORS_ORIGINS=["https://app.example.com"],
     )
 
     with pytest.raises(ValidationError, match="RATE_LIMIT_INCLUDE_CLIENT_IP"):
@@ -115,6 +125,9 @@ def test_rate_limiting_cannot_be_disabled_outside_debug_mode() -> None:
         RATE_LIMIT_ENABLED=False,
         RATE_LIMIT_INCLUDE_CLIENT_IP=False,
         WITHDRAWAL_CODE_HMAC_SECRET="x" * 32,
+        DATABASE_TLS_MODE="require",
+        APP_ORIGIN="https://app.example.com",
+        BACKEND_CORS_ORIGINS=["https://app.example.com"],
     )
 
     with pytest.raises(ValidationError, match="RATE_LIMIT_ENABLED"):

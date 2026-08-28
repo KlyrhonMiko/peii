@@ -17,4 +17,22 @@ describe("survey security headers", () => {
       { key: "Content-Security-Policy", value: "frame-ancestors 'none'" },
     ]))
   })
+
+  it("configures baseline headers for routes outside /survey", async () => {
+    const configuredHeaders = await nextConfig.headers?.() ?? []
+    const globalRule = configuredHeaders.find(
+      (rule) => rule.source === "/((?!survey(?:/|$)).*)",
+    )
+
+    expect(globalRule).toBeDefined()
+    expect(globalRule?.headers).toEqual([
+      { key: "X-Content-Type-Options", value: "nosniff" },
+      { key: "X-Frame-Options", value: "DENY" },
+      { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+      {
+        key: "Permissions-Policy",
+        value: "camera=(), geolocation=(), microphone=(), payment=()",
+      },
+    ])
+  })
 })
