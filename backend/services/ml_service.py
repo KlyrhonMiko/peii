@@ -1,13 +1,13 @@
-import logging
 import re
 
 import langdetect
 from fastapi import HTTPException
 from transformers import pipeline
 
+from core.logging import get_logger
 from schemas.ml import SentimentResponse
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 # Models
 TL_MODEL_ID = "dost-asti/RoBERTa-tl-sentiment-analysis"
@@ -22,20 +22,30 @@ def get_pipelines():
     global tl_pipeline, en_pipeline
 
     if tl_pipeline is None:
-        logger.info(f"Loading Tagalog model {TL_MODEL_ID}. This may take a moment...")
+        logger.info("ml_model_loading", model_id=TL_MODEL_ID, language="tl")
         try:
             tl_pipeline = pipeline("text-classification", model=TL_MODEL_ID, tokenizer=TL_MODEL_ID)
-        except Exception as e:
-            logger.error(f"Failed to load Tagalog model {TL_MODEL_ID}: {e}")
-            raise RuntimeError(f"Failed to load Tagalog ML model: {e}")
+        except Exception as exc:
+            logger.error(
+                "ml_model_load_failed",
+                model_id=TL_MODEL_ID,
+                language="tl",
+                error_type=type(exc).__name__,
+            )
+            raise RuntimeError("Failed to load Tagalog ML model.") from exc
 
     if en_pipeline is None:
-        logger.info(f"Loading English model {EN_MODEL_ID}. This may take a moment...")
+        logger.info("ml_model_loading", model_id=EN_MODEL_ID, language="en")
         try:
             en_pipeline = pipeline("text-classification", model=EN_MODEL_ID, tokenizer=EN_MODEL_ID)
-        except Exception as e:
-            logger.error(f"Failed to load English model {EN_MODEL_ID}: {e}")
-            raise RuntimeError(f"Failed to load English ML model: {e}")
+        except Exception as exc:
+            logger.error(
+                "ml_model_load_failed",
+                model_id=EN_MODEL_ID,
+                language="en",
+                error_type=type(exc).__name__,
+            )
+            raise RuntimeError("Failed to load English ML model.") from exc
 
     return tl_pipeline, en_pipeline
 
@@ -148,10 +158,10 @@ async def analyze_sentiment(text: str, requested_model: str | None = None) -> Se
                     pass
 
         if active_model == EN_MODEL_ID:
-            logger.info(f"Routing to English model: {EN_MODEL_ID}")
+            logger.info("ml_model_selected", model_id=EN_MODEL_ID, language="en")
             results = en_pipe(text)
         else:
-            logger.info(f"Routing to default Tagalog model: {TL_MODEL_ID}")
+            logger.info("ml_model_selected", model_id=TL_MODEL_ID, language="tl")
             results = tl_pipe(text)
 
         if not results or len(results) == 0:
@@ -183,6 +193,6 @@ async def analyze_sentiment(text: str, requested_model: str | None = None) -> Se
             label=label, score=score, sentiment_score=sentiment_score, model=active_model
         )
 
-    except Exception as e:
-        logger.error(f"Error during sentiment analysis: {e}")
-        raise HTTPException(status_code=500, detail=f"Local inference failed: {str(e)}")
+    except Exception as exc:
+        logger.error("sentiment_analysis_failed", error_type=type(exc).__name__)
+        raise HTTPException(status_code=500, detail="Local inference failed.") from exc

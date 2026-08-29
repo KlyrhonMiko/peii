@@ -1,3 +1,4 @@
+import ipaddress
 from functools import lru_cache
 from pathlib import Path
 from typing import Literal, Self
@@ -85,6 +86,20 @@ def _validate_exact_https_origin(origin: str, setting_name: str) -> None:
         raise ValueError(f"{setting_name} must contain exact HTTPS origins") from exc
 
 
+def _validate_cidr(cidr: str, setting_name: str) -> None:
+    if not cidr or cidr != cidr.strip() or "/" not in cidr:
+        raise ValueError(f"{setting_name} must contain valid CIDR networks")
+    try:
+        ipaddress.ip_network(cidr)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{setting_name} must contain valid CIDR networks") from exc
+
+
+def _is_secure_redis_url(redis_url: str) -> bool:
+    parsed_url = urlsplit(redis_url)
+    return parsed_url.scheme == "rediss" and bool(parsed_url.hostname)
+
+
 class Settings(BaseSettings):
     PROJECT_NAME: str
     PROJECT_VERSION: str
@@ -156,10 +171,16 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_traffic_security(self) -> Self:
-        if bool(self.UPSTASH_REDIS_REST_URL) != bool(self.UPSTASH_REDIS_REST_TOKEN):
+        has_upstash_url = bool(self.UPSTASH_REDIS_REST_URL and self.UPSTASH_REDIS_REST_URL.strip())
+        has_upstash_token = bool(
+            self.UPSTASH_REDIS_REST_TOKEN and self.UPSTASH_REDIS_REST_TOKEN.strip()
+        )
+        if has_upstash_url != has_upstash_token:
             raise ValueError(
                 "UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN must be configured together"
             )
+        for cidr in self.TRUSTED_PROXY_CIDRS:
+            _validate_cidr(cidr, "TRUSTED_PROXY_CIDRS")
         if self.RATE_LIMIT_ENABLED and not self.RATE_LIMIT_KEY_HMAC_SECRET:
             raise ValueError(
                 "RATE_LIMIT_KEY_HMAC_SECRET is required when RATE_LIMIT_ENABLED is true"
@@ -188,6 +209,29 @@ class Settings(BaseSettings):
             and len(self.WITHDRAWAL_CODE_HMAC_SECRET.encode("utf-8")) < 32
         ):
             raise ValueError("WITHDRAWAL_CODE_HMAC_SECRET must be at least 32 bytes")
+        if not self.DEBUG and self.DB_MODE == "supabase":
+            if self.RATE_LIMIT_READ_FAILURE_POLICY != "fail_closed":
+                raise ValueError(
+                    "RATE_LIMIT_READ_FAILURE_POLICY must be fail_closed in production Supabase mode"
+                )
+            if not self.TRUSTED_PROXY_CIDRS:
+                raise ValueError(
+                    "TRUSTED_PROXY_CIDRS must contain the verified proxy CIDRs in "
+                    "production Supabase mode"
+                )
+            if has_upstash_url:
+                upstash_url = self.UPSTASH_REDIS_REST_URL
+                assert upstash_url is not None
+                _validate_exact_https_origin(upstash_url, "UPSTASH_REDIS_REST_URL")
+                hostname = urlsplit(upstash_url).hostname
+                if hostname is None or not hostname.lower().endswith(".upstash.io"):
+                    raise ValueError(
+                        "UPSTASH_REDIS_REST_URL must be an exact HTTPS Upstash URL"
+                    )
+            elif not _is_secure_redis_url(self.REDIS_URL):
+                raise ValueError(
+                    "Production Supabase Redis must use a complete HTTPS Upstash pair or rediss://"
+                )
         return self
 
     @model_validator(mode="after")

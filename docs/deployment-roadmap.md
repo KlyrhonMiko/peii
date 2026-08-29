@@ -1,9 +1,10 @@
 # Deployment Roadmap
 
-Status: the Phase 3 response-operations implementation is present in the current tree. Public
-launch remains blocked by the operational exit gate below. Redis, consent, response retention,
-withdrawal, protected response operations, and their application contracts are implemented;
-provider and scheduler verification are still deployment responsibilities.
+Status: the Phase 4 BFF and traffic-hardening behavior is present in the current tree alongside
+the Phase 3 response-operations implementation. Public launch remains blocked by the operational
+exit gate below. Redis, consent, response retention, withdrawal, protected response operations,
+and their application contracts are implemented; provider, forwarding-chain, and scheduler
+verification are still deployment responsibilities.
 
 ## Current release and migration head
 
@@ -88,6 +89,16 @@ provider and scheduler verification are still deployment responsibilities.
   survey and expected-count match. Both use UUID idempotency keys, explicit confirmation, atomic
   audits, and logical tombstones/receipts.
 
+## Implemented Phase 4 BFF and traffic behavior
+
+- The global Next.js proxy excludes `/api`; the allowlisted `/api/backend/[...path]` BFF owns
+  Supabase claims/session lookup for browser backend calls.
+- BFF request bodies are capped at 65,536 bytes and must be read within 15 seconds. The upstream
+  timeout is 15 seconds to response headers only, so a response stream may continue afterward.
+  Client cancellation is propagated and no retries are performed.
+- Locally generated BFF errors are `no-store`. `/api/v1/health` remains a liveness-only probe,
+  not a readiness or dependency check.
+
 ## Deployment configuration
 
 Set and verify these production values:
@@ -142,6 +153,13 @@ chain before deployment. Withdrawal checks the strict client bucket before its s
 circuit breaker. Requests over 64 KiB are rejected before parsing. Survey routes send no-store,
 no-referrer, noindex, nosniff, frame-deny, and `frame-ancestors 'none'` headers; CSV exports
 also send private/no-store and no-cache headers.
+
+For production Supabase mode (`DEBUG=false`, `DB_MODE=supabase`), startup also requires
+`RATE_LIMIT_READ_FAILURE_POLICY=fail_closed`, nonempty valid `TRUSTED_PROXY_CIDRS` for the
+verified immediate proxy networks, and either a secure HTTPS Upstash REST URL/token pair or a
+`rediss://` Redis URL. Broad RFC1918 ranges are not production-ready proxy CIDRs. Render/provider
+log redaction and verification of the actual forwarding chain remain deployment tasks; do not
+consider application tests or the liveness health check proof of either.
 
 ## Migration, backfill, and activation order
 
@@ -219,7 +237,8 @@ schemas/tables; enable Supabase SSL enforcement only after the TLS client rollou
 eventual CA-backed `verify-full` follow-up for all database paths; and configure HSTS
 on both Vercel and Render. Manually verify exact CORS, production docs-off behavior,
 application-owned headers through the real ingress, service-specific environment exposure,
-provider redaction/no-store behavior, backups/PITR, and purge scheduling before launch.
+provider redaction/no-store behavior, the actual forwarding chain, backups/PITR, and purge
+scheduling before launch.
 
 ## Tests and exit gate
 

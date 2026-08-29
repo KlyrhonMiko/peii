@@ -9,6 +9,9 @@ from jwt import PyJWKClient
 
 from core.config import settings
 from core.exceptions import AppError
+from core.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 @dataclass(frozen=True)
@@ -38,5 +41,5 @@ async def verify_bearer_token(authorization: str | None = Header(default=None)) 
         )
         return AuthClaims(subject=UUID(claims["sub"]), access_token=access_token)
     except (jwt.PyJWTError, KeyError, ValueError) as exc:
-        print(f"JWT Verification failed: {exc}", flush=True)
+        logger.warning("jwt_verification_failed", error_type=type(exc).__name__)
         raise AppError("Authentication required.", status_code=401) from exc

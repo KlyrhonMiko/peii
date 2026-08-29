@@ -16,6 +16,7 @@ const context = (path: string[]) => ({ params: Promise.resolve({ path }) })
 
 describe("backend BFF", () => {
   afterEach(() => {
+    vi.useRealTimers()
     vi.unstubAllEnvs()
     vi.unstubAllGlobals()
     vi.clearAllMocks()
@@ -35,6 +36,7 @@ describe("backend BFF", () => {
     expect(response.status).toBe(403)
     expect(mocks.createSupabaseServerClient).not.toHaveBeenCalled()
     expect(fetchMock).not.toHaveBeenCalled()
+    expect(response.headers.get("cache-control")).toBe("no-store")
   })
 
   it("rejects unsafe requests from another origin", async () => {
@@ -52,6 +54,66 @@ describe("backend BFF", () => {
     )
 
     expect(response.status).toBe(403)
+    expect(mocks.createSupabaseServerClient).not.toHaveBeenCalled()
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(response.headers.get("cache-control")).toBe("no-store")
+  })
+
+  it("rejects malformed content lengths before auth or fetch", async () => {
+    vi.stubEnv("BACKEND_INTERNAL_URL", "http://backend:8000/api/v1")
+    vi.stubEnv("APP_ORIGIN", "http://localhost:3000")
+    const fetchMock = vi.fn()
+    vi.stubGlobal("fetch", fetchMock)
+
+    const response = await POST(
+      new NextRequest("http://localhost:3000/api/backend/users", {
+        method: "POST",
+        headers: { origin: "http://localhost:3000", "content-length": "-1" },
+      }),
+      context(["users"]),
+    )
+
+    expect(response.status).toBe(400)
+    expect(response.headers.get("cache-control")).toBe("no-store")
+    expect(mocks.createSupabaseServerClient).not.toHaveBeenCalled()
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it.each(["1.5", "", "9007199254740992", "1, 1"])(
+    "rejects unsafe content length %j",
+    async (contentLength) => {
+      vi.stubEnv("BACKEND_INTERNAL_URL", "http://backend:8000/api/v1")
+      vi.stubEnv("APP_ORIGIN", "http://localhost:3000")
+      const response = await POST(
+        new NextRequest("http://localhost:3000/api/backend/users", {
+          method: "POST",
+          headers: { origin: "http://localhost:3000", "content-length": contentLength },
+        }),
+        context(["users"]),
+      )
+
+      expect(response.status).toBe(400)
+      expect(response.headers.get("cache-control")).toBe("no-store")
+      expect(mocks.createSupabaseServerClient).not.toHaveBeenCalled()
+    },
+  )
+
+  it("rejects a declared body over the cap before auth or fetch", async () => {
+    vi.stubEnv("BACKEND_INTERNAL_URL", "http://backend:8000/api/v1")
+    vi.stubEnv("APP_ORIGIN", "http://localhost:3000")
+    const fetchMock = vi.fn()
+    vi.stubGlobal("fetch", fetchMock)
+
+    const response = await POST(
+      new NextRequest("http://localhost:3000/api/backend/users", {
+        method: "POST",
+        headers: { origin: "http://localhost:3000", "content-length": "65537" },
+      }),
+      context(["users"]),
+    )
+
+    expect(response.status).toBe(413)
+    expect(response.headers.get("cache-control")).toBe("no-store")
     expect(mocks.createSupabaseServerClient).not.toHaveBeenCalled()
     expect(fetchMock).not.toHaveBeenCalled()
   })
@@ -91,6 +153,16 @@ describe("backend BFF", () => {
     expect(fetchMock).not.toHaveBeenCalled()
   })
 
+  it("returns a no-store 503 when the backend is not configured", async () => {
+    const response = await GET(
+      new NextRequest("http://localhost:3000/api/backend/surveys"),
+      context(["surveys"]),
+    )
+
+    expect(response.status).toBe(503)
+    expect(response.headers.get("cache-control")).toBe("no-store")
+  })
+
   it("forwards an allowed survey request without upstream cookies", async () => {
     vi.stubEnv("BACKEND_INTERNAL_URL", "http://backend:8000/api/v1")
     mocks.getClaims.mockResolvedValue({ data: { claims: { sub: "user-id" } } })
@@ -112,7 +184,219 @@ describe("backend BFF", () => {
       expect.objectContaining({ method: "GET" }),
     )
     expect(response.headers.get("set-cookie")).toBeNull()
+    expect(response.headers.get("cache-control")).toBe("no-store")
     expect(await response.text()).toBe('{"data":[]}')
+  })
+
+  it("forwards unauthenticated requests without an Authorization header", async () => {
+    vi.stubEnv("BACKEND_INTERNAL_URL", "http://backend:8000/api/v1")
+    mocks.getClaims.mockResolvedValue({ data: { claims: null } })
+    mocks.getSession.mockResolvedValue({ data: { session: null } })
+    const fetchMock = vi.fn<typeof fetch>(async () => new Response('{"data":[]}'))
+    vi.stubGlobal("fetch", fetchMock)
+
+    await GET(
+      new NextRequest("http://localhost:3000/api/backend/surveys"),
+      context(["surveys"]),
+    )
+
+    const call = fetchMock.mock.calls[0]
+    expect(call).toBeDefined()
+    if (!call) throw new Error("Expected the backend request to be forwarded")
+    expect(new Headers(call[1]?.headers).get("authorization")).toBeNull()
+  })
+
+  it("returns a no-store 502 for an upstream network failure without retrying", async () => {
+    vi.stubEnv("BACKEND_INTERNAL_URL", "http://backend:8000/api/v1")
+    mocks.getClaims.mockResolvedValue({ data: { claims: null } })
+    mocks.getSession.mockResolvedValue({ data: { session: null } })
+    const fetchMock = vi.fn<typeof fetch>(async () => {
+      throw new Error("backend unavailable")
+    })
+    vi.stubGlobal("fetch", fetchMock)
+
+    const response = await GET(
+      new NextRequest("http://localhost:3000/api/backend/surveys"),
+      context(["surveys"]),
+    )
+
+    expect(response.status).toBe(502)
+    expect(response.headers.get("cache-control")).toBe("no-store")
+    expect(await response.json()).toEqual({ message: "Backend request failed." })
+    expect(fetchMock).toHaveBeenCalledOnce()
+  })
+
+  it("returns a no-store 504 when upstream headers exceed the deadline", async () => {
+    vi.useFakeTimers()
+    vi.stubEnv("BACKEND_INTERNAL_URL", "http://backend:8000/api/v1")
+    mocks.getClaims.mockResolvedValue({ data: { claims: null } })
+    mocks.getSession.mockResolvedValue({ data: { session: null } })
+    const fetchMock = vi.fn<typeof fetch>((_input, init) =>
+      new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(init.signal?.reason))
+      }),
+    )
+    vi.stubGlobal("fetch", fetchMock)
+    const result = GET(
+      new NextRequest("http://localhost:3000/api/backend/surveys"),
+      context(["surveys"]),
+    )
+    for (let attempt = 0; attempt < 5 && !fetchMock.mock.calls.length; attempt += 1) {
+      await Promise.resolve()
+    }
+
+    await vi.advanceTimersByTimeAsync(15000)
+    const response = await result
+
+    expect(response.status).toBe(504)
+    expect(response.headers.get("cache-control")).toBe("no-store")
+    expect(fetchMock).toHaveBeenCalledOnce()
+  })
+
+  it("propagates client cancellation instead of returning a gateway error", async () => {
+    vi.stubEnv("BACKEND_INTERNAL_URL", "http://backend:8000/api/v1")
+    mocks.getClaims.mockResolvedValue({ data: { claims: null } })
+    mocks.getSession.mockResolvedValue({ data: { session: null } })
+    const fetchMock = vi.fn<typeof fetch>((_input, init) =>
+      new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(init.signal?.reason))
+      }),
+    )
+    vi.stubGlobal("fetch", fetchMock)
+    const controller = new AbortController()
+    const result = GET(
+      new NextRequest("http://localhost:3000/api/backend/surveys", { signal: controller.signal }),
+      context(["surveys"]),
+    )
+    for (let attempt = 0; attempt < 5 && !fetchMock.mock.calls.length; attempt += 1) {
+      await Promise.resolve()
+    }
+    const reason = new Error("client disconnected")
+    controller.abort(reason)
+
+    await expect(result).rejects.toBe(reason)
+    expect(fetchMock).toHaveBeenCalledOnce()
+  })
+
+  it("keeps a response stream alive after the header deadline", async () => {
+    vi.useFakeTimers()
+    vi.stubEnv("BACKEND_INTERNAL_URL", "http://backend:8000/api/v1")
+    mocks.getClaims.mockResolvedValue({ data: { claims: null } })
+    mocks.getSession.mockResolvedValue({ data: { session: null } })
+    const fetchMock = vi.fn<typeof fetch>(async (_input, init) =>
+      new Response(
+        new ReadableStream({
+          start(controller) {
+            controller.enqueue(new TextEncoder().encode("first"))
+            init?.signal?.addEventListener("abort", () => controller.error(new Error("aborted")))
+            setTimeout(() => {
+              controller.enqueue(new TextEncoder().encode(" second"))
+              controller.close()
+            }, 16000)
+          },
+        }),
+      ),
+    )
+    vi.stubGlobal("fetch", fetchMock)
+
+    const response = await GET(
+      new NextRequest("http://localhost:3000/api/backend/surveys"),
+      context(["surveys"]),
+    )
+    await vi.advanceTimersByTimeAsync(16000)
+
+    expect(response.status).toBe(200)
+    expect(await response.text()).toBe("first second")
+  })
+
+  it("accepts an exact-cap streamed body and forwards it", async () => {
+    vi.stubEnv("BACKEND_INTERNAL_URL", "http://backend:8000/api/v1")
+    vi.stubEnv("APP_ORIGIN", "http://localhost:3000")
+    mocks.getClaims.mockResolvedValue({ data: { claims: null } })
+    mocks.getSession.mockResolvedValue({ data: { session: null } })
+    const fetchMock = vi.fn<typeof fetch>(async () => new Response('{"data":null}'))
+    vi.stubGlobal("fetch", fetchMock)
+    const body = new Uint8Array(65536).fill(65)
+
+    const response = await POST(
+      new NextRequest("http://localhost:3000/api/backend/users", {
+        method: "POST",
+        headers: { origin: "http://localhost:3000", "content-length": "65536" },
+        body: new ReadableStream({
+          start(controller) {
+            controller.enqueue(body)
+            controller.close()
+          },
+        }),
+        duplex: "half",
+      }),
+      context(["users"]),
+    )
+
+    expect(response.status).toBe(200)
+    const call = fetchMock.mock.calls[0]
+    expect(call).toBeDefined()
+    if (!call) throw new Error("Expected the backend request to be forwarded")
+    expect(await new Response(call[1]?.body).text()).toBe("A".repeat(65536))
+  })
+
+  it("rejects a streamed body that exceeds the cap despite its declaration", async () => {
+    vi.stubEnv("BACKEND_INTERNAL_URL", "http://backend:8000/api/v1")
+    vi.stubEnv("APP_ORIGIN", "http://localhost:3000")
+    mocks.getClaims.mockResolvedValue({ data: { claims: null } })
+    mocks.getSession.mockResolvedValue({ data: { session: null } })
+    const fetchMock = vi.fn()
+    vi.stubGlobal("fetch", fetchMock)
+
+    const response = await POST(
+      new NextRequest("http://localhost:3000/api/backend/users", {
+        method: "POST",
+        headers: { origin: "http://localhost:3000", "content-length": "1" },
+        body: new ReadableStream({
+          start(controller) {
+            controller.enqueue(new Uint8Array(65536))
+            controller.enqueue(new Uint8Array(1))
+            controller.close()
+          },
+        }),
+        duplex: "half",
+      }),
+      context(["users"]),
+    )
+
+    expect(response.status).toBe(413)
+    expect(response.headers.get("cache-control")).toBe("no-store")
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it("returns a no-store 408 when the request body misses its deadline", async () => {
+    vi.useFakeTimers()
+    vi.stubEnv("BACKEND_INTERNAL_URL", "http://backend:8000/api/v1")
+    vi.stubEnv("APP_ORIGIN", "http://localhost:3000")
+    mocks.getClaims.mockResolvedValue({ data: { claims: null } })
+    mocks.getSession.mockResolvedValue({ data: { session: null } })
+    const fetchMock = vi.fn()
+    vi.stubGlobal("fetch", fetchMock)
+    let cancelled = false
+    const request = new NextRequest("http://localhost:3000/api/backend/users", {
+      method: "POST",
+      headers: { origin: "http://localhost:3000" },
+      body: new ReadableStream({
+        start() {},
+        cancel() {
+          cancelled = true
+        },
+      }),
+      duplex: "half",
+    })
+    const result = POST(request, context(["users"]))
+    await vi.advanceTimersByTimeAsync(15000)
+    const response = await result
+
+    expect(response.status).toBe(408)
+    expect(response.headers.get("cache-control")).toBe("no-store")
+    expect(cancelled).toBe(true)
+    expect(fetchMock).not.toHaveBeenCalled()
   })
 
   it("normalizes collection routes to the backend trailing-slash form", async () => {
