@@ -1,4 +1,6 @@
 import type { SurveySection } from "@/lib/surveys"
+import { Button } from "@/components/ui/button"
+import { ChevronDown } from "lucide-react"
 
 interface SurveyPreviewTabProps {
   sections: SurveySection[] | undefined
@@ -76,7 +78,17 @@ export function SurveyPreviewTab({ sections }: SurveyPreviewTabProps) {
                     </div>
                   )}
 
-                  {["single_choice", "multiple_choice", "ranking"].includes(q.type) && (
+                  {q.config?.presentation === "dropdown" ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      disabled
+                      className="mt-4 h-9 w-full max-w-xs justify-between text-sm font-normal text-slate-500"
+                    >
+                      Select a degree program…
+                      <ChevronDown className="size-4 text-slate-400" />
+                    </Button>
+                  ) : ["single_choice", "multiple_choice", "ranking"].includes(q.type) && (
                     <div className="space-y-3 max-w-2xl">
                       {(q.options ?? []).map((opt, optIdx) => (
                         <div key={optIdx} className="flex items-start gap-3 text-[14px]">

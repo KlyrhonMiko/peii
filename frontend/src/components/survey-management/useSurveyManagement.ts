@@ -17,7 +17,7 @@ import {
 import type { ApiPagination, Survey, SurveyStatus, SurveyResponse, SurveyResponseAggregate } from "@/lib/surveys"
 import { validateSurveyStructure } from "@/lib/survey-structure"
 
-import { ALUMNI_QUESTIONNAIRE } from "./constants"
+import { createGraduateTracerStudySurveyPayload } from "./constants"
 import type { ModalState, DragItem, EditorSection, EditorQuestion, PendingAction } from "./types"
 import {
   createClientId,
@@ -495,25 +495,9 @@ export function useSurveyManagement({ permissions, csvExportEnabled }: UseSurvey
     await runExclusive({ type: "generate" }, async () => {
       setGenerating(true)
       try {
-        const created = await createSurveyWithStructure({
-          title: "Alumni Survey Questionnaire",
-          description: "This comprehensive survey helps us understand your post-graduation journey — from employment outcomes and degree-to-career alignment to socioeconomic impact and personal growth.",
-          target_cohort: "All Alumni",
-          status: "Inactive",
-          sections: ALUMNI_QUESTIONNAIRE.map((section) => ({
-            client_id: createClientId(),
-            title: section.title,
-            description: section.description,
-            questions: section.questions.map((question) => ({
-              client_id: createClientId(),
-              question_text: question.question_text,
-              question_type: question.question_type,
-              options: question.options,
-              config: question.config,
-              is_required: true,
-            })),
-          })),
-        })
+        const created = await createSurveyWithStructure(
+          createGraduateTracerStudySurveyPayload(createClientId),
+        )
         setSurveys((prev) => [created, ...prev])
         setShowGeneratePreview(false)
       } catch (error) {
