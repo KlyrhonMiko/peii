@@ -3,10 +3,13 @@ import {
   DialogContent,
 } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
-import { ClipboardList, ListChecks, Check, Loader2, X } from "lucide-react"
+import { ClipboardList, ListChecks, Check, ChevronDown, Loader2, X } from "lucide-react"
 import { cn } from "@/lib/utils"
 
-import { ALUMNI_QUESTIONNAIRE } from "./constants"
+import {
+  GRADUATE_TRACER_STUDY_SURVEY,
+  GRADUATE_TRACER_STUDY_SURVEY_TITLE,
+} from "./constants"
 import type { useSurveyManagement } from "./useSurveyManagement"
 
 export interface SurveyGeneratePreviewModalProps {
@@ -32,7 +35,7 @@ export function SurveyGeneratePreviewModal({ store }: SurveyGeneratePreviewModal
             </div>
             <div className="flex-1 min-w-0">
               <h2 className="text-xl font-medium tracking-tight text-slate-900 flex items-center gap-3">
-                Alumni Survey Questionnaire
+                {GRADUATE_TRACER_STUDY_SURVEY_TITLE}
                 <span className="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-0.5 text-[10px] font-bold text-slate-600 uppercase tracking-widest">Preview</span>
               </h2>
               <p className="text-sm text-slate-500 mt-1 max-w-xl leading-relaxed">
@@ -54,7 +57,7 @@ export function SurveyGeneratePreviewModal({ store }: SurveyGeneratePreviewModal
         {/* Body */}
         <div className="flex-1 overflow-y-auto px-10 py-8 bg-slate-50/30">
           <div className="grid gap-12 max-w-2xl mx-auto pb-12">
-            {ALUMNI_QUESTIONNAIRE.map((sec, secIdx) => (
+            {GRADUATE_TRACER_STUDY_SURVEY.sections.map((sec, secIdx) => (
               <div key={secIdx} className="space-y-6">
                 <div className="border-b border-slate-200 pb-4">
                   <h3 className="text-base font-semibold text-slate-900 tracking-tight flex items-center gap-3">
@@ -78,7 +81,17 @@ export function SurveyGeneratePreviewModal({ store }: SurveyGeneratePreviewModal
                          <p className="text-sm font-medium text-slate-800 leading-snug">
                            {q.question_text}
                          </p>
-                         {q.question_type !== "scale" && q.options && q.options.length > 0 && (
+                         {q.config?.presentation === "dropdown" ? (
+                           <Button
+                             type="button"
+                             variant="outline"
+                             disabled
+                             className="mt-4 h-9 w-full max-w-xs justify-between text-sm font-normal text-slate-500"
+                           >
+                             Select a degree program…
+                             <ChevronDown className="size-4 text-slate-400" />
+                           </Button>
+                         ) : q.question_type !== "scale" && q.options && q.options.length > 0 && (
                            <div className="mt-4 flex flex-col gap-3">
                              {q.options.map((opt, optIdx) => (
                                <label key={optIdx} className="flex items-center gap-3 cursor-pointer">
@@ -124,9 +137,9 @@ export function SurveyGeneratePreviewModal({ store }: SurveyGeneratePreviewModal
         {/* Footer */}
         <div className="flex shrink-0 items-center justify-between border-t border-slate-100 bg-white px-10 py-5">
           <div className="flex items-center gap-3 text-sm text-slate-500 font-medium">
-            <span className="flex items-center gap-2"><ClipboardList className="size-4 text-slate-400" /> {ALUMNI_QUESTIONNAIRE.length} Sections</span>
+            <span className="flex items-center gap-2"><ClipboardList className="size-4 text-slate-400" /> {GRADUATE_TRACER_STUDY_SURVEY.sections.length} Sections</span>
             <span className="text-slate-300">&bull;</span>
-            <span className="flex items-center gap-2"><ListChecks className="size-4 text-slate-400" /> {ALUMNI_QUESTIONNAIRE.reduce((acc, s) => acc + s.questions.length, 0)} Questions</span>
+            <span className="flex items-center gap-2"><ListChecks className="size-4 text-slate-400" /> {GRADUATE_TRACER_STUDY_SURVEY.sections.reduce((acc, s) => acc + s.questions.length, 0)} Questions</span>
           </div>
           <div className="flex gap-3">
             <Button

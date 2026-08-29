@@ -1,7 +1,6 @@
 """
-Seed the "Alumni Survey Questionnaire" — a structured survey with 4 thematic
-sections covering employment outcomes, degree-to-career alignment, socioeconomic
-impact, and personal growth.
+Seed the "GRADUATE TRACER STUDY SURVEY" — the canonical 8-section,
+25-question graduate tracer study definition.
 
 Usage:
     cd backend
@@ -28,338 +27,210 @@ from models.survey_section import SurveySection as SurveySectionModel
 from services.audit_service import AuditEvent, commit_with_audit
 from utils.identifiers import generate_business_id
 
+GRADUATE_TRACER_STUDY_SURVEY_TITLE = "GRADUATE TRACER STUDY SURVEY"
+GRADUATE_TRACER_STUDY_PURPOSE = (
+    "This survey aims to assess the outcomes of graduates from Pamantasan ng Lungsod ng Pasig "
+    "(PLP) and determine how their education has contributed to their employment, financial "
+    "stability, personal development, and community engagement. The results will be used to "
+    "compute the Pasig Education Impact Index (PEII) and to support the continuous improvement of "
+    "educational programs "
+    "and policies."
+)
+GRADUATE_TRACER_STUDY_INSTRUCTIONS = (
+    "Please answer the following questions honestly and completely."
+)
+GRADUATE_TRACER_STUDY_DATA_PRIVACY_NOTICE = (
+    "In accordance with the Data Privacy Act of 2012 (Republic Act No. 10173), all personal "
+    "information collected will be treated with strict confidentiality. The data will be used "
+    "solely for academic and research purposes. Participation in this survey is voluntary, and "
+    "you may choose to withdraw at any time without any penalty. All information will be securely "
+    "stored and protected. You may also visit https://privacy.gov.ph/data-privacy-act/ to learn "
+    "more about your rights."
+)
+GRADUATE_TRACER_STUDY_REQUIRED_FIELDS_NOTE = "Required fields are marked with an asterisk (*)"
+GRADUATE_TRACER_STUDY_SURVEY_DESCRIPTION = "\n\n".join(
+    (
+        f"Purpose: {GRADUATE_TRACER_STUDY_PURPOSE}",
+        f"Instructions: {GRADUATE_TRACER_STUDY_INSTRUCTIONS}",
+        f"Data Privacy Notice: {GRADUATE_TRACER_STUDY_DATA_PRIVACY_NOTICE}",
+        GRADUATE_TRACER_STUDY_REQUIRED_FIELDS_NOTE,
+    )
+)
+GRADUATE_TRACER_STUDY_TARGET_COHORT = "All Alumni"
+GRADUATE_TRACER_STUDY_STATUS = "Active"
+
+PEII_SCALE_LABELS = [
+    "Strongly Disagree",
+    "Disagree",
+    "Neutral",
+    "Agree",
+    "Strongly Agree",
+]
+
+
+def _text_question(text: str) -> dict:
+    return {
+        "type": QuestionType.TEXT,
+        "text": text,
+        "options": None,
+        "config": None,
+        "is_required": True,
+    }
+
+
+def _single_choice_question(
+    text: str,
+    options: list[str],
+    config: dict[str, object] | None = None,
+) -> dict:
+    return {
+        "type": QuestionType.SINGLE_CHOICE,
+        "text": text,
+        "options": options,
+        "config": config,
+        "is_required": True,
+    }
+
+
+def _scale_question(text: str) -> dict:
+    return {
+        "type": QuestionType.SCALE,
+        "text": text,
+        "options": [*PEII_SCALE_LABELS],
+        "config": {"min": 1, "max": 5},
+        "is_required": True,
+    }
+
+
+PEII_COMMON_DESCRIPTION = (
+    "Instruction: Rate each statement using the scale below based on your condition during two "
+    "specific timeframes:\nYour situation specifically during your final year of residency as a "
+    "student at PLP. This serves as your baseline for transformation.\nNote: These responses are "
+    "essential to compute your Individual-Level Improvement and the overall Pasig Education Impact "
+    "Index (PEII).\nScale: "
+    "1 = Strongly Disagree | 2 = Disagree | 3 = Neutral | 4 = Agree | 5 = Strongly Agree"
+)
+
 SECTIONS: list[dict] = [
     {
-        "title": "Employment Outcomes",
-        "description": "Tell us about your current employment and career"
-        " situation since graduating.",
+        "title": "Intro",
+        "description": "",
         "questions": [
-            {
-                "type": QuestionType.SINGLE_CHOICE,
-                "text": "What is your current employment status?",
-                "options": [
-                    "Full-time",
-                    "Part-time",
-                    "Self-employed",
-                    "Freelance / Contract",
-                    "Pursuing further studies",
-                    "Unemployed",
-                ],
-            },
-            {
-                "type": QuestionType.SINGLE_CHOICE,
-                "text": "How long did it take you to obtain your first job"
-                " after graduation?",
-                "options": [
-                    "Before graduation",
-                    "Less than 3 months",
-                    "3\u20136 months",
-                    "6\u201312 months",
-                    "More than 1 year",
-                ],
-            },
-            {
-                "type": QuestionType.SINGLE_CHOICE,
-                "text": "What is your current monthly income range?",
-                "options": [
-                    "No current income",
-                    "Less than \u20b120,000",
-                    "\u20b120,000\u2013\u20b139,999",
-                    "\u20b140,000\u2013\u20b159,999",
-                    "\u20b160,000\u2013\u20b179,999",
-                    "\u20b180,000 or above",
-                    "Prefer not to answer",
-                ],
-            },
-            {
-                "type": QuestionType.SINGLE_CHOICE,
-                "text": "Which industry or sector do you currently work in?",
-                "options": [
-                    "Information and Communications Technology (ICT)",
-                    "Education",
-                    "Government / Public Administration",
-                    "Healthcare and Social Services",
-                    "Banking, Finance, and Insurance",
-                    "Professional and Business Services",
-                    "Manufacturing",
-                    "Retail and Wholesale Trade",
-                    "Hospitality, Tourism, and Food Services",
-                    "Construction and Engineering",
-                    "Transportation and Logistics",
-                    "Agriculture, Forestry, and Fisheries",
-                    "Media, Arts, and Entertainment",
-                    "Other",
-                    "Not currently employed",
-                ],
-            },
-            {
-                "type": QuestionType.TEXT,
-                "text": "Optional: Please briefly describe any challenges or"
-                " experiences encountered while seeking employment after"
-                " graduation.",
-                "options": None,
-            },
+            _text_question("Email: Record <email> as the email to be included with my response"),
+            _single_choice_question(
+                "Consent Statement: I have read and understood the Data Privacy Statement and "
+                "voluntarily agree to participate in this survey.",
+                ["Yes", "No"],
+            ),
         ],
     },
     {
-        "title": "Degree-to-Career Alignment & Institutional Factors",
-        "description": "Help us understand how well your degree aligns with"
-        " your career path.",
+        "title": "SECTION I : RESPONDENT'S PROFILE",
+        "description": "",
         "questions": [
-            {
-                "type": QuestionType.SCALE,
-                "text": "How related is your current employment to your degree"
-                " program?",
-                "options": [
-                    "Not applicable",
-                    "Not related",
-                    "Slightly related",
-                    "Moderately related",
-                    "Highly related",
+            _text_question("Name*: Surname, First name, Middle Initial (e.g. Dela Cruz, Juan A.)"),
+            _text_question("PLP Email Address: (@plpasig.edu.ph)"),
+            _text_question("Non-PLP Email Address: (GMail, Yahoo, Etc.)"),
+            _text_question("Contact Number/s:"),
+            _single_choice_question("Year Graduated:", ["2023", "2024", "2025", "2026"]),
+            _single_choice_question(
+                "Degree Program Category:",
+                [
+                    "BSA",
+                    "BSBA",
+                    "BSE",
+                    "BEE",
+                    "BSE - Fil",
+                    "BSE - Eng",
+                    "BSE - Math",
+                    "BSEE",
+                    "BSHM",
+                    "BSN",
+                    "BSCS",
+                    "BSIT",
+                    "BAP",
+                    "CTP",
                 ],
-                "config": {
-                    "min": 1,
-                    "max": 5,
-                    "min_label": "Not applicable",
-                    "max_label": "Highly related",
-                },
-            },
-            {
-                "type": QuestionType.SCALE,
-                "text": "To what extent did your internship/OJT prepare you for"
-                " employment?",
-                "options": [
-                    "Not helpful",
-                    "Slightly helpful",
-                    "Helpful",
-                    "Very helpful",
-                ],
-                "config": {
-                    "min": 1,
-                    "max": 4,
-                    "min_label": "Not helpful",
-                    "max_label": "Very helpful",
-                },
-            },
-            {
-                "type": QuestionType.MULTIPLE_CHOICE,
-                "text": "Which skills acquired during your university studies"
-                " do you regularly utilize in your current work? (Select all"
-                " that apply)",
-                "options": [
-                    "Technical Skills",
-                    "Communication",
-                    "Critical Thinking",
-                    "Teamwork",
-                    "Leadership",
-                    "Problem Solving",
-                    "Research",
-                    "Digital Literacy",
-                    "Other",
-                ],
-            },
-            {
-                "type": QuestionType.TEXT,
-                "text": "Optional: Please note any specific subjects, skills,"
-                " or experiences that have proven particularly beneficial or"
-                " ineffective in your career.",
-                "options": None,
-            },
+                {"presentation": "dropdown"},
+            ),
+            _single_choice_question("Sex Assigned At Birth:", ["Male", "Female"]),
+            _single_choice_question("Civil Status:", ["Single", "Married", "Separated", "Widowed"]),
+            _single_choice_question(
+                "First-generation graduate in the family: (You are the first in the immediate "
+                "family to graduate from a college or university.)",
+                ["Yes", "No"],
+            ),
+            _single_choice_question(
+                "Current Location:",
+                ["Pasig City", "NCR (Outside Pasig)", "Outside NCR", "Overseas / Abroad"],
+            ),
         ],
     },
     {
-        "title": "Socioeconomic Impact",
-        "description": "Share how your education has affected your financial and daily life.",
+        "title": "SECTION II - PEII Core Impact Measurement: A. Employability and Economic "
+        "Mobility",
+        "description": PEII_COMMON_DESCRIPTION,
         "questions": [
-            {
-                "type": QuestionType.SINGLE_CHOICE,
-                "text": "How would you describe your financial stability"
-                " progression since graduation?",
-                "options": [
-                    "Significant positive progression",
-                    "Steady, gradual progression",
-                    "Stabilizing / No major changes yet",
-                    "Experiencing financial setbacks",
-                ],
-            },
-            {
-                "type": QuestionType.SINGLE_CHOICE,
-                "text": "Which of the following best describes your current financial stage?",
-                "options": [
-                    "Primary financial provider for my family / household",
-                    "Covering my own expenses and actively contributing to family expenses",
-                    "Covering my own living expenses",
-                    "Currently working toward personal financial independence",
-                    "Prefer not to answer",
-                ],
-            },
-            {
-                "type": QuestionType.SINGLE_CHOICE,
-                "text": "How would you characterize your current income"
-                " capacity regarding daily expenses?",
-                "options": [
-                    "Covers basic needs with room for savings or investments",
-                    "Covers basic needs with limited disposable income",
-                    "Strictly covers essential needs",
-                    "Currently insufficient to cover all basic needs",
-                    "Prefer not to answer",
-                ],
-            },
-            {
-                "type": QuestionType.SINGLE_CHOICE,
-                "text": "What is your primary mode of transportation for work"
-                " or daily activities?",
-                "options": [
-                    "Personal vehicle (car)",
-                    "Personal motorcycle",
-                    "Public transportation (e.g., jeepney, bus, MRT/LRT, UV Express)",
-                    "Ride-hailing services (e.g., Grab, Angkas)",
-                    "I walk or cycle",
-                    "Not applicable (Work from home or remote)",
-                ],
-            },
-            {
-                "type": QuestionType.TEXT,
-                "text": "Optional: If your lifestyle has changed since"
-                " graduation, please briefly describe the most significant"
-                " shift.",
-                "options": None,
-            },
+            _scale_question("I have/had a stable source of income or employment."),
+            _scale_question("I have/had a stable source of income or employment."),
         ],
     },
     {
-        "title": "Personal Growth & Educational Effectiveness",
-        "description": "Reflect on how the university experience shaped your"
-        " personal and professional life.",
+        "title": "SECTION II - PEII Core Impact Measurement: B. Family Upliftment and Financial "
+        "Stability",
+        "description": PEII_COMMON_DESCRIPTION,
         "questions": [
-            {
-                "type": QuestionType.SCALE,
-                "text": "How has your overall quality of life changed since graduation?",
-                "options": [
-                    "Much worse",
-                    "Worse",
-                    "No change",
-                    "Better",
-                    "Much better",
-                ],
-                "config": {
-                    "min": 1,
-                    "max": 5,
-                    "min_label": "Much worse",
-                    "max_label": "Much better",
-                },
-            },
-            {
-                "type": QuestionType.SCALE,
-                "text": "My university education adequately prepared me for"
-                " professional employment.",
-                "options": [
-                    "Strongly disagree",
-                    "Disagree",
-                    "Agree",
-                    "Strongly agree",
-                ],
-                "config": {
-                    "min": 1,
-                    "max": 4,
-                    "min_label": "Strongly disagree",
-                    "max_label": "Strongly agree",
-                },
-            },
-            {
-                "type": QuestionType.SCALE,
-                "text": "The curriculum developed skills directly applicable to my career.",
-                "options": [
-                    "Strongly disagree",
-                    "Disagree",
-                    "Agree",
-                    "Strongly agree",
-                ],
-                "config": {
-                    "min": 1,
-                    "max": 4,
-                    "min_label": "Strongly disagree",
-                    "max_label": "Strongly agree",
-                },
-            },
-            {
-                "type": QuestionType.SCALE,
-                "text": "Overall, my university education has had a positive"
-                " impact on my life after graduation.",
-                "options": [
-                    "Strongly disagree",
-                    "Disagree",
-                    "Agree",
-                    "Strongly agree",
-                ],
-                "config": {
-                    "min": 1,
-                    "max": 4,
-                    "min_label": "Strongly disagree",
-                    "max_label": "Strongly agree",
-                },
-            },
-            {
-                "type": QuestionType.SCALE,
-                "text": "The faculty provided effective mentoring and support during my studies.",
-                "options": [
-                    "Strongly disagree",
-                    "Disagree",
-                    "Agree",
-                    "Strongly agree",
-                ],
-                "config": {
-                    "min": 1,
-                    "max": 4,
-                    "min_label": "Strongly disagree",
-                    "max_label": "Strongly agree",
-                },
-            },
-            {
-                "type": QuestionType.SCALE,
-                "text": "My involvement in student organizations contributed to"
-                " my professional development.",
-                "options": [
-                    "Strongly disagree",
-                    "Disagree",
-                    "Agree",
-                    "Strongly agree",
-                    "Not applicable",
-                ],
-                "config": {
-                    "min": 1,
-                    "max": 5,
-                    "min_label": "Strongly disagree",
-                    "max_label": "Not applicable",
-                },
-            },
-            {
-                "type": QuestionType.SCALE,
-                "text": "Overall, how satisfied are you with the quality of"
-                " your university education?",
-                "options": [
-                    "Very dissatisfied",
-                    "Dissatisfied",
-                    "Satisfied",
-                    "Very satisfied",
-                ],
-                "config": {
-                    "min": 1,
-                    "max": 4,
-                    "min_label": "Very dissatisfied",
-                    "max_label": "Very satisfied",
-                },
-            },
-            {
-                "type": QuestionType.TEXT,
-                "text": "Optional: What is one specific improvement the"
-                " university could implement to better prepare future"
-                " graduates?",
-                "options": None,
-            },
+            _scale_question("I contribute/contributed financially to my household expenses."),
+            _scale_question("I contribute/contributed financially to my household expenses."),
+        ],
+    },
+    {
+        "title": "SECTION II - PEII Core Impact Measurement: C. Personal Development and Life "
+        "Quality",
+        "description": PEII_COMMON_DESCRIPTION,
+        "questions": [
+            _scale_question("I feel/felt confident in my abilities and decisions."),
+            _scale_question("I feel/felt confident in my abilities and decisions."),
+        ],
+    },
+    {
+        "title": "SECTION II - PEII Core Impact Measurement: D. Civic Engagement and Community "
+        "Contribution",
+        "description": PEII_COMMON_DESCRIPTION,
+        "questions": [
+            _scale_question("I participate/participated in community or civic activities."),
+            _scale_question("I participate/participated in community or civic activities."),
+        ],
+    },
+    {
+        "title": "SECTION II - PEII Core Impact Measurement: E. Government Trust and LGU Support "
+        "Valuation",
+        "description": PEII_COMMON_DESCRIPTION,
+        "questions": [
+            _scale_question("I am/was aware of education programs provided by the Pasig LGU."),
+            _scale_question("I am/was aware of education programs provided by the Pasig LGU."),
+        ],
+    },
+    {
+        "title": "IV. Feedback and Reflection",
+        "description": "",
+        "questions": [
+            _text_question(
+                "What specific technical or soft skills do you wish were given more focus at PLP?"
+            ),
+            _text_question("What improvements should PLP implement to better support students?"),
+            _text_question(
+                "What message would you like to share with Pasig City leaders regarding PLP?"
+            ),
         ],
     },
 ]
+
+GRADUATE_TRACER_STUDY_SURVEY = {
+    "title": GRADUATE_TRACER_STUDY_SURVEY_TITLE,
+    "description": GRADUATE_TRACER_STUDY_SURVEY_DESCRIPTION,
+    "sections": SECTIONS,
+}
 
 
 def _create_tables() -> None:
@@ -367,22 +238,14 @@ def _create_tables() -> None:
 
 
 async def _seed(session: AsyncSession) -> SurveyModel:
-    title = "Alumni Survey Questionnaire"
-    description = (
-        "This comprehensive survey helps us understand your post-graduation "
-        "journey \u2014 from employment outcomes and degree-to-career alignment "
-        "to socioeconomic impact and personal growth. Your responses directly "
-        "shape how we improve the institution for future cohorts."
-    )
-
     survey_id = generate_business_id("SURV")
 
     survey = SurveyModel(
         survey_id=survey_id,
-        title=title,
-        description=description,
-        status="Active",
-        target_cohort="All Alumni",
+        title=GRADUATE_TRACER_STUDY_SURVEY_TITLE,
+        description=GRADUATE_TRACER_STUDY_SURVEY_DESCRIPTION,
+        status=GRADUATE_TRACER_STUDY_STATUS,
+        target_cohort=GRADUATE_TRACER_STUDY_TARGET_COHORT,
         performed_by=settings.SYSTEM_ACTOR_ID,
     )
     session.add(survey)
@@ -413,6 +276,7 @@ async def _seed(session: AsyncSession) -> SurveyModel:
                 options=options_str,
                 config=config_str,
                 order_index=q_idx,
+                is_required=spec["is_required"],
                 performed_by=settings.SYSTEM_ACTOR_ID,
             )
             session.add(question)
