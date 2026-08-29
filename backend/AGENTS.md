@@ -51,6 +51,10 @@ Read this file first, then the guide closest to the files you are changing.
 - `RATE_LIMIT_INCLUDE_CLIENT_IP` may be false only in debug/local environments. Non-debug rate
   limiting requires it to be true; verify the complete trusted forwarding chain before
   production startup.
+- In production Supabase mode (`DEBUG=false`, `DB_MODE=supabase`), startup requires
+  `RATE_LIMIT_READ_FAILURE_POLICY=fail_closed`, a nonempty list of valid `TRUSTED_PROXY_CIDRS`,
+  and either a secure HTTPS Upstash REST URL/token pair or a `rediss://` Redis URL. The CIDRs
+  must be the verified immediate proxy networks; broad RFC1918 ranges are not production-ready.
 - `CSV_EXPORT_ENABLED` is a server-side release flag. Keep it false for the initial online
   deployment; enabling export also requires the existing `survey_responses.export` capability.
 - `BACKEND_CORS_ORIGINS` is parsed as a list by settings. Keep examples valid for Pydantic.
@@ -59,6 +63,8 @@ Read this file first, then the guide closest to the files you are changing.
 - `main.py` wires the FastAPI app, CORS, exception handlers, the versioned router from `routers/api.py`, and the ASGI `RequestIdMiddleware`.
 - In `DEBUG=true`, the root URL `/` redirects visitors to `/api/v1/docs`; with
   `DEBUG=false`, production documentation and the root route are absent.
+- `/api/v1/health` is a liveness-only endpoint. A successful health response does not establish
+  dependency readiness or verify the production ingress forwarding chain.
 - Keep route registration centralized in `routers/api.py`; do not mount feature routers directly from `main.py`.
 - Keep routers thin: parse HTTP input, depend on shared async dependencies, call services,
   and assemble the shared response envelope. Endpoint handlers are `async def`.

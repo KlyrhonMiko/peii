@@ -101,10 +101,13 @@ def test_withdrawal_rate_limiting_requires_client_ip_in_production() -> None:
     values = settings.model_dump()
     values.update(
         DEBUG=False,
+        DB_MODE="supabase",
         RATE_LIMIT_ENABLED=True,
         RATE_LIMIT_INCLUDE_CLIENT_IP=False,
         RATE_LIMIT_KEY_HMAC_SECRET="x" * 32,
         WITHDRAWAL_CODE_HMAC_SECRET="x" * 32,
+        REDIS_URL="rediss://redis.example.com:6379/0",
+        TRUSTED_PROXY_CIDRS=["198.51.100.0/24"],
         DATABASE_TLS_MODE="require",
         APP_ORIGIN="https://app.example.com",
         BACKEND_CORS_ORIGINS=["https://app.example.com"],
@@ -116,6 +119,133 @@ def test_withdrawal_rate_limiting_requires_client_ip_in_production() -> None:
     values["RATE_LIMIT_INCLUDE_CLIENT_IP"] = True
     production_settings = Settings.model_validate(values)
     assert production_settings.RATE_LIMIT_INCLUDE_CLIENT_IP is True
+
+
+@pytest.mark.parametrize(
+    ("setting", "value", "message"),
+    [
+        ("RATE_LIMIT_READ_FAILURE_POLICY", "fail_open", "RATE_LIMIT_READ_FAILURE_POLICY"),
+        ("TRUSTED_PROXY_CIDRS", [], "TRUSTED_PROXY_CIDRS"),
+        ("TRUSTED_PROXY_CIDRS", ["not-a-cidr"], "TRUSTED_PROXY_CIDRS"),
+        ("TRUSTED_PROXY_CIDRS", ["198.51.100.1/24"], "TRUSTED_PROXY_CIDRS"),
+        ("REDIS_URL", "redis://redis.example.com:6379/0", "Redis"),
+    ],
+)
+def test_production_supabase_rejects_insecure_traffic_settings(
+    setting: str, value: object, message: str
+) -> None:
+    values = settings.model_dump()
+    values.update(
+        DEBUG=False,
+        DB_MODE="supabase",
+        DATABASE_TLS_MODE="require",
+        RATE_LIMIT_ENABLED=True,
+        RATE_LIMIT_INCLUDE_CLIENT_IP=True,
+        RATE_LIMIT_KEY_HMAC_SECRET="x" * 32,
+        WITHDRAWAL_CODE_HMAC_SECRET="x" * 32,
+        REDIS_URL="rediss://redis.example.com:6379/0",
+        TRUSTED_PROXY_CIDRS=["198.51.100.0/24"],
+        APP_ORIGIN="https://app.example.com",
+        BACKEND_CORS_ORIGINS=["https://app.example.com"],
+        UPSTASH_REDIS_REST_URL=None,
+        UPSTASH_REDIS_REST_TOKEN=None,
+    )
+    values[setting] = value
+
+    with pytest.raises(ValidationError, match=message):
+        Settings.model_validate(values)
+
+
+def test_production_supabase_accepts_rediss_without_upstash() -> None:
+    values = settings.model_dump()
+    values.update(
+        DEBUG=False,
+        DB_MODE="supabase",
+        DATABASE_TLS_MODE="require",
+        RATE_LIMIT_ENABLED=True,
+        RATE_LIMIT_INCLUDE_CLIENT_IP=True,
+        RATE_LIMIT_KEY_HMAC_SECRET="x" * 32,
+        WITHDRAWAL_CODE_HMAC_SECRET="x" * 32,
+        REDIS_URL="rediss://redis.example.com:6379/0",
+        TRUSTED_PROXY_CIDRS=["198.51.100.0/24"],
+        UPSTASH_REDIS_REST_URL=None,
+        UPSTASH_REDIS_REST_TOKEN=None,
+        APP_ORIGIN="https://app.example.com",
+        BACKEND_CORS_ORIGINS=["https://app.example.com"],
+    )
+
+    assert Settings.model_validate(values).REDIS_URL.startswith("rediss://")
+
+
+@pytest.mark.parametrize(
+    ("url", "token"),
+    [
+        ("http://example.upstash.io", "token"),
+        ("https://example.upstash.io/path", "token"),
+        ("https://example.upstash.io", None),
+    ],
+)
+def test_production_supabase_rejects_invalid_upstash_configuration(
+    url: str, token: str | None
+) -> None:
+    values = settings.model_dump()
+    values.update(
+        DEBUG=False,
+        DB_MODE="supabase",
+        DATABASE_TLS_MODE="require",
+        RATE_LIMIT_ENABLED=True,
+        RATE_LIMIT_INCLUDE_CLIENT_IP=True,
+        RATE_LIMIT_KEY_HMAC_SECRET="x" * 32,
+        WITHDRAWAL_CODE_HMAC_SECRET="x" * 32,
+        REDIS_URL="rediss://redis.example.com:6379/0",
+        TRUSTED_PROXY_CIDRS=["198.51.100.0/24"],
+        UPSTASH_REDIS_REST_URL=url,
+        UPSTASH_REDIS_REST_TOKEN=token,
+        APP_ORIGIN="https://app.example.com",
+        BACKEND_CORS_ORIGINS=["https://app.example.com"],
+    )
+
+    with pytest.raises(ValidationError):
+        Settings.model_validate(values)
+
+
+def test_production_supabase_accepts_complete_https_upstash_configuration() -> None:
+    values = settings.model_dump()
+    values.update(
+        DEBUG=False,
+        DB_MODE="supabase",
+        DATABASE_TLS_MODE="require",
+        RATE_LIMIT_ENABLED=True,
+        RATE_LIMIT_INCLUDE_CLIENT_IP=True,
+        RATE_LIMIT_KEY_HMAC_SECRET="x" * 32,
+        WITHDRAWAL_CODE_HMAC_SECRET="x" * 32,
+        REDIS_URL="redis://redis:6379/0",
+        TRUSTED_PROXY_CIDRS=["198.51.100.0/24"],
+        UPSTASH_REDIS_REST_URL="https://example.upstash.io",
+        UPSTASH_REDIS_REST_TOKEN="token",
+        APP_ORIGIN="https://app.example.com",
+        BACKEND_CORS_ORIGINS=["https://app.example.com"],
+    )
+
+    assert Settings.model_validate(values).UPSTASH_REDIS_REST_URL == "https://example.upstash.io"
+
+
+def test_local_settings_allow_plain_redis_and_empty_proxy_list() -> None:
+    values = settings.model_dump()
+    values.update(
+        DEBUG=True,
+        DB_MODE="local",
+        RATE_LIMIT_ENABLED=False,
+        RATE_LIMIT_INCLUDE_CLIENT_IP=False,
+        REDIS_URL="redis://redis:6379/0",
+        TRUSTED_PROXY_CIDRS=[],
+        UPSTASH_REDIS_REST_URL=None,
+        UPSTASH_REDIS_REST_TOKEN=None,
+    )
+
+    local_settings = Settings.model_validate(values)
+    assert local_settings.REDIS_URL == "redis://redis:6379/0"
+    assert local_settings.TRUSTED_PROXY_CIDRS == []
 
 
 def test_rate_limiting_cannot_be_disabled_outside_debug_mode() -> None:

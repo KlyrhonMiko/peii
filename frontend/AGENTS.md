@@ -137,12 +137,18 @@ before assuming it is not active.
   and should not add manual sizing classes.
 
 ## Authentication And API Paths
-- `src/proxy.ts` refreshes Supabase claims and cookies; route layouts/pages enforce access
-  with `requirePortalUser()`.
+- `src/proxy.ts` refreshes Supabase claims and cookies for non-API routes; its global matcher
+  excludes `/api`. The `/api/backend/[...path]` BFF owns its Supabase claims/session lookup.
+  Route layouts/pages enforce portal access with `requirePortalUser()`.
 - Authentication alone does not grant shared-survey access; researcher pages request explicit
   capabilities and the backend remains the authorization boundary.
 - Authenticated browser CRUD uses the allowlisted same-origin `/api/backend` proxy, which
   forwards the Supabase bearer token and checks unsafe request origins.
+- The BFF caps request bodies at 65,536 bytes with a 15-second body-read deadline. Its
+  upstream deadline is 15 seconds for response headers only; client cancellation propagates,
+  requests are not retried, and locally generated errors use `no-store`. See the canonical
+  Phase 4 operational details in `docs/production-decisions.md` and
+  `docs/deployment-roadmap.md`.
 - Server-side auth and model requests use `BACKEND_INTERNAL_URL`.
 - Public survey loading/submission and the development sentiment page use
   `NEXT_PUBLIC_API_URL` directly.

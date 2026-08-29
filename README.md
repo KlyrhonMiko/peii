@@ -58,6 +58,13 @@ application that serves the response: Next.js owns browser/document headers and 
 public survey API headers. `BACKEND_CORS_ORIGINS` must contain exact HTTPS origins only (no
 wildcards, paths, or trailing slashes).
 
+The global Next.js proxy excludes `/api`; authenticated browser API calls use the allowlisted
+same-origin `/api/backend` BFF, which owns Supabase session lookup. The BFF caps request bodies
+at 65,536 bytes, gives body reads 15 seconds, waits 15 seconds only for upstream response
+headers, propagates client cancellation, performs no retries, and marks local errors `no-store`.
+Production Supabase mode additionally requires fail-closed rate-limit reads, verified immediate
+proxy CIDRs, and secure Redis configuration; see the canonical production documents for details.
+
 Before launch, operators must manually rotate credentials exposed during development, remove the
 `public` schema from Supabase Data API exposed schemas, track provider SSL enforcement and the
 eventual CA-backed `verify-full` follow-up for all database paths, and configure HSTS on

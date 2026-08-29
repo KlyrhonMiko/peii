@@ -2,8 +2,8 @@
 
 ## Current release and migration head
 
-The current uncommitted tree contains the Phase 3 response-operations implementation. The
-forward migration chain is:
+The current tree contains the Phase 4 BFF and traffic-hardening behavior in addition to the
+Phase 3 response-operations implementation. The forward migration chain is:
 
 ```text
 20260825_v1
@@ -53,6 +53,25 @@ rows with a null expiry remain possible and non-expiring.
 - Rate limiting: managed Redis; production uses distributed fixed-window limits.
 - Retention purge: one externally scheduled managed job running the backend purge command.
 - Docker Compose remains local development only.
+
+## Phase 4 BFF and traffic-hardening decisions
+
+- The global Next.js proxy matcher excludes `/api`. The authenticated BFF at
+  `/api/backend/[...path]` owns Supabase claims and session lookup before forwarding an
+  allowlisted browser request to the backend.
+- The BFF accepts request bodies up to 65,536 bytes and gives body reads a 15-second deadline.
+  Its upstream timeout is 15 seconds while waiting for response headers only; an upstream body
+  may continue streaming after headers arrive. Client cancellation is propagated, upstream
+  requests are not retried, and locally generated BFF errors are `Cache-Control: no-store`.
+- `/api/v1/health` remains liveness-only. It is not a dependency-readiness check and must not be
+  used as proof that the deployment's ingress or forwarding chain is correctly configured.
+
+For `DEBUG=false` with `DB_MODE=supabase`, backend startup requires
+`RATE_LIMIT_READ_FAILURE_POLICY=fail_closed`, a nonempty set of syntactically valid
+`TRUSTED_PROXY_CIDRS`, and Redis configured either as a complete secure HTTPS Upstash REST
+URL/token pair or a `rediss://` URL. The configured CIDRs must be the verified networks of the
+immediate proxy peer. Broad RFC1918 ranges such as `10.0.0.0/8`, `172.16.0.0/12`, or
+`192.168.0.0/16` are not production-ready substitutes for provider-specific ingress CIDRs.
 
 ## Global capability RBAC
 
@@ -289,9 +308,10 @@ Required provider actions remain manual and are not claimed as completed here: r
 credentials exposed during development; remove `public` from the Supabase Data API exposed
 schemas/tables; enable Supabase SSL enforcement only after the TLS client rollout; track eventual
 CA-backed `verify-full` for all database paths; and configure HSTS on both Vercel and
-Render. Manually verify exact CORS, production docs-off behavior,
-application-owned headers through the real ingress, service-specific environment exposure,
-provider redaction/no-store behavior, backups/PITR, and purge scheduling before launch.
+Render. Render/provider log redaction and the actual trusted forwarding chain remain deployment
+verification tasks. Manually verify exact CORS, production docs-off behavior, application-owned
+headers through the real ingress, service-specific environment exposure, provider redaction and
+no-store behavior, backups/PITR, and purge scheduling before launch.
 
 ## Release validation and launch gate
 
@@ -316,7 +336,8 @@ TEST_DATABASE_URL=postgresql+psycopg2://user:password@localhost:5432/peii_test \
   env DEBUG=false ./.venv/bin/pytest -q -m integration --require-postgres
 ```
 
-Rehearse the migration/backfill and rollback on a disposable database, verify health/RBAC seed,
+Rehearse the migration/backfill and rollback on a disposable database, verify the liveness health
+endpoint and RBAC seed,
 exercise the public withdrawal and authenticated response operations, restore a backup/PITR copy
 in isolation, and complete an end-to-end smoke test.
 

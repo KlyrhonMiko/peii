@@ -40,6 +40,11 @@ Follow the route-area guide when editing a nested route:
   `safeInternalPath()`.
 - Keep backend and Supabase secrets server-only. Authenticated browser backend calls should
   use `/api/backend`; unsafe proxy methods require an exact application-origin match.
+- The global `src/proxy.ts` matcher excludes `/api`, so the BFF owns Supabase session lookup.
+  It bounds request bodies at 65,536 bytes with a 15-second body deadline, waits up to 15
+  seconds only for upstream response headers, propagates client cancellation, performs no
+  retries, and marks locally generated errors `no-store`. Keep the canonical operational
+  detail in `docs/production-decisions.md` and `docs/deployment-roadmap.md`.
 
 ## Server And Client Boundaries
 - Do not move an entire route to the client just because one widget needs interactivity.

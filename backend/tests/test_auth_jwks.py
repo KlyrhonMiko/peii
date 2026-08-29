@@ -4,6 +4,7 @@ from uuid import UUID
 import pytest
 
 from core import auth
+from core.exceptions import AppError
 
 
 class SigningKey:
@@ -60,3 +61,31 @@ async def test_verify_bearer_token_moves_jwks_lookup_off_the_event_loop(monkeypa
     assert claims.subject == UUID("00000000-0000-0000-0000-000000000123")
     assert client.tokens == ["token"]
     assert calls == [client.get_signing_key_from_jwt]
+
+
+@pytest.mark.anyio
+async def test_malformed_jwt_logs_only_safe_error_type(monkeypatch):
+    events: list[tuple[str, dict[str, object]]] = []
+
+    class CaptureLogger:
+        def warning(self, event: str, **kwargs: object) -> None:
+            events.append((event, kwargs))
+
+    class FailingJwksClient:
+        def get_signing_key_from_jwt(self, token: str) -> SigningKey:
+            raise auth.jwt.DecodeError(f"malformed token: {token}")
+
+    monkeypatch.setattr(auth, "logger", CaptureLogger())
+    monkeypatch.setattr(auth, "_jwks_client", lambda: FailingJwksClient())
+
+    raw_token = "malformed-secret-token"
+    with pytest.raises(AppError):
+        await auth.verify_bearer_token(f"Bearer {raw_token}")
+
+    assert events == [
+        (
+            "jwt_verification_failed",
+            {"error_type": "DecodeError"},
+        )
+    ]
+    assert raw_token not in str(events)
