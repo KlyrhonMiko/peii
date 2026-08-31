@@ -39,23 +39,23 @@ export function SurveyList({ store }: SurveyListProps) {
         <div className="flex flex-wrap items-center gap-3 shrink-0">
           {canManage && (
             <Button
-              onClick={handleShowGeneratePreview}
+              onClick={handleOpenCreate}
               variant="outline"
               disabled={interactionLocked}
               className="h-9 gap-2 border-zinc-200/80 bg-white text-zinc-700 hover:bg-zinc-50 hover:text-zinc-900 shadow-sm transition-all rounded-lg"
             >
-              <ClipboardList className="size-4 text-zinc-400" />
-              Generate Questionnaire
+              <Plus className="size-4 text-zinc-400" />
+              Create Survey
             </Button>
           )}
           {canManage && (
             <Button
-              onClick={handleOpenCreate}
+              onClick={handleShowGeneratePreview}
               disabled={interactionLocked}
               className="h-9 gap-2 bg-zinc-900 hover:bg-zinc-800 text-white shadow-sm transition-all active:scale-[0.98] rounded-lg"
             >
-              <Plus className="size-4" />
-              Create Survey
+              <ClipboardList className="size-4" />
+              Generate Questionnaire
             </Button>
           )}
         </div>
