@@ -1,6 +1,6 @@
 """
 Seed the "GRADUATE TRACER STUDY SURVEY" — the canonical 8-section,
-25-question graduate tracer study definition.
+40-question graduate tracer study definition.
 
 Usage:
     cd backend
@@ -105,7 +105,7 @@ def _scale_question(text: str) -> dict:
 PEII_COMMON_DESCRIPTION = (
     "Instruction: Rate each statement using the scale below based on your condition during two "
     "specific timeframes:\nYour situation specifically during your final year of residency as a "
-    "student at PLP. This serves as your baseline for transformation.\nNote: These responses are "
+    "student at PLP. This serves as your baseline for transformation\nNote: These responses are "
     "essential to compute your Individual-Level Improvement and the overall Pasig Education Impact "
     "Index (PEII).\nScale: "
     "1 = Strongly Disagree | 2 = Disagree | 3 = Neutral | 4 = Agree | 5 = Strongly Agree"
@@ -172,7 +172,10 @@ SECTIONS: list[dict] = [
         "description": PEII_COMMON_DESCRIPTION,
         "questions": [
             _scale_question("I have/had a stable source of income or employment."),
-            _scale_question("I have/had a stable source of income or employment."),
+            _scale_question("My job/business is/was aligned with my college degree or skills."),
+            _scale_question("I am/was able to obtain employment opportunities when needed."),
+            _scale_question("My income is/was sufficient to support my basic needs."),
+            _scale_question("I have/had opportunities for career growth and advancement."),
         ],
     },
     {
@@ -181,7 +184,14 @@ SECTIONS: list[dict] = [
         "description": PEII_COMMON_DESCRIPTION,
         "questions": [
             _scale_question("I contribute/contributed financially to my household expenses."),
-            _scale_question("I contribute/contributed financially to my household expenses."),
+            _scale_question(
+                "My financial situation helps/helped improve my family’s living condition."
+            ),
+            _scale_question("I am/was able to support the education of family members."),
+            _scale_question("I have/had savings or an emergency fund for financial security."),
+            _scale_question(
+                "My financial responsibilities are/were manageable without excessive burden."
+            ),
         ],
     },
     {
@@ -190,7 +200,12 @@ SECTIONS: list[dict] = [
         "description": PEII_COMMON_DESCRIPTION,
         "questions": [
             _scale_question("I feel/felt confident in my abilities and decisions."),
-            _scale_question("I feel/felt confident in my abilities and decisions."),
+            _scale_question("I demonstrate/demonstrated leadership skills when needed."),
+            _scale_question(
+                "I communicate/communicated effectively in personal and professional settings."
+            ),
+            _scale_question("I have/had clear career goals and direction."),
+            _scale_question("I am/was satisfied with my overall life situation."),
         ],
     },
     {
@@ -199,7 +214,10 @@ SECTIONS: list[dict] = [
         "description": PEII_COMMON_DESCRIPTION,
         "questions": [
             _scale_question("I participate/participated in community or civic activities."),
-            _scale_question("I participate/participated in community or civic activities."),
+            _scale_question("I volunteer/volunteered my time or resources to help others."),
+            _scale_question("I mentor/mentored or guide/guided others in my community."),
+            _scale_question("I contribute/contributed my skills to community development."),
+            _scale_question("I feel/felt responsible for contributing to society."),
         ],
     },
     {
@@ -208,7 +226,16 @@ SECTIONS: list[dict] = [
         "description": PEII_COMMON_DESCRIPTION,
         "questions": [
             _scale_question("I am/was aware of education programs provided by the Pasig LGU."),
-            _scale_question("I am/was aware of education programs provided by the Pasig LGU."),
+            _scale_question(
+                "I perceive/perceived that the local government supports education initiatives."
+            ),
+            _scale_question(
+                "I trust/trusted the local government in delivering education-related services."
+            ),
+            _scale_question(
+                "I believe/believed that public investment in education benefits society."
+            ),
+            _scale_question("I value/valued the educational opportunities provided by PLP."),
         ],
     },
     {

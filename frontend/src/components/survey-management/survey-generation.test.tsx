@@ -4,6 +4,7 @@ import {
   GRADUATE_TRACER_STUDY_SURVEY,
   GRADUATE_TRACER_STUDY_SURVEY_DESCRIPTION,
   GRADUATE_TRACER_STUDY_SURVEY_TITLE,
+  PEII_COMMON_DESCRIPTION,
   PEII_SCALE_LABELS,
   createGraduateTracerStudySurveyPayload,
 } from "./constants"
@@ -73,16 +74,54 @@ describe("Graduate Tracer Study survey definition", () => {
       "SECTION II - PEII Core Impact Measurement: D. Civic Engagement and Community Contribution",
       "SECTION II - PEII Core Impact Measurement: E. Government Trust and LGU Support Valuation",
     ])
-    const peiiStatements = [
-      "I have/had a stable source of income or employment.",
-      "I contribute/contributed financially to my household expenses.",
-      "I feel/felt confident in my abilities and decisions.",
-      "I participate/participated in community or civic activities.",
-      "I am/was aware of education programs provided by the Pasig LGU.",
-    ]
-    expect(peiiSections.flatMap(({ questions }) => questions.map(({ question_text }) => question_text))).toEqual(
-      peiiStatements.flatMap((statement) => [statement, statement]),
+    const expectedPeiiDescription =
+      "Instruction: Rate each statement using the scale below based on your condition during two specific timeframes:\nYour situation specifically during your final year of residency as a student at PLP. This serves as your baseline for transformation\nNote: These responses are essential to compute your Individual-Level Improvement and the overall Pasig Education Impact Index (PEII).\nScale: 1 = Strongly Disagree | 2 = Disagree | 3 = Neutral | 4 = Agree | 5 = Strongly Agree"
+    expect(PEII_COMMON_DESCRIPTION).toBe(expectedPeiiDescription)
+    expect(peiiSections.map(({ description }) => description)).toEqual(
+      Array.from({ length: 5 }, () => expectedPeiiDescription),
     )
+
+    const peiiStatements = [
+      [
+        "I have/had a stable source of income or employment.",
+        "My job/business is/was aligned with my college degree or skills.",
+        "I am/was able to obtain employment opportunities when needed.",
+        "My income is/was sufficient to support my basic needs.",
+        "I have/had opportunities for career growth and advancement.",
+      ],
+      [
+        "I contribute/contributed financially to my household expenses.",
+        "My financial situation helps/helped improve my family’s living condition.",
+        "I am/was able to support the education of family members.",
+        "I have/had savings or an emergency fund for financial security.",
+        "My financial responsibilities are/were manageable without excessive burden.",
+      ],
+      [
+        "I feel/felt confident in my abilities and decisions.",
+        "I demonstrate/demonstrated leadership skills when needed.",
+        "I communicate/communicated effectively in personal and professional settings.",
+        "I have/had clear career goals and direction.",
+        "I am/was satisfied with my overall life situation.",
+      ],
+      [
+        "I participate/participated in community or civic activities.",
+        "I volunteer/volunteered my time or resources to help others.",
+        "I mentor/mentored or guide/guided others in my community.",
+        "I contribute/contributed my skills to community development.",
+        "I feel/felt responsible for contributing to society.",
+      ],
+      [
+        "I am/was aware of education programs provided by the Pasig LGU.",
+        "I perceive/perceived that the local government supports education initiatives.",
+        "I trust/trusted the local government in delivering education-related services.",
+        "I believe/believed that public investment in education benefits society.",
+        "I value/valued the educational opportunities provided by PLP.",
+      ],
+    ]
+    expect(peiiSections.map(({ questions }) => questions.map(({ question_text }) => question_text))).toEqual(
+      peiiStatements,
+    )
+    expect(new Set(peiiStatements.flat()).size).toBe(25)
     expect(peiiSections.flatMap(({ questions }) => questions).every(({ question_type, options, config }) =>
       question_type === "scale" &&
       options?.join("|") === PEII_SCALE_LABELS.join("|") &&
@@ -100,14 +139,14 @@ describe("Graduate Tracer Study survey definition", () => {
     })
   })
 
-  it("builds an eight-section, 25-question payload with every question required", () => {
+  it("builds an eight-section, 40-question payload with every question required", () => {
     const payload = createGraduateTracerStudySurveyPayload(() => "client-id")
     const questions = payload.sections.flatMap(({ questions: sectionQuestions }) => sectionQuestions)
 
     expect(payload.title).toBe(GRADUATE_TRACER_STUDY_SURVEY_TITLE)
     expect(payload.description).toBe(GRADUATE_TRACER_STUDY_SURVEY_DESCRIPTION)
     expect(payload.sections).toHaveLength(8)
-    expect(questions).toHaveLength(25)
+    expect(questions).toHaveLength(40)
     expect(questions.every(({ is_required }) => is_required)).toBe(true)
     expect(questions.find(({ question_text }) => question_text === "Degree Program Category:")?.config).toEqual({
       presentation: "dropdown",

@@ -82,7 +82,7 @@ function scaleQuestion(question_text: string): SurveyQuestionDefinition {
 }
 
 export const PEII_COMMON_DESCRIPTION =
-  "Instruction: Rate each statement using the scale below based on your condition during two specific timeframes:\nYour situation specifically during your final year of residency as a student at PLP. This serves as your baseline for transformation.\nNote: These responses are essential to compute your Individual-Level Improvement and the overall Pasig Education Impact Index (PEII).\nScale: 1 = Strongly Disagree | 2 = Disagree | 3 = Neutral | 4 = Agree | 5 = Strongly Agree"
+  "Instruction: Rate each statement using the scale below based on your condition during two specific timeframes:\nYour situation specifically during your final year of residency as a student at PLP. This serves as your baseline for transformation\nNote: These responses are essential to compute your Individual-Level Improvement and the overall Pasig Education Impact Index (PEII).\nScale: 1 = Strongly Disagree | 2 = Disagree | 3 = Neutral | 4 = Agree | 5 = Strongly Agree"
 
 export const GRADUATE_TRACER_STUDY_SURVEY: {
   title: string
@@ -146,7 +146,10 @@ export const GRADUATE_TRACER_STUDY_SURVEY: {
       description: PEII_COMMON_DESCRIPTION,
       questions: [
         scaleQuestion("I have/had a stable source of income or employment."),
-        scaleQuestion("I have/had a stable source of income or employment."),
+        scaleQuestion("My job/business is/was aligned with my college degree or skills."),
+        scaleQuestion("I am/was able to obtain employment opportunities when needed."),
+        scaleQuestion("My income is/was sufficient to support my basic needs."),
+        scaleQuestion("I have/had opportunities for career growth and advancement."),
       ],
     },
     {
@@ -154,7 +157,10 @@ export const GRADUATE_TRACER_STUDY_SURVEY: {
       description: PEII_COMMON_DESCRIPTION,
       questions: [
         scaleQuestion("I contribute/contributed financially to my household expenses."),
-        scaleQuestion("I contribute/contributed financially to my household expenses."),
+        scaleQuestion("My financial situation helps/helped improve my family’s living condition."),
+        scaleQuestion("I am/was able to support the education of family members."),
+        scaleQuestion("I have/had savings or an emergency fund for financial security."),
+        scaleQuestion("My financial responsibilities are/were manageable without excessive burden."),
       ],
     },
     {
@@ -162,7 +168,10 @@ export const GRADUATE_TRACER_STUDY_SURVEY: {
       description: PEII_COMMON_DESCRIPTION,
       questions: [
         scaleQuestion("I feel/felt confident in my abilities and decisions."),
-        scaleQuestion("I feel/felt confident in my abilities and decisions."),
+        scaleQuestion("I demonstrate/demonstrated leadership skills when needed."),
+        scaleQuestion("I communicate/communicated effectively in personal and professional settings."),
+        scaleQuestion("I have/had clear career goals and direction."),
+        scaleQuestion("I am/was satisfied with my overall life situation."),
       ],
     },
     {
@@ -170,7 +179,10 @@ export const GRADUATE_TRACER_STUDY_SURVEY: {
       description: PEII_COMMON_DESCRIPTION,
       questions: [
         scaleQuestion("I participate/participated in community or civic activities."),
-        scaleQuestion("I participate/participated in community or civic activities."),
+        scaleQuestion("I volunteer/volunteered my time or resources to help others."),
+        scaleQuestion("I mentor/mentored or guide/guided others in my community."),
+        scaleQuestion("I contribute/contributed my skills to community development."),
+        scaleQuestion("I feel/felt responsible for contributing to society."),
       ],
     },
     {
@@ -178,7 +190,10 @@ export const GRADUATE_TRACER_STUDY_SURVEY: {
       description: PEII_COMMON_DESCRIPTION,
       questions: [
         scaleQuestion("I am/was aware of education programs provided by the Pasig LGU."),
-        scaleQuestion("I am/was aware of education programs provided by the Pasig LGU."),
+        scaleQuestion("I perceive/perceived that the local government supports education initiatives."),
+        scaleQuestion("I trust/trusted the local government in delivering education-related services."),
+        scaleQuestion("I believe/believed that public investment in education benefits society."),
+        scaleQuestion("I value/valued the educational opportunities provided by PLP."),
       ],
     },
     {
