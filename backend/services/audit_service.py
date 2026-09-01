@@ -24,6 +24,19 @@ _PUBLIC_RESPONSE_SENSITIVE_KEYS = frozenset(
         "consent",
         "consent_notice_snapshot",
         "notice",
+        "provider",
+        "auth_user_id",
+        "respondent_key_digest",
+        "email",
+        "display_name",
+        "email_verified",
+        "identity_captured_at",
+        "google_subject_digest",
+        "verified_email",
+        "provider_token",
+        "access_token",
+        "subject",
+        "sub",
     }
 )
 

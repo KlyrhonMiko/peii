@@ -15,8 +15,8 @@ Follow the route-area guide when editing a nested route:
 - `page.tsx` is the public PEII landing page.
 - `researcher/` contains authenticated dashboard, analytics, survey, and model routes.
 - `admin/` contains authenticated, permission-gated user and role management routes.
-- `survey/` contains public tokenized alumni survey routes, loading UI, and the public
-  `/survey/withdraw` response-withdrawal page.
+- `survey/` contains Google-authenticated tokenized alumni survey routes, loading UI, and the
+  public `/survey/withdraw` response-withdrawal page.
 - `login/`, `forgot-password/`, `reset-password/`, and `auth/confirm/` implement Supabase
   authentication and recovery flows.
 - `api/backend/[...path]/` is the authenticated, allowlisted backend proxy.
@@ -40,6 +40,11 @@ Follow the route-area guide when editing a nested route:
   `safeInternalPath()`.
 - Keep backend and Supabase secrets server-only. Authenticated browser backend calls should
   use `/api/backend`; unsafe proxy methods require an exact application-origin match.
+- The server-rendered survey page may fetch the survey GET from FastAPI through
+  `BACKEND_INTERNAL_URL` after isolated Google authentication; browser submission uses the
+  focused same-origin `/api/survey/[token]` BFF and requires backend proof. The portal remains
+  password/invite/recovery based and rejects OAuth sessions. Public withdrawal remains a direct
+  code-only operation.
 - The global `src/proxy.ts` matcher excludes `/api`, so the BFF owns Supabase session lookup.
   It bounds request bodies at 65,536 bytes with a 15-second body deadline, waits up to 15
   seconds only for upstream response headers, propagates client cancellation, performs no

@@ -8,6 +8,7 @@ from sqlmodel import select
 from core.database import get_async_session
 from main import app
 from models.audit_log import AuditLog
+from models.google_survey_auth_proof import GoogleSurveyAuthProof
 from models.survey import Survey
 from models.survey_response import SurveyResponse
 from services import response_retention_service
@@ -200,6 +201,60 @@ async def test_retention_purges_archived_surveys_and_dry_run_does_not_mutate(cli
         )
         assert result.purged_count == 1
         assert (await session.exec(select(SurveyResponse))).one().is_deleted is True
+    finally:
+        await generator.aclose()
+
+
+async def test_retention_purges_expired_google_auth_proofs_with_audit(client):
+    _survey, _question_id, _token = await _create_fixture(client, retention_days=1)
+    cutoff = datetime(2021, 1, 1)
+    expired_session_id = UUID("00000000-0000-0000-0000-000000000201")
+    future_session_id = UUID("00000000-0000-0000-0000-000000000202")
+
+    session, generator = await _session()
+    try:
+        session.add_all(
+            [
+                GoogleSurveyAuthProof(
+                    session_id=expired_session_id,
+                    auth_user_id=UUID("00000000-0000-0000-0000-000000000211"),
+                    google_subject_digest="expired-subject-digest",
+                    verified_email="expired@example.com",
+                    email_verified=True,
+                    authenticated_at=datetime(2020, 1, 1),
+                    expires_at=datetime(2020, 1, 2),
+                ),
+                GoogleSurveyAuthProof(
+                    session_id=future_session_id,
+                    auth_user_id=UUID("00000000-0000-0000-0000-000000000212"),
+                    google_subject_digest="future-subject-digest",
+                    verified_email="future@example.com",
+                    email_verified=True,
+                    authenticated_at=datetime(2020, 1, 1),
+                    expires_at=datetime(2022, 1, 2),
+                ),
+            ]
+        )
+        await session.commit()
+
+        result = await response_retention_service.purge_expired_responses(
+            session, cutoff=cutoff
+        )
+
+        assert result.proof_purged_count == 1
+        proofs = list((await session.exec(select(GoogleSurveyAuthProof))).all())
+        assert [proof.session_id for proof in proofs] == [future_session_id]
+        audits = list(
+            (
+                await session.exec(
+                    select(AuditLog).where(
+                        AuditLog.resource_type == "google_survey_auth_proof_retention"
+                    )
+                )
+            ).all()
+        )
+        assert len(audits) == 1
+        assert audits[0].changes == {"purged_count": 1, "cutoff": "2021-01-01 00:00:00"}
     finally:
         await generator.aclose()
 

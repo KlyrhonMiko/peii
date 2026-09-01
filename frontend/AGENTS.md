@@ -43,7 +43,9 @@ Run frontend commands from `frontend/`:
 `dev`, `build`, and `start` use `scripts/run-next.mjs` to load Next environment
 configuration from the repository root. `lint` and `test` invoke their tools directly.
 Runtime keys include `BACKEND_INTERNAL_URL`, `NEXT_PUBLIC_API_URL`, `SUPABASE_URL`,
-`SUPABASE_PUBLISHABLE_KEY`, `APP_ORIGIN`, and the server-only `CSV_EXPORT_ENABLED` release flag.
+`SUPABASE_PUBLISHABLE_KEY`, `APP_ORIGIN`, the server-only `SURVEY_OAUTH_STATE_KEY`, and the
+server-only `CSV_EXPORT_ENABLED` release flag. `SURVEY_OAUTH_STATE_KEY` must be a random value
+of at least 32 bytes and must never be exposed as `NEXT_PUBLIC_*`.
 The root Compose file passes these through an explicit frontend-only environment allowlist; it
 never passes the root `.env` wholesale and never exposes `SUPABASE_SECRET_KEY` to this service.
 
@@ -150,8 +152,12 @@ before assuming it is not active.
   Phase 4 operational details in `docs/production-decisions.md` and
   `docs/deployment-roadmap.md`.
 - Server-side auth and model requests use `BACKEND_INTERNAL_URL`.
-- Public survey loading/submission and the development sentiment page use
-  `NEXT_PUBLIC_API_URL` directly.
+- The server-rendered identified survey page may fetch FastAPI through `BACKEND_INTERNAL_URL`
+  after the dedicated Google OAuth respondent session is verified; browser submission uses the
+  focused same-origin `/api/survey/[token]` BFF and backend proof. The development sentiment page
+  may use `NEXT_PUBLIC_API_URL` directly.
+- Public withdrawal remains the direct, code-only `${NEXT_PUBLIC_API_URL}/survey/responses/withdraw`
+  operation and does not use the survey OAuth session.
 - Next.js owns browser/document security headers, including the stricter no-store/no-referrer
   policy for `/survey`; FastAPI owns the corresponding public survey API headers. Production
   `DEBUG=false` keeps backend API documentation routes disabled.

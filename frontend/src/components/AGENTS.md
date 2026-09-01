@@ -13,7 +13,8 @@ Follow `ui/AGENTS.md` when editing primitive building blocks under `src/componen
   filtering and selection controls.
 - `ClientCohortTrendChart.tsx`, `ClientPEIIDimensionsChart.tsx`, and
   `ClientSentimentDivergenceChart.tsx` isolate client-only dynamic chart imports.
-- `ClientSurveyForm.tsx` renders the public survey intake with section-per-page navigation.
+- `ClientSurveyForm.tsx` renders the Google-authenticated identified survey intake with
+  section-per-page navigation.
 - `public-survey/WithdrawalForm.tsx` renders the public code-based response withdrawal flow.
 - `SurveyManagement.tsx` is the client-side shared-workspace survey management surface. It
   gates CRUD, retention settings, structure editing, aggregates, raw responses, CSV export, and
@@ -35,9 +36,9 @@ Follow `ui/AGENTS.md` when editing primitive building blocks under `src/componen
 - Favor small helpers for formatting, color mapping, and display logic instead of large
   inline JSX expressions.
 - Keep route-specific copy in routes unless the component is intentionally reusable.
-- Keep capability checks explicit and separate: aggregate, raw, export, and erase are not
-  interchangeable permissions. The shared workspace is global RBAC, not survey ownership or
-  membership.
+- Keep capability checks explicit and separate: aggregate, raw, identity, export, and erase are
+  not interchangeable permissions. The identity operation requires both raw and identity
+  capability. The shared workspace is global RBAC, not survey ownership or membership.
 - Treat export availability as permission plus the server-provided release flag. Client
   components must not read deployment environment variables directly.
 

@@ -1,7 +1,10 @@
 import { NextResponse, type NextRequest } from "next/server"
 
 import { createSupabaseServerClient } from "@/lib/supabase/server"
-import { isAllowedBackendRequest } from "@/lib/backend-proxy-policy"
+import {
+  canonicalizeBackendPath,
+  isAllowedBackendRequest,
+} from "@/lib/backend-proxy-policy"
 import { applicationOrigin } from "@/lib/safe-redirect"
 
 const FORWARDED_HEADERS = ["content-type", "idempotency-key", "x-request-id"]
@@ -126,11 +129,54 @@ function requiresTrailingSlash(path: string[]): boolean {
   )
 }
 
+function buildUpstreamUrl(
+  backendUrl: string,
+  path: string[],
+  search: string,
+  trailingSlash: boolean,
+): string | undefined {
+  let configuredUrl: URL
+  try {
+    configuredUrl = new URL(backendUrl)
+  } catch {
+    return undefined
+  }
+
+  if (
+    !["http:", "https:"].includes(configuredUrl.protocol) ||
+    configuredUrl.username ||
+    configuredUrl.password ||
+    configuredUrl.search ||
+    configuredUrl.hash
+  ) {
+    return undefined
+  }
+
+  const apiPrefix = configuredUrl.pathname.replace(/\/+$/u, "") || "/"
+  const encodedPath = path.map((segment) => encodeURIComponent(segment)).join("/")
+  const candidatePath = apiPrefix === "/"
+    ? `/${encodedPath}`
+    : `${apiPrefix}/${encodedPath}`
+  const canonicalPathname = trailingSlash ? `${candidatePath}/` : candidatePath
+  const upstreamUrl = new URL(configuredUrl)
+  upstreamUrl.pathname = canonicalPathname
+  upstreamUrl.search = search
+  upstreamUrl.hash = ""
+
+  const isUnderApiPrefix = apiPrefix === "/"
+    ? upstreamUrl.pathname.startsWith("/")
+    : upstreamUrl.pathname === apiPrefix || upstreamUrl.pathname.startsWith(`${apiPrefix}/`)
+  return upstreamUrl.origin === configuredUrl.origin && isUnderApiPrefix
+    ? upstreamUrl.toString()
+    : undefined
+}
+
 async function proxy(request: NextRequest, context: { params: Promise<{ path: string[] }> }) {
   const backendUrl = process.env.BACKEND_INTERNAL_URL
   if (!backendUrl) return jsonError("Backend is not configured.", 503)
   const { path } = await context.params
-  if (!isAllowedBackendRequest(request.method, path)) {
+  const canonicalPath = canonicalizeBackendPath(path)
+  if (!canonicalPath || !isAllowedBackendRequest(request.method, canonicalPath)) {
     return jsonError("Not found.", 404)
   }
   if (UNSAFE_METHODS.has(request.method) && request.headers.get("origin") !== applicationOrigin()) {
@@ -169,9 +215,13 @@ async function proxy(request: NextRequest, context: { params: Promise<{ path: st
       throw error
     }
   }
-  const upstreamPath = `${path.join("/")}${
-    request.nextUrl.pathname.endsWith("/") || requiresTrailingSlash(path) ? "/" : ""
-  }`
+  const upstreamUrl = buildUpstreamUrl(
+    backendUrl,
+    canonicalPath,
+    request.nextUrl.search,
+    request.nextUrl.pathname.endsWith("/") || requiresTrailingSlash(canonicalPath),
+  )
+  if (!upstreamUrl) return jsonError("Backend is not configured.", 503)
   const headerTimeoutController = new AbortController()
   const headerTimeoutId = setTimeout(
     () => headerTimeoutController.abort(new DOMException("Backend headers timed out.", "TimeoutError")),
@@ -181,7 +231,7 @@ async function proxy(request: NextRequest, context: { params: Promise<{ path: st
   let response: Response
   try {
     response = await fetch(
-      `${backendUrl.replace(/\/$/, "")}/${upstreamPath}${request.nextUrl.search}`,
+      upstreamUrl,
       { ...init, signal: upstreamSignal },
     )
     if (request.signal.aborted) throw abortReason(request.signal)

@@ -89,3 +89,47 @@ async def test_malformed_jwt_logs_only_safe_error_type(monkeypatch):
         )
     ]
     assert raw_token not in str(events)
+
+
+@pytest.mark.anyio
+async def test_verify_bearer_token_parses_optional_session_and_auth_claims(monkeypatch):
+    monkeypatch.setattr(auth, "_jwks_client", lambda: JwksClient())
+    monkeypatch.setattr(
+        auth.jwt,
+        "decode",
+        lambda *_args, **_kwargs: {
+            "sub": "00000000-0000-0000-0000-000000000123",
+            "session_id": "00000000-0000-0000-0000-000000000124",
+            "amr": [{"method": "oauth"}, "password"],
+            "email": "respondent@example.com",
+            "is_anonymous": False,
+            "app_metadata": {"provider": "google"},
+        },
+    )
+
+    claims = await auth.verify_bearer_token("Bearer token")
+
+    assert claims.session_id == UUID("00000000-0000-0000-0000-000000000124")
+    assert claims.amr == ("oauth", "password")
+    assert claims.email == "respondent@example.com"
+    assert claims.is_anonymous is False
+    assert claims.app_metadata == {"provider": "google"}
+    assert claims.has_oauth_amr is True
+
+
+@pytest.mark.anyio
+async def test_verify_bearer_token_rejects_malformed_optional_claims(monkeypatch):
+    monkeypatch.setattr(auth, "_jwks_client", lambda: JwksClient())
+    monkeypatch.setattr(
+        auth.jwt,
+        "decode",
+        lambda *_args, **_kwargs: {
+            "sub": "00000000-0000-0000-0000-000000000123",
+            "session_id": "not-a-uuid",
+        },
+    )
+
+    with pytest.raises(AppError) as error:
+        await auth.verify_bearer_token("Bearer token")
+
+    assert error.value.status_code == 401

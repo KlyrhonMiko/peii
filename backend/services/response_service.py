@@ -8,10 +8,12 @@ from uuid import UUID
 
 from fastapi import status
 from sqlalchemy import func, update
+from sqlalchemy.exc import IntegrityError
 from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from core.config import settings
+from core.deps import GoogleSurveyRespondent
 from core.exceptions import AppError
 from models.question_type import QuestionType
 from models.survey import Survey
@@ -64,6 +66,44 @@ def response_idempotency_hash(
             allow_nan=False,
         ).encode()
     ).hexdigest()
+
+
+def respondent_key_digest(survey_id: UUID, subject_digest: str) -> str:
+    """Derive a survey-scoped dedupe key without exposing either identity value."""
+    return hmac.new(
+        settings.SURVEY_RESPONDENT_HMAC_SECRET.encode("utf-8"),
+        f"survey:{survey_id}:subject:{subject_digest}".encode(),
+        hashlib.sha256,
+    ).hexdigest()
+
+
+def _response_identity_matches(
+    response: SurveyResponse,
+    respondent: GoogleSurveyRespondent,
+    expected_digest: str,
+) -> bool:
+    return (
+        response.provider == "google"
+        and response.auth_user_id == respondent.auth_user_id
+        and response.respondent_key_digest == expected_digest
+        and response.email == respondent.email
+        and response.display_name == respondent.display_name
+        and response.email_verified is respondent.email_verified
+    )
+
+
+def _is_respondent_key_integrity_error(error: IntegrityError) -> bool:
+    diagnostic = getattr(error.orig, "diag", None)
+    constraint = getattr(diagnostic, "constraint_name", None) or getattr(
+        error.orig, "constraint_name", None
+    )
+    if constraint == "uq_survey_responses_survey_respondent_key":
+        return True
+    message = str(error.orig).lower()
+    return "survey_responses.survey_id" in message and (
+        "survey_responses.respondent_key_digest" in message
+        or "respondent_key_digest" in message
+    )
 
 
 def _is_blank_answer(value: object) -> bool:
@@ -239,6 +279,7 @@ async def submit_response(
     ip_address: str | None = None,
     consent_version: str | None = None,
     withdrawal_code: str | None = None,
+    respondent: GoogleSurveyRespondent | None = None,
 ) -> tuple[SurveyResponse, bool]:
     # Public HTTP callers must supply the current version.  A missing value is
     # defaulted only for existing internal service callers, preserving their
@@ -288,6 +329,16 @@ async def submit_response(
         )
         existing = existing_result.first()
         if existing is not None:
+            if respondent is not None and not _response_identity_matches(
+                existing,
+                respondent,
+                respondent_key_digest(distribution.survey_id, respondent.subject_digest),
+            ):
+                raise AppError(
+                    "Idempotency-Key was already used by a different respondent.",
+                    status_code=status.HTTP_409_CONFLICT,
+                    errors={"code": "idempotency_conflict"},
+                )
             consent_fields = (
                 existing.consent_version,
                 existing.consented_at,
@@ -355,6 +406,28 @@ async def submit_response(
             "Survey not found or no longer active.", status_code=status.HTTP_404_NOT_FOUND
         )
 
+    respondent_digest = (
+        respondent_key_digest(distribution.survey_id, respondent.subject_digest)
+        if respondent is not None
+        else None
+    )
+    if respondent_digest is not None:
+        duplicate_result = await session.exec(
+            select(SurveyResponse)
+            .where(
+                col(SurveyResponse.survey_id) == distribution.survey_id,
+                col(SurveyResponse.respondent_key_digest) == respondent_digest,
+            )
+            .order_by(col(SurveyResponse.id))
+            .with_for_update()
+        )
+        if duplicate_result.first() is not None:
+            raise AppError(
+                "This respondent has already submitted a response.",
+                status_code=status.HTTP_409_CONFLICT,
+                errors={"code": "already_submitted"},
+            )
+
     await _validate_answers(session, distribution.survey_id, answers)
 
     accepted_at = utc_now()
@@ -372,6 +445,13 @@ async def submit_response(
             else None
         ),
         withdrawal_credential_digest=hash_withdrawal_code(withdrawal_code),
+        provider="google" if respondent is not None else None,
+        auth_user_id=respondent.auth_user_id if respondent is not None else None,
+        respondent_key_digest=respondent_digest,
+        email=respondent.email if respondent is not None else None,
+        display_name=respondent.display_name if respondent is not None else None,
+        email_verified=respondent.email_verified if respondent is not None else None,
+        identity_captured_at=accepted_at if respondent is not None else None,
         answers=answers,
         performed_by=actor_id,
     )
@@ -386,27 +466,36 @@ async def submit_response(
         )
     )
 
-    await commit_with_audit(
-        session,
-        [
-            AuditEvent(
-                action="create",
-                resource_type="survey_response",
-                resource_id=str(response.id),
-                performed_by=actor_id,
-                changes={"distribution_id": str(distribution.id)},
-                ip_address=None,
-            ),
-            AuditEvent(
-                action="response_submitted",
-                resource_type="survey",
-                resource_id=survey.survey_id,
-                performed_by=actor_id,
-                changes={"response_id": str(response.id)},
-                ip_address=None,
-            ),
-        ],
-    )
+    try:
+        await commit_with_audit(
+            session,
+            [
+                AuditEvent(
+                    action="create",
+                    resource_type="survey_response",
+                    resource_id=str(response.id),
+                    performed_by=actor_id,
+                    changes={"distribution_id": str(distribution.id)},
+                    ip_address=None,
+                ),
+                AuditEvent(
+                    action="response_submitted",
+                    resource_type="survey",
+                    resource_id=survey.survey_id,
+                    performed_by=actor_id,
+                    changes={"response_id": str(response.id)},
+                    ip_address=None,
+                ),
+            ],
+        )
+    except IntegrityError as exc:
+        if _is_respondent_key_integrity_error(exc):
+            raise AppError(
+                "This respondent has already submitted a response.",
+                status_code=status.HTTP_409_CONFLICT,
+                errors={"code": "already_submitted"},
+            ) from exc
+        raise
     await session.refresh(response)
     return response, False
 
@@ -507,8 +596,15 @@ async def tombstone_responses(
         response.consent_version = None
         response.consented_at = None
         response.consent_notice_snapshot = None
+        response.provider = None
+        response.auth_user_id = None
+        response.email = None
+        response.display_name = None
+        response.email_verified = None
+        response.identity_captured_at = None
         if not preserve_withdrawal_digest:
             response.withdrawal_credential_digest = None
+            response.respondent_key_digest = None
         response.is_deleted = True
         response.deleted_at = deleted_at
         response.updated_at = deleted_at

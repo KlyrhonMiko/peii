@@ -10,11 +10,19 @@ import {
   replaceSurveyStructure,
   restoreSurvey,
   fetchResponses,
+  fetchResponsesWithIdentity,
   fetchResponseAggregates,
   exportResponses,
   eraseResponses,
 } from "@/lib/surveys"
-import type { ApiPagination, Survey, SurveyStatus, SurveyResponse, SurveyResponseAggregate } from "@/lib/surveys"
+import type {
+  ApiPagination,
+  Survey,
+  SurveyStatus,
+  SurveyResponse,
+  SurveyResponseAggregate,
+  SurveyResponseIdentity,
+} from "@/lib/surveys"
 import { validateSurveyStructure } from "@/lib/survey-structure"
 
 import { createGraduateTracerStudySurveyPayload } from "./constants"
@@ -44,6 +52,7 @@ export function useSurveyManagement({ permissions, csvExportEnabled }: UseSurvey
   const canManageDistribution = capabilities.distributionManage
   const canReadAggregates = capabilities.readAggregates
   const canReadRaw = capabilities.readRaw
+  const canReadIdentity = canReadRaw && capabilities.readIdentity === true
   const canExport = capabilities.export
   const canErase = capabilities.erase
   const canSortByResponseCount = canSortSurveysByResponseCount(capabilities)
@@ -91,6 +100,7 @@ export function useSurveyManagement({ permissions, csvExportEnabled }: UseSurvey
   const [showGeneratePreview, setShowGeneratePreview] = useState(false)
   const [distributeSurveyId, setDistributeSurveyId] = useState<string | null>(null)
   const [surveyResponses, setSurveyResponses] = useState<SurveyResponse[]>([])
+  const [surveyResponseIdentities, setSurveyResponseIdentities] = useState<SurveyResponseIdentity[]>([])
   const [responseAggregates, setResponseAggregates] = useState<SurveyResponseAggregate[]>([])
   const [responseSurveyId, setResponseSurveyId] = useState<string | null>(null)
   const [responsePagination, setResponsePagination] = useState<ApiPagination | null>(null)
@@ -100,6 +110,9 @@ export function useSurveyManagement({ permissions, csvExportEnabled }: UseSurvey
   const [rawError, setRawError] = useState<string | null>(null)
   const [aggregateLoaded, setAggregateLoaded] = useState(false)
   const [rawResponsesLoaded, setRawResponsesLoaded] = useState(false)
+  const [identityLoading, setIdentityLoading] = useState(false)
+  const [identityError, setIdentityError] = useState<string | null>(null)
+  const [identityLoaded, setIdentityLoaded] = useState(false)
   const [selectedResponseIds, setSelectedResponseIdsState] = useState<string[]>([])
   const [responseAction, setResponseAction] = useState<"export" | "erase" | null>(null)
   const responseRequestRef = useRef(0)
@@ -229,6 +242,7 @@ export function useSurveyManagement({ permissions, csvExportEnabled }: UseSurvey
   const clearResponseState = useCallback(() => {
     responseRequestRef.current += 1
     setSurveyResponses([])
+    setSurveyResponseIdentities([])
     setResponseAggregates([])
     setResponsePagination(null)
     setResponseSurveyId(null)
@@ -238,6 +252,9 @@ export function useSurveyManagement({ permissions, csvExportEnabled }: UseSurvey
     setRawError(null)
     setAggregateLoaded(false)
     setRawResponsesLoaded(false)
+    setIdentityLoading(false)
+    setIdentityError(null)
+    setIdentityLoaded(false)
     setSelectedResponseIdsState([])
     setResponseAction(null)
   }, [])
@@ -333,6 +350,9 @@ export function useSurveyManagement({ permissions, csvExportEnabled }: UseSurvey
     const requestId = ++responseRequestRef.current
     setRawLoading(true)
     setRawError(null)
+    setSurveyResponseIdentities([])
+    setIdentityError(null)
+    setIdentityLoaded(false)
     setSelectedResponseIdsState([])
     try {
       const result = await fetchResponses(surveyUuid, {
@@ -357,6 +377,28 @@ export function useSurveyManagement({ permissions, csvExportEnabled }: UseSurvey
     }
   }
 
+  const handleLoadIdentityResponses = async (survey: Survey, requestedOffset = 0) => {
+    if (!canReadIdentity || identityLoading) return
+    const surveyUuid = getSurveyResponseResourceId(survey)
+    const requestId = ++responseRequestRef.current
+    setIdentityLoading(true)
+    setIdentityError(null)
+    try {
+      const result = await fetchResponsesWithIdentity(surveyUuid, {
+        limit: RAW_RESPONSE_PAGE_SIZE,
+        offset: Math.max(0, requestedOffset),
+      })
+      if (requestId !== responseRequestRef.current) return
+      setSurveyResponseIdentities(result.responses)
+      setIdentityLoaded(true)
+    } catch (error) {
+      if (requestId !== responseRequestRef.current) return
+      setIdentityError(error instanceof Error ? error.message : "We could not load respondent identity.")
+    } finally {
+      if (requestId === responseRequestRef.current) setIdentityLoading(false)
+    }
+  }
+
   const handleViewResponses = (survey: Survey) => {
     const surveyUuid = getSurveyResponseResourceId(survey)
     const surveyChanged = responseSurveyId !== surveyUuid
@@ -372,6 +414,7 @@ export function useSurveyManagement({ permissions, csvExportEnabled }: UseSurvey
 
   const refreshResponseState = async (survey: Survey) => {
     const shouldReloadRaw = rawResponsesLoaded
+    const shouldReloadIdentity = identityLoaded
     const currentOffset = responsePagination?.offset ?? 0
     const refreshed = await fetchSurvey(survey.surveyId)
     setSurveys((previous) => previous.map((item) => item.id === refreshed.id ? refreshed : item))
@@ -379,6 +422,7 @@ export function useSurveyManagement({ permissions, csvExportEnabled }: UseSurvey
     setResponseSurveyId(getSurveyResponseResourceId(refreshed))
     if (canReadAggregates) await loadAggregateData(getSurveyResponseResourceId(refreshed))
     if (shouldReloadRaw) await handleLoadRawResponses(refreshed, currentOffset)
+    if (shouldReloadIdentity) await handleLoadIdentityResponses(refreshed, currentOffset)
   }
 
   const handleExportResponses = async (surveyUuid: string) => {
@@ -901,24 +945,28 @@ export function useSurveyManagement({ permissions, csvExportEnabled }: UseSurvey
       retentionDays,
       showGeneratePreview,
       distributeSurveyId,
-        surveyResponses,
-        responseAggregates,
-        responseSurveyId,
-        responsePagination,
-        aggregateLoading,
-        rawLoading,
-        aggregateError,
-        rawError,
-        aggregateLoaded,
-        rawResponsesLoaded,
-        selectedResponseIds,
-        responseAction,
+      surveyResponses,
+      surveyResponseIdentities,
+      responseAggregates,
+      responseSurveyId,
+      responsePagination,
+      aggregateLoading,
+      rawLoading,
+      aggregateError,
+      rawError,
+      aggregateLoaded,
+      rawResponsesLoaded,
+      identityLoading,
+      identityError,
+      identityLoaded,
+      selectedResponseIds,
+      responseAction,
       dragItem,
       editedSurvey,
       structureEditable,
       interactionLocked,
       pendingLabel,
-        capabilities,
+      capabilities,
     },
     actions: {
       setShowArchived,
@@ -938,6 +986,7 @@ export function useSurveyManagement({ permissions, csvExportEnabled }: UseSurvey
       handleOpenView,
       handleViewResponses,
       handleLoadRawResponses,
+      handleLoadIdentityResponses,
       handleExportResponses,
       handleEraseResponses,
       handleOpenEdit,

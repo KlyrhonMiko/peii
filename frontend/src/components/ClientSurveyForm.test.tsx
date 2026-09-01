@@ -157,7 +157,7 @@ describe("ClientSurveyForm", () => {
     expect(screen.getAllByText(code ?? "")).toHaveLength(1)
     fireEvent.click(screen.getByRole("button", { name: /copy withdrawal code/i }))
     expect(writeText).toHaveBeenCalledWith(code)
-    expect(fetchMock.mock.calls[0]?.[0]).toContain("/survey/visible-token-must-not-render/respond")
+    expect(fetchMock.mock.calls[0]?.[0]).toBe("/api/survey/visible-token-must-not-render")
     expect(fetchMock.mock.calls[0]?.[0]).not.toContain(code ?? "")
     expect(window.location.href).not.toContain(code)
   })
@@ -233,6 +233,30 @@ describe("ClientSurveyForm", () => {
     const secondKey = (fetchMock.mock.calls[1]?.[1] as RequestInit).headers as Record<string, string>
     expect(secondKey["Idempotency-Key"]).toBe(firstKey["Idempotency-Key"])
     expect(screen.queryByText(/out of date|reload and review/i)).not.toBeInTheDocument()
+  })
+
+  it("shows a useful message when the response was already submitted", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          data: null,
+          message: "already submitted",
+          errors: { code: "already_submitted" },
+          meta: {},
+        }),
+        { status: 409 },
+      ),
+    )
+    renderSurvey()
+    fireEvent.change(screen.getByLabelText("What did you enjoy?"), {
+      target: { value: "The mentoring program" },
+    })
+    fireEvent.click(screen.getByRole("checkbox", { name: /consent/i }))
+    fireEvent.click(screen.getByRole("button", { name: /submit/i }))
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      /already been submitted.*withdraw.*private withdrawal code/i,
+    )
   })
 
   it("marks touched invalid controls and describes their validation errors", async () => {

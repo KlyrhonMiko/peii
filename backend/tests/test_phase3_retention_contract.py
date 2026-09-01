@@ -1,3 +1,5 @@
+from uuid import uuid4
+
 import pytest
 from pydantic import ValidationError
 
@@ -5,7 +7,12 @@ from core.config import Settings, settings
 from models.survey import Survey
 from models.survey_response import SurveyResponse
 from schemas.survey import SurveyCreate, SurveyRead, SurveyUpdate
-from schemas.survey_response import SurveyConsentSubmit, SurveyResponseRead, SurveyResponseSubmit
+from schemas.survey_response import (
+    SurveyConsentSubmit,
+    SurveyResponseIdentityRead,
+    SurveyResponseRead,
+    SurveyResponseSubmit,
+)
 
 
 def test_survey_retention_defaults_are_exposed_by_create_and_read_contracts() -> None:
@@ -44,6 +51,25 @@ def test_response_contract_accepts_withdrawal_code_without_exposing_digest() -> 
     assert "withdrawal_credential_digest" in SurveyResponse.metadata.tables["survey_responses"].c
 
 
+def test_identity_read_exposes_snapshots_without_internal_identifiers() -> None:
+    response = SurveyResponse(
+        survey_id=uuid4(),
+        provider=None,
+        email=None,
+        email_verified=None,
+        identity_captured_at=None,
+        answers={},
+    )
+
+    read = SurveyResponseIdentityRead.model_validate(response)
+
+    assert "auth_user_id" not in SurveyResponseIdentityRead.model_fields
+    assert "respondent_key_digest" not in SurveyResponseIdentityRead.model_fields
+    assert read.identity_available is False
+    assert "auth_user_id" not in read.model_dump()
+    assert "respondent_key_digest" not in read.model_dump()
+
+
 def test_withdrawal_hmac_secret_is_required_in_production() -> None:
     values = settings.model_dump()
     values.update(
@@ -52,6 +78,8 @@ def test_withdrawal_hmac_secret_is_required_in_production() -> None:
         RATE_LIMIT_INCLUDE_CLIENT_IP=True,
         RATE_LIMIT_KEY_HMAC_SECRET="r" * 32,
         WITHDRAWAL_CODE_HMAC_SECRET=None,
+        GOOGLE_OAUTH_CLIENT_ID="production-google-client-id",
+        SURVEY_RESPONDENT_HMAC_SECRET="s" * 32,
         REDIS_URL="rediss://redis.example.com:6379/0",
         TRUSTED_PROXY_CIDRS=["198.51.100.0/24"],
         DATABASE_TLS_MODE="require",

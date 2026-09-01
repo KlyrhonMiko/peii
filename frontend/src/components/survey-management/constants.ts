@@ -249,6 +249,7 @@ export const SURVEY_PERMISSIONS = {
   distributionManage: "survey_distributions.manage",
   readAggregates: "survey_responses.read_aggregates",
   readRaw: "survey_responses.read_raw",
+  readIdentity: "survey_responses.read_identity",
   export: "survey_responses.export",
   erase: "survey_responses.erase",
 } as const

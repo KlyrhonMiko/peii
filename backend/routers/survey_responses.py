@@ -12,6 +12,7 @@ from core.responses import APIResponse, list_meta_response, success_response
 from schemas.survey_response import (
     EraseResponsesRequest,
     ResponseErasureResult,
+    SurveyResponseIdentityRead,
     SurveyResponseListQueryParams,
     SurveyResponseRead,
 )
@@ -90,6 +91,43 @@ async def list_survey_responses(
     await survey_service.resolve_survey(session, survey_id, include_deleted=True)
     responses, total = await response_service.list_responses(session, survey_id, params)
     response_data = [SurveyResponseRead.model_validate(r) for r in responses]
+    return success_response(
+        response_data,
+        meta=list_meta_response(
+            filters=params,
+            total=total,
+            count=len(response_data),
+            limit=params.limit,
+            offset=params.offset,
+        ),
+    )
+
+
+@router.get(
+    "/identity",
+    dependencies=[
+        Depends(
+            require_permissions(
+                "survey_responses.read_raw",
+                "survey_responses.read_identity",
+            )
+        )
+    ],
+    response_model=APIResponse[list[SurveyResponseIdentityRead]],
+    summary="List survey responses with identity",
+    description="Retrieve verified respondent identity snapshots with survey responses.",
+)
+async def list_survey_responses_with_identity(
+    survey_id: UUID,
+    session: AsyncDBSession,
+    params: ResponseListParams,
+    http_response: Response,
+    principal: CurrentPrincipal,
+) -> APIResponse[list[SurveyResponseIdentityRead]]:
+    http_response.headers["Cache-Control"] = "private, no-store, max-age=0"
+    http_response.headers["Pragma"] = "no-cache"
+    responses, total = await response_service.list_responses(session, survey_id, params)
+    response_data = [SurveyResponseIdentityRead.model_validate(r) for r in responses]
     return success_response(
         response_data,
         meta=list_meta_response(

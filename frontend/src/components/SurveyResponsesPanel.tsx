@@ -7,24 +7,30 @@ import type {
   Survey,
   SurveyQuestion,
   SurveyResponse,
+  SurveyResponseIdentity,
   SurveyResponseAggregate,
 } from "@/lib/surveys"
 import type { SurveyCapabilities } from "./survey-management/types"
 
 export interface SurveyResponsesPanelProps {
   survey: Survey
-  capabilities: Pick<SurveyCapabilities, "readAggregates" | "readRaw" | "export" | "erase">
+  capabilities: Pick<SurveyCapabilities, "readAggregates" | "readRaw" | "readIdentity" | "export" | "erase">
   aggregates: SurveyResponseAggregate[]
   responses: SurveyResponse[]
+  identities: SurveyResponseIdentity[]
   responsePagination: ApiPagination | null
   aggregateLoading: boolean
   rawLoading: boolean
   aggregateError: string | null
   rawError: string | null
   rawLoaded: boolean
+  identityLoading: boolean
+  identityError: string | null
+  identityLoaded: boolean
   selectedResponseIds: string[]
   responseAction: "export" | "erase" | null
   onLoadRaw: (offset?: number) => void
+  onLoadIdentity: (offset?: number) => void
   onPageChange: (offset: number) => void
   onExport: () => void
   onErase: (scope: "selected" | "all") => void
@@ -57,6 +63,27 @@ function formatAnswer(answer: unknown): string {
       .join("; ")
   }
   return String(answer)
+}
+
+function IdentityDetails({ identity }: { identity: SurveyResponseIdentity }) {
+  const hasIdentity = identity.identityAvailable !== false &&
+    (identity.displayName !== null || identity.email !== null || identity.provider !== null)
+
+  return (
+    <div className="grid gap-1 rounded-md border border-primary/10 bg-primary/5 px-3 py-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
+      <dt className="font-medium text-muted-foreground">Respondent identity</dt>
+      <dd className="break-words text-foreground">
+        {hasIdentity ? (
+          <span>
+            <span>{identity.displayName ?? "Verified respondent"}</span>
+            {identity.email && <><span aria-hidden="true"> · </span><span>{identity.email}</span></>}
+          </span>
+        ) : (
+          <span className="text-muted-foreground">Identity is not available for this response.</span>
+        )}
+      </dd>
+    </div>
+  )
 }
 
 function ResponseBar({ label, count, total }: { label: string; count: number; total: number }) {
@@ -196,18 +223,25 @@ function RawRecordsSection({
   error,
   loaded,
   canReadRaw,
+  canReadIdentity,
   canErase,
+  identities,
+  identityLoading,
+  identityError,
+  identityLoaded,
   selectedResponseIds,
   responseAction,
   onLoadRaw,
+  onLoadIdentity,
   onPageChange,
   onErase,
   onToggleSelection,
-}: Pick<SurveyResponsesPanelProps, "survey" | "responses" | "responsePagination" | "selectedResponseIds" | "responseAction" | "onLoadRaw" | "onPageChange" | "onErase" | "onToggleSelection"> & {
+}: Pick<SurveyResponsesPanelProps, "survey" | "responses" | "responsePagination" | "selectedResponseIds" | "responseAction" | "onLoadRaw" | "onLoadIdentity" | "onPageChange" | "onErase" | "onToggleSelection" | "identities" | "identityLoading" | "identityError" | "identityLoaded"> & {
   loading: boolean
   error: string | null
   loaded: boolean
   canReadRaw: boolean
+  canReadIdentity: boolean
   canErase: boolean
 }) {
   if (!canReadRaw) return null
@@ -217,6 +251,7 @@ function RawRecordsSection({
   const offset = pagination?.offset ?? 0
   const page = Math.floor(offset / Math.max(limit, 1)) + 1
   const totalPages = pagination ? Math.max(1, Math.ceil(pagination.total / Math.max(limit, 1))) : 1
+  const identityByResponseId = new Map(identities.map((identity) => [identity.id, identity]))
 
   return (
     <section className="space-y-4 border-t border-slate-200/70 pt-8" aria-labelledby="raw-records-heading">
@@ -227,6 +262,12 @@ function RawRecordsSection({
         </div>
         <div className="flex items-center gap-2">
           {canErase && <span className="text-[13px] text-slate-500">Up to 100 records can be selected</span>}
+          {canReadIdentity && loaded && (
+            <Button variant="outline" size="sm" onClick={() => onLoadIdentity(offset)} disabled={identityLoading || loading}>
+              {identityLoading ? <Loader2 className="animate-spin" /> : null}
+              {identityLoaded ? "Refresh respondent identity" : "Load respondent identity"}
+            </Button>
+          )}
           {loaded && (
             <Button variant="outline" size="sm" onClick={() => onLoadRaw(offset)} disabled={loading}>
               Load raw records
@@ -255,6 +296,7 @@ function RawRecordsSection({
 
       {loading && <div className="rounded-lg border border-slate-200 bg-white px-4 py-5 text-sm text-slate-500" role="status">Loading raw records...</div>}
       {error && <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700" role="alert">{error}</div>}
+      {identityError && <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700" role="alert">{identityError}</div>}
 
       {loaded && !loading && !error && (
         responses.length === 0 ? (
@@ -262,34 +304,39 @@ function RawRecordsSection({
         ) : (
           <>
             <div className="space-y-2">
-              {responses.map((response) => (
-                <details key={response.id} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm">
-                  <summary className="flex cursor-pointer list-none items-center gap-3 text-slate-700 [&::-webkit-details-marker]:hidden">
-                    {canErase && (
-                      <input
-                        type="checkbox"
-                        aria-label={`Select response ${response.id}`}
-                        checked={selectedResponseIds.includes(response.id)}
-                        onClick={(event) => event.stopPropagation()}
-                        onChange={(event) => onToggleSelection(response.id, event.target.checked)}
-                      />
-                    )}
-                    <span>{formatDate(response.createdAt)}</span>
-                    <span className="truncate text-slate-400">{response.id}</span>
-                    <span className="ml-auto text-xs text-slate-400">Inspect answers</span>
-                  </summary>
-                  <dl className="mt-3 space-y-2 border-t border-slate-100 pt-3 text-[13px]">
-                    {Object.entries(response.answers).length === 0 ? (
-                      <div className="text-slate-500">No answers recorded.</div>
-                    ) : Object.entries(response.answers).map(([questionId, answer]) => (
-                      <div key={questionId} className="grid gap-1 sm:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
-                        <dt className="font-medium text-slate-500">{questions.get(questionId) ?? questionId}</dt>
-                        <dd className="break-words text-slate-700">{formatAnswer(answer)}</dd>
-                      </div>
-                    ))}
-                  </dl>
-                </details>
-              ))}
+              {responses.map((response) => {
+                const identity = identityByResponseId.get(response.id)
+
+                return (
+                  <details key={response.id} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm">
+                    <summary className="flex cursor-pointer list-none items-center gap-3 text-slate-700 [&::-webkit-details-marker]:hidden">
+                      {canErase && (
+                        <input
+                          type="checkbox"
+                          aria-label={`Select response ${response.id}`}
+                          checked={selectedResponseIds.includes(response.id)}
+                          onClick={(event) => event.stopPropagation()}
+                          onChange={(event) => onToggleSelection(response.id, event.target.checked)}
+                        />
+                      )}
+                      <span>{formatDate(response.createdAt)}</span>
+                      <span className="truncate text-slate-400">{response.id}</span>
+                      <span className="ml-auto text-xs text-slate-400">Inspect answers</span>
+                    </summary>
+                    <dl className="mt-3 space-y-2 border-t border-slate-100 pt-3 text-[13px]">
+                      {identity && <IdentityDetails identity={identity} />}
+                      {Object.entries(response.answers).length === 0 ? (
+                        <div className="text-slate-500">No answers recorded.</div>
+                      ) : Object.entries(response.answers).map(([questionId, answer]) => (
+                        <div key={questionId} className="grid gap-1 sm:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
+                          <dt className="font-medium text-slate-500">{questions.get(questionId) ?? questionId}</dt>
+                          <dd className="break-words text-slate-700">{formatAnswer(answer)}</dd>
+                        </div>
+                      ))}
+                    </dl>
+                  </details>
+                )
+              })}
             </div>
             {pagination && (
               <div className="flex items-center justify-between gap-3 text-sm text-slate-500">
@@ -322,15 +369,20 @@ export function SurveyResponsesPanel({
   aggregateError,
   rawError,
   rawLoaded,
+  identities,
+  identityLoading,
+  identityError,
+  identityLoaded,
   selectedResponseIds,
   responseAction,
   onLoadRaw,
+  onLoadIdentity,
   onPageChange,
   onExport,
   onErase,
   onToggleSelection,
 }: SurveyResponsesPanelProps) {
-  const { readAggregates, readRaw, export: canExport, erase: canErase } = capabilities
+  const { readAggregates, readRaw, readIdentity = false, export: canExport, erase: canErase } = capabilities
   const hasResponseCapability = readAggregates || readRaw || canExport || canErase
 
   if (!hasResponseCapability) {
@@ -390,10 +442,16 @@ export function SurveyResponsesPanel({
         error={rawError}
         loaded={rawLoaded}
         canReadRaw={readRaw}
+        canReadIdentity={readIdentity}
         canErase={canErase}
+        identities={identities}
+        identityLoading={identityLoading}
+        identityError={identityError}
+        identityLoaded={identityLoaded}
         selectedResponseIds={selectedResponseIds}
         responseAction={responseAction}
         onLoadRaw={onLoadRaw}
+        onLoadIdentity={onLoadIdentity}
         onPageChange={onPageChange}
         onErase={onErase}
         onToggleSelection={onToggleSelection}

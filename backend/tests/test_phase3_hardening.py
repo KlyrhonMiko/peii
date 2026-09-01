@@ -2,6 +2,7 @@ from urllib.parse import quote
 
 import pytest
 from pydantic import ValidationError
+from starlette.middleware.cors import CORSMiddleware
 from starlette.routing import Route
 
 from core.config import Settings, convert_to_async_database_url, settings
@@ -18,6 +19,8 @@ def _production_values() -> dict[str, object]:
         RATE_LIMIT_INCLUDE_CLIENT_IP=True,
         RATE_LIMIT_KEY_HMAC_SECRET="r" * 32,
         WITHDRAWAL_CODE_HMAC_SECRET="w" * 32,
+        GOOGLE_OAUTH_CLIENT_ID="production-google-client-id",
+        SURVEY_RESPONDENT_HMAC_SECRET="s" * 32,
         REDIS_URL="rediss://redis.example.com:6379/0",
         TRUSTED_PROXY_CIDRS=["198.51.100.0/24"],
         APP_ORIGIN="https://app.example.com",
@@ -70,6 +73,34 @@ def test_production_cors_origins_are_exact_https_origins_and_include_app_origin(
         Settings.model_validate(values)
 
 
+def test_production_rejects_local_google_identity_placeholders() -> None:
+    values = _production_values()
+    values["GOOGLE_OAUTH_CLIENT_ID"] = "local-google-client-id"
+    with pytest.raises(ValidationError, match="GOOGLE_OAUTH_CLIENT_ID"):
+        Settings.model_validate(values)
+
+    values = _production_values()
+    values["SURVEY_RESPONDENT_HMAC_SECRET"] = (
+        "local-only-survey-respondent-hmac-secret"
+    )
+    with pytest.raises(ValidationError, match="SURVEY_RESPONDENT_HMAC_SECRET"):
+        Settings.model_validate(values)
+
+
+def test_create_app_keeps_public_cors_headers_without_authorization() -> None:
+    cors_middleware = next(
+        middleware
+        for middleware in create_app(settings).user_middleware
+        if middleware.cls is CORSMiddleware
+    )
+
+    assert cors_middleware.kwargs["allow_headers"] == [
+        "Content-Type",
+        "Idempotency-Key",
+        "X-Request-ID",
+    ]
+
+
 def test_debug_settings_retain_local_http_cors_origins() -> None:
     values = _production_values()
     values.update(
@@ -77,10 +108,13 @@ def test_debug_settings_retain_local_http_cors_origins() -> None:
         DATABASE_TLS_MODE="disable",
         APP_ORIGIN="http://localhost:3000",
         BACKEND_CORS_ORIGINS=["http://localhost:3000"],
+        GOOGLE_OAUTH_CLIENT_ID="local-google-client-id",
+        SURVEY_RESPONDENT_HMAC_SECRET="local-only-survey-respondent-hmac-secret",
     )
 
     debug_settings = Settings.model_validate(values)
     assert debug_settings.APP_ORIGIN == "http://localhost:3000"
+    assert debug_settings.GOOGLE_OAUTH_CLIENT_ID == "local-google-client-id"
 
 
 def test_create_app_disables_production_documentation_and_root_redirect() -> None:

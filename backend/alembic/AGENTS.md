@@ -13,8 +13,9 @@ SQLModel metadata changes into database schema changes.
 - The canonical first-release baseline is `20260825_v1`; the forward revisions are
   `f77a807cf2f9_expand_distribution_security`, `d1f9bad768ad`, the Phase 3
   `fb1c93d15474` retention/withdrawal revision, `2bf09a6bc738`, and the
-  `d5a4f7c91e2b` Supabase Data API lockdown revision.
-  `d5a4f7c91e2b` is the current migration head.
+  `d5a4f7c91e2b` Supabase Data API lockdown revision, and
+  `a8055c9859f5` Google survey respondent identity/auth-proof revision.
+  `a8055c9859f5` is the current migration head.
   That revision requires the migration identity to own every protected table before changing
   privileges or RLS, retains RLS on `alembic_version`, and `env.py` preflights owner-or-BYPASSRLS
   access plus effective CRUD privileges on that table for later migrations.

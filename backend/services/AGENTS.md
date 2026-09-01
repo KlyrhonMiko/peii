@@ -77,8 +77,9 @@ Phase 3 response behavior is kept in `response_service.py`,
 - Mutations that can touch a survey lifecycle acquire locks in one order: survey first,
   distributions ordered by UUID, then responses ordered by UUID. Resolve public token
   references without a lock, then acquire the parent survey lock before a distribution lock.
-- Keep survey access global and capability-based. Raw reads, exports, aggregates, and erasure
-  remain distinct operations.
+- Keep survey access global and capability-based. Raw reads, identity reads, exports, aggregates,
+  and erasure remain distinct operations. The identity read requires both raw-read and
+  identity-read capability; raw, aggregate, and CSV contracts remain identity-free.
 - `survey_privacy.py` centralizes the `k=5` threshold for permission-aware survey list/detail
   response-count projection. Aggregate responses intentionally return exact totals and cells for
   groups of any size; keep aggregate access capability-gated and do not describe it as anonymous.

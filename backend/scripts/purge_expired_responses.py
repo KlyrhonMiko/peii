@@ -40,6 +40,7 @@ async def _run(args: argparse.Namespace) -> None:
         )
     print(
         f"retention purge: purged={result.purged_count} "
+        f"proofs={result.proof_purged_count} "
         f"surveys={result.survey_count} batches={result.batch_count} "
         f"dry_run={result.dry_run} cutoff={result.cutoff.isoformat()}"
     )

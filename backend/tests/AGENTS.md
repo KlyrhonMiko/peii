@@ -48,7 +48,8 @@ pre-commit configuration currently invokes them automatically.
 - For expected domain failures, assert the status code and shared error shape.
 - For user/auth behavior, assert Supabase identity linkage, invitation timestamps, rejection
   of local password/scalar-role fields, and the absence of credentials in responses.
-- For survey capability behavior, cover the separate aggregate/raw/export/erase permissions,
+- For survey capability behavior, cover the separate aggregate/raw/identity/export/erase
+  permissions, including both permissions required by the identity endpoint,
   digest-only distribution storage, token-free list/revoke metadata, one-time create/rotate token
   reveal, omitted-expiry default and explicit maximum, nullable legacy expiry behavior, exact
   0/1/4-response aggregates, separate `k=5` survey-list response-count projection, archive/restore,

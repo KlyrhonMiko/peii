@@ -24,7 +24,9 @@ backend without knowing about one resource such as users.
 - `config.py` owns `Settings`, loads the repo-root `.env`, and exposes `database_url`,
   `async_database_url`, and `is_sqlite`. Core application settings fail fast when missing;
   traffic-security and public-policy settings have local-safe defaults. Production must provide
-  the dedicated `WITHDRAWAL_CODE_HMAC_SECRET` (at least 32 bytes) for respondent withdrawal.
+  the dedicated `WITHDRAWAL_CODE_HMAC_SECRET` and `SURVEY_RESPONDENT_HMAC_SECRET` (each at least
+  32 bytes) for respondent withdrawal and Google survey dedupe/proofs respectively. The Google
+  respondent session max age defaults to 300 seconds and cannot exceed 3,600 seconds in production.
   `CSV_EXPORT_ENABLED` is a fail-closed release flag and remains false for the initial online
   deployment.
 - `auth.py` parses bearer headers, caches Supabase JWKS, validates JWTs, and defines

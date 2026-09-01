@@ -2,10 +2,10 @@ import base64
 import binascii
 import json
 from datetime import datetime
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Literal, Self
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class SurveyResponseBaseSchema(BaseModel):
@@ -94,6 +94,27 @@ class SurveyResponseRead(SurveyResponseBaseSchema):
         if isinstance(v, str):
             return json.loads(v)
         return v
+
+
+class SurveyResponseIdentityRead(SurveyResponseRead):
+    """Identity-aware response data for researchers with both read capabilities."""
+
+    provider: str | None = None
+    email: str | None = None
+    display_name: str | None = None
+    email_verified: bool | None = None
+    identity_captured_at: datetime | None = None
+    identity_available: bool = False
+
+    @model_validator(mode="after")
+    def derive_identity_available(self) -> Self:
+        self.identity_available = (
+            self.provider == "google"
+            and self.email is not None
+            and self.email_verified is True
+            and self.identity_captured_at is not None
+        )
+        return self
 
 
 class SurveyResponseListQueryParams(BaseModel):

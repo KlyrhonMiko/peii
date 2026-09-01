@@ -10,6 +10,8 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy.engine import URL, make_url
 
 ROOT_ENV_FILE = Path(__file__).resolve().parents[2] / ".env"
+LOCAL_GOOGLE_OAUTH_CLIENT_ID = "local-google-client-id"
+LOCAL_SURVEY_RESPONDENT_HMAC_SECRET = "local-only-survey-respondent-hmac-secret"
 LIBPQ_SSL_QUERY_OPTIONS = frozenset(
     {
         "sslmode",
@@ -121,6 +123,11 @@ class Settings(BaseSettings):
     INITIAL_ADMIN_FIRST_NAME: str
     INITIAL_ADMIN_LAST_NAME: str
     SYSTEM_ACTOR_ID: UUID
+    # Local defaults keep metadata-only test runs usable. Production must replace these
+    # with deployment-owned values; the HMAC key is never used as a bearer credential.
+    GOOGLE_OAUTH_CLIENT_ID: str = LOCAL_GOOGLE_OAUTH_CLIENT_ID
+    SURVEY_RESPONDENT_HMAC_SECRET: str = LOCAL_SURVEY_RESPONDENT_HMAC_SECRET
+    SURVEY_GOOGLE_SESSION_MAX_AGE_SECONDS: int = Field(default=300, ge=1, le=86_400)
 
     # Traffic security is disabled by default for local installations that have not
     # provisioned Redis yet. Production deployments should set this to true and provide
@@ -139,16 +146,26 @@ class Settings(BaseSettings):
     CSV_EXPORT_ENABLED: bool = False
     PUBLIC_SURVEY_READ_LIMIT: int = Field(default=60, ge=1)
     PUBLIC_SURVEY_READ_WINDOW_SECONDS: int = Field(default=60, ge=1)
+    PUBLIC_SURVEY_READ_GLOBAL_LIMIT: int = Field(default=6000, ge=1)
+    PUBLIC_SURVEY_READ_GLOBAL_WINDOW_SECONDS: int = Field(default=60, ge=1)
     PUBLIC_SURVEY_SUBMIT_LIMIT: int = Field(default=10, ge=1)
     PUBLIC_SURVEY_SUBMIT_WINDOW_SECONDS: int = Field(default=60, ge=1)
+    PUBLIC_SURVEY_SUBMIT_GLOBAL_LIMIT: int = Field(default=1000, ge=1)
+    PUBLIC_SURVEY_SUBMIT_GLOBAL_WINDOW_SECONDS: int = Field(default=60, ge=1)
     PUBLIC_SURVEY_WITHDRAWAL_CLIENT_LIMIT: int = Field(default=10, ge=1)
     PUBLIC_SURVEY_WITHDRAWAL_CLIENT_WINDOW_SECONDS: int = Field(default=60, ge=1)
     PUBLIC_SURVEY_WITHDRAWAL_GLOBAL_LIMIT: int = Field(default=1000, ge=1)
     PUBLIC_SURVEY_WITHDRAWAL_GLOBAL_WINDOW_SECONDS: int = Field(default=60, ge=1)
     LOGIN_RATE_LIMIT: int = Field(default=10, ge=1)
     LOGIN_RATE_WINDOW_SECONDS: int = Field(default=60, ge=1)
+    LOGIN_GLOBAL_LIMIT: int = Field(default=1000, ge=1)
+    LOGIN_GLOBAL_WINDOW_SECONDS: int = Field(default=60, ge=1)
     PASSWORD_RECOVERY_RATE_LIMIT: int = Field(default=5, ge=1)
     PASSWORD_RECOVERY_RATE_WINDOW_SECONDS: int = Field(default=900, ge=1)
+    PASSWORD_RECOVERY_GLOBAL_LIMIT: int = Field(default=1000, ge=1)
+    PASSWORD_RECOVERY_GLOBAL_WINDOW_SECONDS: int = Field(default=900, ge=1)
+    GOOGLE_SURVEY_ATTEST_RATE_LIMIT: int = Field(default=5, ge=1)
+    GOOGLE_SURVEY_ATTEST_RATE_WINDOW_SECONDS: int = Field(default=60, ge=1)
     MAX_REQUEST_BODY_BYTES: int = Field(default=65_536, ge=1)
     TRUSTED_PROXY_HEADER: str = "X-Forwarded-For"
     TRUSTED_PROXY_CIDRS: list[str] = Field(default_factory=list)
@@ -156,8 +173,16 @@ class Settings(BaseSettings):
     TRUSTED_PROXY_MAX_HEADER_BYTES: int = Field(default=2048, ge=64, le=16384)
     SURVEY_DISTRIBUTION_DEFAULT_EXPIRY_DAYS: int = Field(default=30, ge=1)
     SURVEY_DISTRIBUTION_MAX_EXPIRY_DAYS: int = Field(default=30, ge=1)
-    PUBLIC_SURVEY_CONSENT_VERSION: str = "2026-08-25"
-    PUBLIC_SURVEY_PRIVACY_NOTICE: str = "See the PEII privacy notice before responding."
+    PUBLIC_SURVEY_CONSENT_VERSION: str = "2026-09-01"
+    PUBLIC_SURVEY_PRIVACY_NOTICE: str = (
+        "Your verified Google email and display name are stored with your response, and "
+        "authorized researchers can identify respondents. Identity enforces one Google "
+        "account per survey. Withdrawal removes answers and direct identity but retains a "
+        "survey-scoped pseudonymous deduplication digest so the account cannot submit again; "
+        "administrative erasure clears that digest. Short-lived sign-in proof data is deleted "
+        "by the external purge after expiry. This survey does not promise anonymity or "
+        "confidentiality."
+    )
     PUBLIC_SURVEY_PURPOSE: str = "Program evaluation and research."
     PUBLIC_SURVEY_RETENTION: str = "Responses are retained according to the approved policy."
     PUBLIC_SURVEY_CONTACT: str = "privacy@example.gov.ph"
@@ -209,6 +234,24 @@ class Settings(BaseSettings):
             and len(self.WITHDRAWAL_CODE_HMAC_SECRET.encode("utf-8")) < 32
         ):
             raise ValueError("WITHDRAWAL_CODE_HMAC_SECRET must be at least 32 bytes")
+        if not self.GOOGLE_OAUTH_CLIENT_ID.strip():
+            raise ValueError("GOOGLE_OAUTH_CLIENT_ID must not be empty")
+        if len(self.SURVEY_RESPONDENT_HMAC_SECRET.encode("utf-8")) < 32:
+            raise ValueError("SURVEY_RESPONDENT_HMAC_SECRET must be at least 32 bytes")
+        if not self.DEBUG and self.SURVEY_GOOGLE_SESSION_MAX_AGE_SECONDS > 3600:
+            raise ValueError(
+                "SURVEY_GOOGLE_SESSION_MAX_AGE_SECONDS must not exceed 3600 in production"
+            )
+        if not self.DEBUG:
+            if self.GOOGLE_OAUTH_CLIENT_ID.strip() == LOCAL_GOOGLE_OAUTH_CLIENT_ID:
+                raise ValueError(
+                    "GOOGLE_OAUTH_CLIENT_ID must be explicitly configured when DEBUG is false"
+                )
+            if self.SURVEY_RESPONDENT_HMAC_SECRET.strip() == LOCAL_SURVEY_RESPONDENT_HMAC_SECRET:
+                raise ValueError(
+                    "SURVEY_RESPONDENT_HMAC_SECRET must be explicitly configured "
+                    "when DEBUG is false"
+                )
         if not self.DEBUG and self.DB_MODE == "supabase":
             if self.RATE_LIMIT_READ_FAILURE_POLICY != "fail_closed":
                 raise ValueError(

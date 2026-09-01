@@ -36,8 +36,6 @@ import {
 import { SurveyConsentCard } from "./public-survey/SurveyConsentCard"
 import { QuestionInput } from "./public-survey/QuestionInput"
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? ""
-
 interface ClientSurveyFormProps {
   title: string
   description: string | null
@@ -277,7 +275,7 @@ export function ClientSurveyForm({
       idempotencyKey.current ??= crypto.randomUUID()
       const code = withdrawalCode.current ?? generateWithdrawalCode()
       withdrawalCode.current = code
-      const response = await fetch(`${API_BASE}/survey/${encodeURIComponent(token)}/respond`, {
+      const response = await fetch(`/api/survey/${encodeURIComponent(token)}`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -299,6 +297,8 @@ export function ClientSurveyForm({
           setSubmitError("This consent notice is out of date. Reload and review the notice before submitting again.")
         } else if (response.status === 409 && errorCode === "idempotency_conflict") {
           setSubmitError("We could not confirm whether your response was submitted. It may already be recorded; please do not create a duplicate response.")
+        } else if (response.status === 409 && errorCode === "already_submitted") {
+          setSubmitError("This response has already been submitted. To withdraw it, use the private withdrawal code before trying again.")
         } else if (response.status === 409) {
           setSubmitError("We could not confirm whether your response was submitted. Please do not create a duplicate response.")
         } else if (response.status === 429) {

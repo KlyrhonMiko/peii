@@ -63,13 +63,16 @@ describe("getSurveyCapabilities", () => {
       "surveys.manage",
       "survey_distributions.manage",
       "survey_responses.read_aggregates",
+      "survey_responses.read_raw",
+      "survey_responses.read_identity",
       "survey_responses.export",
     ], true)).toEqual({
       read: true,
       manage: true,
       distributionManage: true,
       readAggregates: true,
-      readRaw: false,
+       readRaw: true,
+       readIdentity: true,
       export: true,
       erase: false,
     })
@@ -86,9 +89,10 @@ describe("getSurveyCapabilities", () => {
       read: false,
       manage: false,
       distributionManage: false,
-      readAggregates: false,
-      readRaw: false,
-      export: false,
+       readAggregates: false,
+       readRaw: false,
+       readIdentity: false,
+       export: false,
       erase: false,
     })
   })

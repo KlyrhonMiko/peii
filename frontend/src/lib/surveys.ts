@@ -29,6 +29,15 @@ export interface SurveyResponse {
   createdAt: string
 }
 
+export interface SurveyResponseIdentity extends SurveyResponse {
+  provider: string | null
+  email: string | null
+  displayName: string | null
+  emailVerified: boolean | null
+  identityCapturedAt: string | null
+  identityAvailable: boolean | null
+}
+
 export interface Survey {
   id: string
   surveyId: string
@@ -162,6 +171,15 @@ export interface ApiSurveyResponse {
   distribution_id: string | null
   answers: Record<string, unknown>
   created_at: string
+}
+
+export interface ApiSurveyResponseIdentity extends ApiSurveyResponse {
+  provider?: string | null
+  email?: string | null
+  display_name?: string | null
+  email_verified?: boolean | null
+  identity_captured_at?: string | null
+  identity_available?: boolean | null
 }
 
 export interface AggregateCell {
@@ -298,6 +316,18 @@ function mapResponse(api: ApiSurveyResponse): SurveyResponse {
     distributionId: api.distribution_id,
     answers: api.answers,
     createdAt: api.created_at,
+  }
+}
+
+function mapResponseIdentity(api: ApiSurveyResponseIdentity): SurveyResponseIdentity {
+  return {
+    ...mapResponse(api),
+    provider: api.provider ?? null,
+    email: api.email ?? null,
+    displayName: api.display_name ?? null,
+    emailVerified: api.email_verified ?? null,
+    identityCapturedAt: api.identity_captured_at ?? null,
+    identityAvailable: api.identity_available ?? null,
   }
 }
 
@@ -563,6 +593,27 @@ export async function fetchResponses(
     `/surveys/${surveyUuid}/responses/${buildResponseListQuery(options)}`,
   )
   const responses = (res.data ?? []).map(mapResponse)
+  return {
+    responses,
+    pagination: res.meta?.pagination as ApiPagination ?? {
+      total: responses.length,
+      count: responses.length,
+      limit: options.limit ?? responses.length,
+      offset: options.offset ?? 0,
+      has_next: false,
+      has_prev: (options.offset ?? 0) > 0,
+    },
+  }
+}
+
+export async function fetchResponsesWithIdentity(
+  surveyUuid: string,
+  options: SurveyResponseListOptions = {},
+): Promise<{ responses: SurveyResponseIdentity[]; pagination: ApiPagination }> {
+  const res = await api.get<ApiSurveyResponseIdentity[]>(
+    `/surveys/${surveyUuid}/responses/identity${buildResponseListQuery(options)}`,
+  )
+  const responses = (res.data ?? []).map(mapResponseIdentity)
   return {
     responses,
     pagination: res.meta?.pagination as ApiPagination ?? {

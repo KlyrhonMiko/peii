@@ -50,21 +50,36 @@ const response: SurveyResponse = {
   answers: { "q-choice": "Good", "q-text": "Helpful" },
 }
 
+const identityResponse = {
+  ...response,
+  provider: "google",
+  email: "alumni@example.test",
+  displayName: "Alumni Respondent",
+  emailVerified: true,
+  identityCapturedAt: "2026-02-01T00:00:00Z",
+  identityAvailable: true,
+}
+
 function renderPanel(overrides: Partial<ComponentProps<typeof SurveyResponsesPanel>> = {}) {
   const props: ComponentProps<typeof SurveyResponsesPanel> = {
     survey,
     capabilities: { readAggregates: true, readRaw: false, export: false, erase: false },
     aggregates: [aggregate],
     responses: [],
+    identities: [],
     responsePagination: null,
     aggregateLoading: false,
     rawLoading: false,
     aggregateError: null,
     rawError: null,
     rawLoaded: false,
+    identityLoading: false,
+    identityError: null,
+    identityLoaded: false,
     selectedResponseIds: [],
     responseAction: null,
     onLoadRaw: vi.fn(),
+    onLoadIdentity: vi.fn(),
     onPageChange: vi.fn(),
     onExport: vi.fn(),
     onErase: vi.fn(),
@@ -177,17 +192,22 @@ describe("SurveyResponsesPanel", () => {
       <SurveyResponsesPanel
         survey={{ ...survey, responses: null }}
         capabilities={{ readAggregates: true, readRaw: false, export: false, erase: false }}
-        aggregates={[]}
-        responses={[]}
-        responsePagination={null}
+         aggregates={[]}
+         responses={[]}
+         identities={[]}
+         responsePagination={null}
         aggregateLoading={false}
         rawLoading={false}
         aggregateError={"Could not load aggregates"}
         rawError={null}
-        rawLoaded={false}
+         rawLoaded={false}
+         identityLoading={false}
+         identityError={null}
+         identityLoaded={false}
         selectedResponseIds={[]}
         responseAction={null}
-        onLoadRaw={vi.fn()}
+         onLoadRaw={vi.fn()}
+         onLoadIdentity={vi.fn()}
         onPageChange={vi.fn()}
         onExport={vi.fn()}
         onErase={vi.fn()}
@@ -195,5 +215,23 @@ describe("SurveyResponsesPanel", () => {
       />,
     )
     expect(screen.getByRole("alert")).toHaveTextContent("Could not load aggregates")
+  })
+
+  it("loads and displays identity only when both identity and raw capabilities are present", () => {
+    const onLoadIdentity = vi.fn()
+    renderPanel({
+      capabilities: { readAggregates: false, readRaw: true, readIdentity: true, export: false, erase: false },
+      responses: [response],
+      responsePagination: { total: 1, count: 1, limit: 25, offset: 0, has_next: false, has_prev: false },
+      rawLoaded: true,
+      identities: [identityResponse],
+      identityLoaded: true,
+      onLoadIdentity,
+    })
+
+    expect(screen.getByText("Alumni Respondent")).toBeInTheDocument()
+    expect(screen.getByText("alumni@example.test")).toBeInTheDocument()
+    fireEvent.click(screen.getByRole("button", { name: /respondent identity/i }))
+    expect(onLoadIdentity).toHaveBeenCalledWith(0)
   })
 })

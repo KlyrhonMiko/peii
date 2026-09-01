@@ -4,11 +4,10 @@ from fastapi import APIRouter, Depends, Header, Response, status
 from sqlmodel import col, select
 
 from core.config import settings
-from core.deps import AsyncDBSession
+from core.deps import AsyncDBSession, CurrentGoogleSurveyRespondent
 from core.exceptions import AppError
 from core.rate_limit import (
-    public_survey_read_rate_limit,
-    public_survey_submit_rate_limit,
+    enforce_authenticated_survey_rate_limit,
     public_survey_withdrawal_rate_limit,
 )
 from core.responses import success_response
@@ -32,14 +31,20 @@ router = APIRouter()
 @router.get(
     "/{token}",
     response_model=APIResponse[PublicSurvey],
-    dependencies=[Depends(public_survey_read_rate_limit)],
     summary="Get Public Survey",
     description="Retrieve a survey by its distribution token for alumni to fill out.",
 )
 async def get_public_survey(
     token: str,
     session: AsyncDBSession,
+    respondent: CurrentGoogleSurveyRespondent,
 ) -> APIResponse[PublicSurvey]:
+    await enforce_authenticated_survey_rate_limit(
+        "public-read",
+        respondent.auth_user_id,
+        respondent.session_id,
+        token,
+    )
     distribution = await distribution_service.get_distribution_by_token(session, token)
 
     survey_result = await session.exec(
@@ -115,7 +120,6 @@ async def get_public_survey(
 @router.post(
     "/{token}/respond",
     response_model=APIResponse[SurveyResponseAcknowledgement],
-    dependencies=[Depends(public_survey_submit_rate_limit)],
     status_code=status.HTTP_201_CREATED,
     summary="Submit Survey Response",
     description="Submit answers for a survey identified by distribution token.",
@@ -125,8 +129,15 @@ async def submit_response(
     payload: SurveyResponseSubmit,
     session: AsyncDBSession,
     http_response: Response,
+    respondent: CurrentGoogleSurveyRespondent,
     idempotency_header: str | None = Header(default=None, alias="Idempotency-Key"),
 ) -> APIResponse[SurveyResponseAcknowledgement]:
+    await enforce_authenticated_survey_rate_limit(
+        "public-submit",
+        respondent.auth_user_id,
+        respondent.session_id,
+        token,
+    )
     idempotency_key = None
     if idempotency_header is None:
         raise AppError(
@@ -146,6 +157,7 @@ async def submit_response(
         token,
         payload.answers,
         idempotency_key=idempotency_key,
+        respondent=respondent,
         actor_id=settings.SYSTEM_ACTOR_ID,
         consent_version=payload.consent.version,
         withdrawal_code=payload.withdrawal_code,

@@ -85,6 +85,7 @@ export function getSurveyCapabilities(
     distributionManage: can(SURVEY_PERMISSIONS.distributionManage),
     readAggregates: can(SURVEY_PERMISSIONS.readAggregates),
     readRaw: can(SURVEY_PERMISSIONS.readRaw),
+    readIdentity: can(SURVEY_PERMISSIONS.readRaw) && can(SURVEY_PERMISSIONS.readIdentity),
     export: csvExportEnabled && can(SURVEY_PERMISSIONS.export),
     erase: can(SURVEY_PERMISSIONS.erase),
   }
