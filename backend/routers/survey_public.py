@@ -46,11 +46,13 @@ async def get_public_survey(
         respondent.session_id,
         str(survey_id),
     )
-    survey_result = await session.exec(
-        select(Survey).where(col(Survey.survey_id) == survey_id, col(Survey.is_deleted).is_(False))
-    )
-    survey = survey_result.first()
-    if not survey or survey.status != "Active":
+    from services.survey_service import resolve_survey
+    try:
+        survey = await resolve_survey(session, survey_id)
+    except AppError:
+        raise AppError("Survey not found or no longer active.", status_code=status.HTTP_404_NOT_FOUND)
+
+    if survey.status != "Active":
         raise AppError("Survey not found or no longer active.", status_code=status.HTTP_404_NOT_FOUND)
 
     # Load sections with nested questions

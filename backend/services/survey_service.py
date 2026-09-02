@@ -106,6 +106,12 @@ async def resolve_survey(
     include_deleted: bool = False,
     for_update: bool = False,
 ) -> Survey:
+    if isinstance(survey_id, str):
+        try:
+            survey_id = UUID(survey_id)
+        except ValueError:
+            pass
+
     survey = (
         await get_survey_by_uuid(
             session,
