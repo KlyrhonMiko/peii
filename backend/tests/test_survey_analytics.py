@@ -105,9 +105,10 @@ async def test_aggregate_access_allows_every_survey_status(client, survey_status
 
 async def test_archived_aggregate_returns_exact_four_response_total(client):
     _override_permissions(
+        "surveys.manage",
         "survey_responses.read_aggregates",
     )
-    survey, question_id, token = await _create_survey(client, "Closed")
+    survey, question_id, token = await _create_survey(client, "Active")
     for _ in range(4):
         submitted = await client.post(
             f"/api/v1/survey/{token}/respond",

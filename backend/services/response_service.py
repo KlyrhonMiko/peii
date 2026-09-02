@@ -720,7 +720,13 @@ async def submit_phase2_response(
             errors={"code": "phase2_unavailable"},
         )
     phase2_ids = {question_id for question_id, phase in question_phases.items() if phase == 2}
-    await _validate_answers(session, survey.id, answers, questions, phase2_ids)
+    await _validate_answers(
+        session,
+        survey.id,
+        answers,
+        questions=questions,
+        expected_question_ids=phase2_ids,
+    )
 
     try:
         answers_json = json.dumps(answers, allow_nan=False)
@@ -895,10 +901,6 @@ def _apply_response_listing_filters(
         statement = statement.where(
             col(SurveyResponse.created_at) < _as_utc_naive(params.submitted_before)
         )
-    if params.distribution_id is not None:
-        statement = statement.where(
-            col(SurveyResponse.distribution_id) == params.distribution_id
-        )
     return statement
 
 
@@ -930,7 +932,6 @@ async def tombstone_responses(
         if response.is_deleted:
             continue
         response.answers = {}
-        response.distribution_id = None
         response.idempotency_key = None
         response.idempotency_hash = None
         response.consent_version = None

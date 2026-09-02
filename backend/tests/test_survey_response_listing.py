@@ -35,7 +35,7 @@ def _override_permissions(*permissions: str) -> None:
     app.dependency_overrides[get_current_principal] = override
 
 
-async def _create_response_fixture(client, distribution_count: int = 1):
+async def _create_response_fixture(client):
     survey_response = await client.post(
         "/api/v1/surveys/", json={"title": f"Raw Listing {uuid4()}"}
     )
@@ -55,16 +55,7 @@ async def _create_response_fixture(client, distribution_count: int = 1):
         f"/api/v1/surveys/{survey['survey_id']}", json={"status": "Active"}
     )
     assert activated.status_code == 200
-
-    distributions = []
-    for _ in range(distribution_count):
-        distribution = await client.post(
-            f"/api/v1/surveys/{survey['id']}/distributions/",
-            json={"expires_at": (datetime.now(UTC) + timedelta(days=29)).isoformat()},
-        )
-        assert distribution.status_code == 201
-        distributions.append(distribution.json()["data"])
-    return survey, question.json()["data"]["id"], distributions
+    return survey, question.json()["data"]["id"]
 
 
 async def _submit(client, token: str, question_id: str, answer: str) -> None:

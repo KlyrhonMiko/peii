@@ -85,7 +85,6 @@ async def test_withdrawal_is_atomic_sanitized_and_replay_idempotent(client):
         stored = (await session.exec(select(SurveyResponse))).one()
         assert stored.id == response_id
         assert stored.answers == {}
-        assert stored.distribution_id is None
         assert stored.idempotency_key is None
         assert stored.idempotency_hash is None
         assert stored.consent_version is None
@@ -140,12 +139,6 @@ async def test_withdrawal_rejects_malformed_and_unknown_codes_without_oracle(cli
         headers={"Idempotency-Key": str(uuid4())},
     )
     assert submitted.status_code == 201
-    distribution_token = token
-    token_attempt = await client.post(
-        "/api/v1/survey/responses/withdraw",
-        json={"withdrawal_code": distribution_token},
-    )
-    assert token_attempt.status_code == 404
 
 
 async def test_admin_erasure_clears_withdrawal_digest(client):

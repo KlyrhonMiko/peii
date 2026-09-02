@@ -140,7 +140,6 @@ class SurveyResponseListQueryParams(BaseModel):
     sort_order: Literal["asc", "desc"] = "desc"
     submitted_from: datetime | None = None
     submitted_before: datetime | None = None
-    distribution_id: UUID | None = None
 
 
 class EraseSelectedResponses(BaseModel):

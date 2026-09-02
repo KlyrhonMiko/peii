@@ -28,7 +28,6 @@ def get_survey_response_list_query_params(
     sort_order: Literal["asc", "desc"] = Query(default="desc"),
     submitted_from: datetime | None = Query(default=None),
     submitted_before: datetime | None = Query(default=None),
-    distribution_id: UUID | None = Query(default=None),
 ) -> SurveyResponseListQueryParams:
     if submitted_from is not None and submitted_before is not None:
         def normalize(value: datetime) -> datetime:
@@ -55,7 +54,6 @@ def get_survey_response_list_query_params(
         sort_order=sort_order,
         submitted_from=submitted_from,
         submitted_before=submitted_before,
-        distribution_id=distribution_id,
     )
 
 

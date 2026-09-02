@@ -40,17 +40,13 @@ describe("SurveyPage", () => {
     vi.stubGlobal("fetch", fetchMock)
 
     const { container } = render(
-      await SurveyPage({ params: Promise.resolve({ alumniToken: "secret-survey-token" }) }),
+      await SurveyPage({ params: Promise.resolve({ surveyId: "secret-survey-token" }) }),
     )
 
     expect(screen.getByRole("heading", { name: /continue with google/i })).toBeInTheDocument()
     expect(screen.getByRole("button", { name: /continue with google/i })).toBeInTheDocument()
-    expect(screen.getByText(/verified email and display name will be stored/i)).toBeInTheDocument()
-    expect(screen.getByText(/authorized researchers can identify you/i)).toBeInTheDocument()
-    expect(screen.getByText(/one response per Google account/i)).toBeInTheDocument()
-    expect(screen.getByText(/pseudonymous deduplication value/i)).toBeInTheDocument()
-    expect(screen.getByText(/administrative erasure clears that value/i)).toBeInTheDocument()
-    expect(screen.getByText(/does not promise anonymity or confidentiality/i)).toBeInTheDocument()
+    expect(screen.getByText(/sign in to verify your identity and access the survey/i)).toBeInTheDocument()
+    expect(screen.getByText(/to prevent duplicate submissions, your email will be visible/i)).toBeInTheDocument()
     expect(screen.queryByRole("form")).not.toBeInTheDocument()
     expect(screen.getByRole("button", { name: /continue with google/i })).toHaveAttribute("type", "button")
     expect(container).not.toHaveTextContent("secret-survey-token")
@@ -108,7 +104,7 @@ describe("SurveyPage", () => {
     )
     vi.stubGlobal("fetch", fetchMock)
 
-    render(await SurveyPage({ params: Promise.resolve({ alumniToken: "valid-token" }) }))
+    render(await SurveyPage({ params: Promise.resolve({ surveyId: "valid-token" }) }))
 
     expect(screen.getByRole("heading", { name: "Alumni Survey" })).toBeInTheDocument()
     expect(fetchMock).toHaveBeenCalledWith(
@@ -149,7 +145,7 @@ describe("SurveyPage", () => {
       }), { status: 200 }),
     ))
 
-    render(await SurveyPage({ params: Promise.resolve({ alumniToken: "valid-token" }) }))
+    render(await SurveyPage({ params: Promise.resolve({ surveyId: "valid-token" }) }))
 
     expect(screen.getByRole("heading", { name: heading })).toBeInTheDocument()
     expect(screen.getByRole("status")).toHaveTextContent(message)
@@ -165,7 +161,7 @@ describe("SurveyPage", () => {
     vi.stubGlobal("fetch", fetchMock)
 
     const { container } = render(
-      await SurveyPage({ params: Promise.resolve({ alumniToken: token }) }),
+      await SurveyPage({ params: Promise.resolve({ surveyId: token }) }),
     )
 
     expect(screen.getByRole("alert")).toHaveTextContent(/too many requests/i)
@@ -183,7 +179,7 @@ describe("SurveyPage", () => {
       new Response(null, { status: 503, headers: { "Retry-After": "10" } }),
     ))
 
-    render(await SurveyPage({ params: Promise.resolve({ alumniToken: "another-token" }) }))
+    render(await SurveyPage({ params: Promise.resolve({ surveyId: "another-token" }) }))
 
     expect(screen.getByRole("alert")).toHaveTextContent(/temporarily unavailable/i)
     expect(screen.getByRole("alert")).toHaveTextContent(/try again in 10 seconds/i)
@@ -193,7 +189,7 @@ describe("SurveyPage", () => {
     authenticateSurvey()
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(null, { status: 404 })))
 
-    render(await SurveyPage({ params: Promise.resolve({ alumniToken: "missing-token" }) }))
+    render(await SurveyPage({ params: Promise.resolve({ surveyId: "missing-token" }) }))
 
     expect(screen.getByRole("alert")).toHaveTextContent(/this survey is unavailable/i)
     expect(screen.getByRole("alert")).not.toHaveTextContent(/try again/i)
@@ -247,7 +243,7 @@ describe("SurveyPage", () => {
       }), { status: 200, headers: { "Content-Type": "application/json" } }),
     ))
 
-    render(await SurveyPage({ params: Promise.resolve({ alumniToken: "valid-token" }) }))
+    render(await SurveyPage({ params: Promise.resolve({ surveyId: "valid-token" }) }))
 
     expect(screen.getByRole("heading", { name: "Alumni Survey" })).toBeInTheDocument()
     expect(screen.getByText("What did you enjoy?")).toBeInTheDocument()

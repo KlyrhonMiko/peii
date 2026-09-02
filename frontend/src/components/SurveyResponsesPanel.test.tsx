@@ -109,7 +109,7 @@ describe("SurveyResponsesPanel", () => {
   it("uses neutral empty-state wording when a supported question has no aggregate", () => {
     renderPanel({ aggregates: [] })
 
-    expect(screen.getByText("No aggregate values are available.")).toBeInTheDocument()
+    expect(screen.getAllByText("No aggregate values are available.")).toHaveLength(2)
     expect(screen.queryByText(/privacy threshold|at least five/i)).not.toBeInTheDocument()
   })
 

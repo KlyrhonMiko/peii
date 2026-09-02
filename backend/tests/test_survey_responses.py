@@ -1,3 +1,4 @@
+from __future__ import annotations
 import csv
 import io
 import secrets
@@ -283,11 +284,7 @@ async def test_response_validates_each_answer_type(client):
             json={"status": "Active"},
         )
     ).status_code == 200
-    distribution = await client.post(
-        f"/api/v1/surveys/{survey_uuid}/distributions/",
-        json={"expires_at": EXPIRY},
-    )
-    token = distribution.json()["data"]["token"]
+    token = survey_response.json()["data"]["survey_id"]
     base_answers: dict[str, object] = {}
 
     invalid_answers: list[dict[str, object]] = [

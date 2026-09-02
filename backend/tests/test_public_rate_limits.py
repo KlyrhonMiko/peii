@@ -504,14 +504,14 @@ async def test_public_buckets_use_token_only_by_default(monkeypatch) -> None:
     monkeypatch.setattr(rate_limit.settings, "RATE_LIMIT_INCLUDE_CLIENT_IP", False)
     monkeypatch.setattr(rate_limit.settings, "TRUSTED_PROXY_CIDRS", ["10.0.0.0/8"])
     request = Request(_scope("10.0.0.3", "203.0.113.20, 10.0.0.2"))
-    token = "raw-token-value"
+    survey_id = "raw-survey-id"
 
-    await rate_limit.check_public_survey_read(request, token)
-    await rate_limit.check_public_survey_submit(request, token)
+    await rate_limit.check_public_survey_read(request, survey_id)
+    await rate_limit.check_public_survey_submit(request, survey_id)
 
     assert calls == [
-        ("public-read", [f"token:{token}"]),
-        ("public-submit", [f"token:{token}"]),
+        ("public-read", [f"survey:{survey_id}"]),
+        ("public-submit", [f"survey:{survey_id}"]),
     ]
 
 
@@ -526,14 +526,14 @@ async def test_public_buckets_include_resolved_ip_when_enabled(monkeypatch) -> N
     monkeypatch.setattr(rate_limit.settings, "RATE_LIMIT_INCLUDE_CLIENT_IP", True)
     monkeypatch.setattr(rate_limit.settings, "TRUSTED_PROXY_CIDRS", ["10.0.0.0/8"])
     request = Request(_scope("10.0.0.3", "203.0.113.20, 10.0.0.2"))
-    token = "raw-token-value"
+    survey_id = "raw-survey-id"
 
-    await rate_limit.check_public_survey_read(request, token)
-    await rate_limit.check_public_survey_submit(request, token)
+    await rate_limit.check_public_survey_read(request, survey_id)
+    await rate_limit.check_public_survey_submit(request, survey_id)
 
     assert calls == [
-        ("public-read", ["ip:203.0.113.20", f"token:{token}"]),
-        ("public-submit", ["ip:203.0.113.20", f"token:{token}"]),
+        ("public-read", ["ip:203.0.113.20", f"survey:{survey_id}"]),
+        ("public-submit", ["ip:203.0.113.20", f"survey:{survey_id}"]),
     ]
 
 
@@ -552,13 +552,13 @@ async def test_authenticated_survey_limit_uses_one_subject_session_token_bucket(
         "public-read",
         auth_user_id="subject-a",
         session_id="session-a",
-        token="survey-token",
+        survey_id="survey-token",
     )
 
     assert calls == [
         (
             "public-read",
-            ["subject:subject-a:session:session-a:token:survey-token"],
+            ["subject:subject-a:session:session-a:survey:survey-token"],
         ),
         ("public-read-global", ["public-read-global"]),
     ]
@@ -594,7 +594,7 @@ async def test_authenticated_survey_budgets_are_distinct_by_subject_and_session(
             "public-read",
             auth_user_id="subject-a",
             session_id="session-a",
-            token="survey-token",
+            survey_id="survey-token",
         )
 
     with pytest.raises(RateLimitExceeded):
@@ -602,20 +602,20 @@ async def test_authenticated_survey_budgets_are_distinct_by_subject_and_session(
             "public-read",
             auth_user_id="subject-a",
             session_id="session-a",
-            token="survey-token",
+            survey_id="survey-token",
         )
 
     await rate_limit.enforce_authenticated_survey_rate_limit(
         "public-read",
         auth_user_id="subject-a",
         session_id="session-b",
-        token="survey-token",
+        survey_id="survey-token",
     )
     await rate_limit.enforce_authenticated_survey_rate_limit(
         "public-read",
         auth_user_id="subject-b",
         session_id="session-b",
-        token="survey-token",
+        survey_id="survey-token",
     )
 
 
@@ -653,7 +653,7 @@ async def test_new_rate_limit_buckets_fail_closed_when_redis_is_unavailable(monk
             "public-submit",
             auth_user_id="subject-a",
             session_id="session-a",
-            token="survey-token",
+            survey_id="survey-token",
         )
 
     with pytest.raises(RedisUnavailableError):

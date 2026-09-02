@@ -127,12 +127,7 @@ async def _create_active_survey(client) -> tuple[dict[str, Any], str, str]:
         f"/api/v1/surveys/{survey['survey_id']}", json={"status": "Active"}
     )
     assert activated.status_code == 200
-    distribution = await client.post(
-        f"/api/v1/surveys/{survey['id']}/distributions/",
-        json={"expires_at": (datetime.now(UTC) + timedelta(days=29)).isoformat()},
-    )
-    assert distribution.status_code == 201
-    return survey, question.json()["data"]["id"], distribution.json()["data"]["token"]
+    return survey, question.json()["data"]["id"], survey["survey_id"]
 
 
 def _respondent(
@@ -604,13 +599,8 @@ async def test_google_identity_is_deduplicated_across_distributions_and_replay_i
     )
     assert replay.status_code == 200
 
-    distribution = await client.post(
-        f"/api/v1/surveys/{survey['id']}/distributions/",
-        json={"expires_at": (datetime.now(UTC) + timedelta(days=29)).isoformat()},
-    )
-    second_token = distribution.json()["data"]["token"]
     duplicate = await client.post(
-        f"/api/v1/survey/{second_token}/respond",
+        f"/api/v1/survey/{token}/respond",
         json={
             "answers": {question_id: "second"},
             "consent": CONSENT,
