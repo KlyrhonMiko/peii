@@ -10,10 +10,189 @@ import { ClientKeyOutcomes } from "@/components/ClientKeyOutcomes"
 import { ClientDegreeAlignment } from "@/components/ClientDegreeAlignment"
 import { ClientCurriculumFeedback } from "@/components/ClientCurriculumFeedback"
 import { DashboardFilters } from "@/components/DashboardFilters"
+import { Skeleton } from "@/components/ui/skeleton"
 import { Target, AlertTriangle, Database, Users, TrendingUp } from "lucide-react"
 import { fetchSurveys, fetchPEII, fetchResponseAggregates } from "@/lib/surveys"
 import type { PEIIDomainScore } from "@/components/PEIIDimensionsChart"
 import type { PEIIDemographics, PEIIHistoricalTrend, SurveyResponseAggregate, FeedbackClassification, QualitativeFeedback } from "@/lib/surveys"
+
+function AnalyticsSkeleton() {
+  return (
+    <div className="pb-12">
+      {/* Main Asymmetric Grid Skeleton — header is already rendered above */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-16 mt-12">
+
+        {/* LEFT COLUMN (8 cols) */}
+        <div className="lg:col-span-8 flex flex-col gap-24">
+
+          {/* Historical Trend — aspect-[21/9] min-h-[400px] */}
+          <div className="pb-16 border-b border-slate-200 space-y-6">
+            <div className="space-y-1.5">
+              <Skeleton className="h-[1.125rem] w-48" />
+              <Skeleton className="h-3.5 w-60" />
+            </div>
+            <Skeleton className="w-full aspect-[21/9] min-h-[400px] rounded-xl" />
+          </div>
+
+          {/* Domain Gain — axis header + 6 dumbbell rows */}
+          <div className="pb-16 border-b border-slate-200 space-y-8">
+            <div className="space-y-1.5">
+              <Skeleton className="h-[1.125rem] w-44" />
+              <Skeleton className="h-3.5 w-64" />
+            </div>
+            {/* Axis header bar */}
+            <div className="flex w-full pb-3 border-b border-slate-200">
+              <Skeleton className="h-3 w-16" />
+            </div>
+            {/* 6 dumbbell rows */}
+            <div className="flex flex-col gap-10">
+              {[...Array(6)].map((_, i) => (
+                <div key={i} className="flex items-center w-full gap-4">
+                  <div className="w-[40%] space-y-1.5">
+                    <Skeleton className="h-4 w-full" />
+                    <Skeleton className="h-3 w-16" />
+                  </div>
+                  <div className="w-[60%] h-8 flex items-center">
+                    <Skeleton className="h-1.5 w-full rounded-full" />
+                  </div>
+                </div>
+              ))}
+            </div>
+            {/* Legend */}
+            <div className="flex items-center gap-6 pt-6 border-t border-slate-200">
+              <Skeleton className="h-3 w-20" />
+              <Skeleton className="h-3 w-20" />
+            </div>
+          </div>
+
+          {/* Radar Chart — h-[400px] */}
+          <div className="pb-16 border-b border-slate-200 space-y-6">
+            <div className="space-y-1.5">
+              <Skeleton className="h-[1.125rem] w-52" />
+              <Skeleton className="h-3.5 w-56" />
+            </div>
+            <Skeleton className="h-[400px] w-full rounded-xl" />
+          </div>
+
+          {/* Feedback Sentiment — ~6 dimension rows with h-3 bar */}
+          <div className="pb-16 border-b border-slate-200 space-y-6">
+            <div className="space-y-1.5">
+              <Skeleton className="h-[1.125rem] w-56" />
+              <Skeleton className="h-3.5 w-72" />
+            </div>
+            <div className="flex flex-col gap-8 px-2">
+              {[...Array(6)].map((_, i) => (
+                <div key={i} className="flex flex-col gap-3">
+                  <Skeleton className="h-3.5 w-48" />
+                  <Skeleton className="h-3 w-full rounded-full" />
+                </div>
+              ))}
+            </div>
+            {/* Legend */}
+            <div className="flex gap-6 px-2 mt-10">
+              <Skeleton className="h-3 w-16" />
+              <Skeleton className="h-3 w-16" />
+              <Skeleton className="h-3 w-16" />
+            </div>
+          </div>
+
+          {/* Curriculum Feedback — header + filter tabs + 4 feedback cards */}
+          <div className="pb-16 space-y-6">
+            <div className="space-y-1.5">
+              <Skeleton className="h-[1.125rem] w-48" />
+              <Skeleton className="h-3.5 w-64" />
+            </div>
+            {/* Dimension filter pills */}
+            <div className="flex gap-2 flex-wrap">
+              {[...Array(5)].map((_, i) => (
+                <Skeleton key={i} className="h-7 w-24 rounded-full" />
+              ))}
+            </div>
+            <div className="space-y-3">
+              {[...Array(4)].map((_, i) => (
+                <div key={i} className="rounded-xl border border-slate-100 p-4 space-y-2.5">
+                  <div className="flex items-center gap-2">
+                    <Skeleton className="h-5 w-16 rounded-full" />
+                    <Skeleton className="h-3.5 w-28" />
+                  </div>
+                  <Skeleton className="h-3.5 w-full" />
+                  <Skeleton className="h-3.5 w-4/5" />
+                </div>
+              ))}
+            </div>
+          </div>
+
+        </div>
+
+        {/* RIGHT COLUMN (4 cols) */}
+        <div className="lg:col-span-4 flex flex-col gap-16 lg:border-l border-slate-200 lg:pl-16">
+
+          {/* Analytics Metrics Ledger — 4 stat blocks (label → text-5xl number → subtext) */}
+          <div className="flex flex-col gap-12 pb-16 border-b border-slate-200">
+            {[...Array(4)].map((_, i) => (
+              <div key={i} className="flex flex-col">
+                {/* uppercase tracking label */}
+                <Skeleton className="h-3 w-32 mb-4" />
+                {/* text-5xl font-light value — could be multi-line word */}
+                <Skeleton className="h-14 w-40 mb-2" />
+                {/* subValue */}
+                <Skeleton className="h-3.5 w-28" />
+              </div>
+            ))}
+          </div>
+
+          {/* Demographics Overview — 3 ledger blocks (label → text-5xl → sub) */}
+          <div className="pb-16 border-b border-slate-200 flex flex-col gap-12">
+            {[...Array(3)].map((_, i) => (
+              <div key={i} className="flex flex-col">
+                <Skeleton className="h-3 w-36 mb-6" />
+                <Skeleton className="h-14 w-32 mb-2" />
+                <Skeleton className="h-3.5 w-24" />
+              </div>
+            ))}
+          </div>
+
+          {/* Employment Stability — label → text-5xl % → segmented bar */}
+          <div className="pb-16 border-b border-slate-200 space-y-6">
+            <div className="space-y-1.5">
+              <Skeleton className="h-[1.125rem] w-40" />
+              <Skeleton className="h-3.5 w-64" />
+            </div>
+            <div className="flex flex-col gap-2 mt-4">
+              <Skeleton className="h-14 w-20" />
+              <Skeleton className="h-3.5 w-32" />
+            </div>
+            <Skeleton className="h-3 w-full rounded-full" />
+            <div className="flex flex-wrap gap-x-4 gap-y-2">
+              {[...Array(3)].map((_, i) => (
+                <Skeleton key={i} className="h-3 w-20" />
+              ))}
+            </div>
+          </div>
+
+          {/* Degree Alignment — same structure as Employment Stability */}
+          <div className="pb-16 space-y-6">
+            <div className="space-y-1.5">
+              <Skeleton className="h-[1.125rem] w-36" />
+              <Skeleton className="h-3.5 w-56" />
+            </div>
+            <div className="flex flex-col gap-2 mt-4">
+              <Skeleton className="h-14 w-20" />
+              <Skeleton className="h-3.5 w-28" />
+            </div>
+            <Skeleton className="h-3 w-full rounded-full" />
+            <div className="flex flex-wrap gap-x-4 gap-y-2">
+              {[...Array(3)].map((_, i) => (
+                <Skeleton key={i} className="h-3 w-20" />
+              ))}
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+  )
+}
 
 export default function AnalyticsPage() {
   const [filters, setFilters] = useState({ department: "All Departments", batch: "All Batches" })
@@ -175,7 +354,7 @@ export default function AnalyticsPage() {
 
       {/* Main Content Area */}
       {isLoading ? (
-        <div className="flex items-center justify-center py-20 text-slate-400">Loading data...</div>
+        <AnalyticsSkeleton />
       ) : (!demographics || demographics.total_responses === 0) ? (
         <div className="mt-8 flex flex-col items-center justify-center py-32 text-center border border-dashed border-slate-300 rounded-2xl bg-slate-50/50">
           <div className="w-16 h-16 bg-white rounded-2xl shadow-sm border border-slate-100 flex items-center justify-center mb-6">
