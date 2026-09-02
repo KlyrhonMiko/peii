@@ -10,6 +10,9 @@ AggregateQuestionType = Literal[
     "scale",
     "ranking",
     "matrix",
+    "text",
+    "number",
+    "datetime",
 ]
 
 

@@ -37,7 +37,7 @@ function ExpirySelect({
   const [open, setOpen] = useState(false)
   
   const options = [
-    { value: 0, label: "30 days (Default)" },
+    { value: 0, label: "No expiry (Default)" },
     { value: 1, label: "1 day" },
     { value: 7, label: "7 days" },
     { value: 30, label: "30 days" },
@@ -92,27 +92,6 @@ function ExpirySelect({
   )
 }
 
-function formatDistributionDate(value: string | null): string {
-  return value ? new Date(value).toLocaleString() : "Never"
-}
-
-function statusLabel(status: Distribution["status"]): string {
-  return status[0]?.toUpperCase() + status.slice(1)
-}
-
-function statusGuidance(status: Distribution["status"]): string {
-  switch (status) {
-    case "active":
-      return "This link can accept responses until it expires."
-    case "suspended":
-      return "This link is suspended and cannot accept responses until it is restored by the backend."
-    case "expired":
-      return "This link has expired. Issue a new link with a new expiry date."
-    case "revoked":
-      return "This link was revoked and cannot accept responses. Issue a new link to continue."
-  }
-}
-
 function distributionMetadata(secret: DistributionSecret): Distribution {
   return {
     id: secret.id,
@@ -125,54 +104,7 @@ function distributionMetadata(secret: DistributionSecret): Distribution {
   }
 }
 
-function DistributionLifecycle({
-  distributions,
-  canManage,
-  action,
-  onRevoke,
-}: {
-  distributions: Distribution[]
-  canManage: boolean
-  action: "create" | "rotate" | "revoke" | null
-  onRevoke: (distributionId: string) => void
-}) {
-  if (distributions.length === 0) return null
 
-  return (
-    <div className="space-y-4 pt-4 border-t border-slate-200/60">
-      <h3 className="text-sm font-semibold text-slate-900 tracking-tight">Link lifecycle</h3>
-      {distributions.map((distribution) => (
-        <div key={distribution.id} className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-          <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0">
-              <div className="flex items-center gap-2">
-                <span className={cn("size-2 rounded-full", distribution.status === "active" ? "bg-emerald-500" : "bg-slate-400")} />
-                <span className="font-medium text-slate-800">{statusLabel(distribution.status)}</span>
-              </div>
-              <p className="mt-1 text-xs text-slate-500">{statusGuidance(distribution.status)}</p>
-            </div>
-            {canManage && distribution.status === "active" && (
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => onRevoke(distribution.id)}
-                disabled={action !== null}
-                className="text-red-600 hover:bg-red-50 hover:text-red-700"
-              >
-                {action === "revoke" ? <Loader2 className="animate-spin" data-icon="inline-start" /> : null}
-                Revoke
-              </Button>
-            )}
-          </div>
-          <dl className="mt-3 grid gap-1 text-xs text-slate-500 sm:grid-cols-2">
-            <div><dt className="inline font-medium text-slate-600">Created: </dt><dd className="inline">{formatDistributionDate(distribution.createdAt)}</dd></div>
-            <div><dt className="inline font-medium text-slate-600">Expires: </dt><dd className="inline">{formatDistributionDate(distribution.expiresAt)}</dd></div>
-          </dl>
-        </div>
-      ))}
-    </div>
-  )
-}
 
 
 export function SurveyDistributionManager({
@@ -200,7 +132,17 @@ export function SurveyDistributionManager({
     setError(null)
     try {
       const nextDistributions = await fetchDistributions(surveyId)
-      if (requestId === loadId.current) setDistributions(nextDistributions)
+      if (requestId === loadId.current) {
+        setDistributions(nextDistributions)
+        
+        const active = nextDistributions.find((d) => d.status === "active")
+        if (active) {
+          const storedToken = localStorage.getItem(`survey-token-${active.id}`)
+          if (storedToken) {
+            setSecret({ ...active, token: storedToken })
+          }
+        }
+      }
     } catch (loadError) {
       if (requestId === loadId.current) {
         setError(loadError instanceof Error ? loadError.message : "We could not load distribution links.")
@@ -236,6 +178,7 @@ export function SurveyDistributionManager({
         expiresAtValue = expiry.toISOString()
       }
       const created = await createDistribution(surveyId, expiresAtValue)
+      localStorage.setItem(`survey-token-${created.id}`, created.token)
       setSecret(created)
       setDistributions((current) => [distributionMetadata(created), ...current.filter((item) => item.id !== created.id)])
     } catch (createError) {
@@ -262,6 +205,7 @@ export function SurveyDistributionManager({
         distributionId,
         expiresAtValue,
       )
+      localStorage.setItem(`survey-token-${replacement.id}`, replacement.token)
       setSecret(replacement)
       setDistributions((current) => [distributionMetadata(replacement), ...current.filter((item) => item.id !== replacement.id)])
       await load()
@@ -453,12 +397,6 @@ export function SurveyDistributionManager({
                   )}
                 </div>
               )}
-              <DistributionLifecycle
-                distributions={distributions}
-                canManage={canManage}
-                action={action}
-                onRevoke={(distributionId) => void performRevoke(distributionId)}
-              />
             </div>
           )}
         </div>

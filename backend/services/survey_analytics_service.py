@@ -34,6 +34,9 @@ _AGGREGATE_TYPES = {
     QuestionType.SCALE,
     QuestionType.RANKING,
     QuestionType.MATRIX,
+    QuestionType.TEXT,
+    QuestionType.NUMBER,
+    QuestionType.DATETIME,
 }
 # This query expands JSONB answers in PostgreSQL and returns only grouped cell
 # counts.  The answer document itself never crosses the database boundary.
@@ -55,7 +58,7 @@ question_defs AS (
       AND s.is_deleted IS FALSE
       AND q.question_type IN (
           'single_choice', 'boolean', 'multiple_choice',
-          'scale', 'ranking', 'matrix'
+          'scale', 'ranking', 'matrix', 'text', 'number', 'datetime'
       )
 ),
 question_answers AS (
@@ -70,7 +73,7 @@ expanded AS (
            NULL::integer AS cell_rank,
            NULL::text AS row_name
     FROM question_answers
-    WHERE question_type IN ('single_choice', 'boolean', 'scale')
+    WHERE question_type IN ('single_choice', 'boolean', 'scale', 'text', 'number', 'datetime')
       AND answer IS NOT NULL
       AND jsonb_typeof(answer) <> 'null'
       AND (jsonb_typeof(answer) <> 'string' OR btrim(answer #>> '{}') <> '')
@@ -155,6 +158,8 @@ def _aggregate_cell_count(
     options: list[object],
     config: dict[str, object],
 ) -> int:
+    if question_type in {QuestionType.TEXT, QuestionType.NUMBER, QuestionType.DATETIME}:
+        return 0
     if question_type in {QuestionType.SINGLE_CHOICE, QuestionType.MULTIPLE_CHOICE}:
         return len(options)
     if question_type == QuestionType.BOOLEAN:
@@ -256,6 +261,14 @@ def _accumulate_aggregate_answer(state: _AggregateState, answer: object) -> None
                 state.counts[answer] += 1
         except TypeError:
             pass
+    elif state.question_type in {QuestionType.TEXT, QuestionType.NUMBER, QuestionType.DATETIME}:
+        try:
+            if answer in state.counts:
+                state.counts[answer] += 1
+            elif len(state.counts) < MAX_AGGREGATE_CELLS_PER_QUESTION:
+                state.counts[answer] = 1
+        except TypeError:
+            pass
     elif state.question_type == QuestionType.RANKING:
         if isinstance(answer, list):
             for rank, value in enumerate(answer, start=1):
@@ -274,6 +287,8 @@ def _accumulate_aggregate_answer(state: _AggregateState, answer: object) -> None
 
 
 def _aggregate_cells(state: _AggregateState) -> list[dict[str, object]]:
+    if state.question_type in {QuestionType.TEXT, QuestionType.NUMBER, QuestionType.DATETIME}:
+        return [{"value": str(k), "count": v} for k, v in state.counts.most_common(1000)]
     if state.question_type in {QuestionType.SINGLE_CHOICE, QuestionType.MULTIPLE_CHOICE}:
         return [{"value": option, "count": state.counts.get(option, 0)} for option in state.options]
     if state.question_type == QuestionType.BOOLEAN:
@@ -373,8 +388,15 @@ def _apply_postgres_row(states: dict[str, _AggregateState], row: Any) -> None:
         key = (mapping["row_name"], normalized_value)
     else:
         key = normalized_value
-    if key in state.counts:
-        state.counts[key] = int(mapping["cell_count"])
+    
+    if state.question_type in {QuestionType.TEXT, QuestionType.NUMBER, QuestionType.DATETIME}:
+        if key in state.counts:
+            state.counts[key] += int(mapping["cell_count"])
+        elif len(state.counts) < MAX_AGGREGATE_CELLS_PER_QUESTION:
+            state.counts[key] = int(mapping["cell_count"])
+    else:
+        if key in state.counts:
+            state.counts[key] = int(mapping["cell_count"])
 
 
 async def _aggregate_postgres(

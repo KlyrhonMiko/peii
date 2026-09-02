@@ -10,6 +10,7 @@ export type AggregatePresentation =
   | { kind: "bars"; total: number; items: AggregateDisplayItem[] }
   | { kind: "ranking"; total: number; rows: Array<{ rank: number; cells: AggregateDisplayItem[] }> }
   | { kind: "matrix"; total: number; rows: Array<{ row: string; cells: AggregateDisplayItem[] }> }
+  | { kind: "list"; total: number; items: AggregateDisplayItem[] }
   | { kind: "empty"; total: number }
 
 function displayLabel(value: AggregateCell["value"], questionType: string): string {
@@ -61,6 +62,15 @@ export function buildAggregatePresentation(
     return rows.length > 0 ? { kind: "matrix", total: aggregate.total, rows } : { kind: "empty", total: aggregate.total }
   }
 
+  if (["text", "number", "datetime"].includes(aggregate.question_type) || ["text", "number", "datetime"].includes(question.type)) {
+    const items = aggregate.cells.map((cell) => ({
+      key: String(cell.value),
+      label: String(cell.value),
+      count: cell.count,
+    }))
+    return items.length > 0 ? { kind: "list", total: aggregate.total, items } : { kind: "empty", total: aggregate.total }
+  }
+
   const items = aggregate.cells.map((cell) => {
     const label = aggregate.question_type === "scale"
       ? scaleLabel(question, cell.value) ?? String(cell.value)
@@ -100,6 +110,9 @@ export function buildRawAggregate(
     "scale",
     "ranking",
     "matrix",
+    "text",
+    "number",
+    "datetime",
   ].includes(question.type)) return null
 
   const answers = responses
@@ -153,6 +166,16 @@ export function buildRawAggregate(
       rank: null,
       row,
     })))
+  } else if (["text", "number", "datetime"].includes(question.type)) {
+    cells = Array.from(counts.entries())
+      .filter(([key]) => key.startsWith("value:"))
+      .map(([key, count]) => ({
+        value: key.replace("value:", ""),
+        count,
+        rank: null,
+        row: null,
+      }))
+      .sort((a, b) => b.count - a.count)
   } else {
     cells = options.map((option) => ({
       value: option,

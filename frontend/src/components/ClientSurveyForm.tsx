@@ -1,6 +1,6 @@
 "use client"
 
-import { type FormEvent, useEffect, useRef, useState } from "react"
+import { type FormEvent, useEffect, useRef, useState, useMemo } from "react"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import {
@@ -19,6 +19,11 @@ import {
   AlertCircle,
   Copy,
   Printer,
+  Target,
+  Info,
+  ShieldCheck,
+  Asterisk,
+  List,
 } from "lucide-react"
 
 import {
@@ -31,6 +36,7 @@ import {
   type PublicAnswers,
   type PublicSurveyConsent,
   type PublicSurveySection,
+  type PublicSurveyQuestion,
   type PublicSurveySubmission,
 } from "@/lib/public-survey"
 
@@ -44,6 +50,7 @@ interface ClientSurveyFormProps {
   sections: PublicSurveySection[]
   submissionPhase?: 1 | 2
   token: string
+  userEmail?: string | null
 }
 
 function isBlankAnswer(value: PublicAnswerValue | undefined): boolean {
@@ -91,6 +98,7 @@ export function ClientSurveyForm({
   sections,
   submissionPhase = 1,
   token,
+  userEmail,
 }: ClientSurveyFormProps) {
   const isPhase1 = submissionPhase === 1
   const [sectionIdx, setSectionIdx] = useState(0)
@@ -106,6 +114,7 @@ export function ClientSurveyForm({
   const [retryAt, setRetryAt] = useState<number | null>(null)
   const [now, setNow] = useState(() => Date.now())
   const [submittedWithdrawalCode, setSubmittedWithdrawalCode] = useState<string | null>(null)
+  const [isTransitioning, setIsTransitioning] = useState(false)
   const idempotencyKey = useRef<{ phase: 1 | 2; key: string } | null>(null)
   const withdrawalCode = useRef<string | null>(null)
   const [codeCopied, setCodeCopied] = useState(false)
@@ -131,7 +140,61 @@ export function ClientSurveyForm({
     return () => window.clearInterval(timer)
   }, [retryAt])
 
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: "smooth" })
+  }, [sectionIdx])
+
+  useEffect(() => {
+    // Keep the session alive (and refresh tokens if needed) by triggering 
+    // the Next.js middleware with a lightweight background ping every 15 minutes.
+    // This prevents the Supabase JWT from expiring while the user is slowly filling out the form.
+    const keepAlive = setInterval(() => {
+      fetch(window.location.href, { method: "HEAD" }).catch(() => {})
+    }, 15 * 60 * 1000)
+
+    return () => clearInterval(keepAlive)
+  }, [])
+
   const section = sections[sectionIdx]
+
+  const groupedQuestions = useMemo(() => {
+    if (!section) return []
+    const groups: (PublicSurveyQuestion | PublicSurveyQuestion[])[] = []
+    let currentGroup: PublicSurveyQuestion[] = []
+
+    const isSameScale = (q1: PublicSurveyQuestion, q2: PublicSurveyQuestion) => {
+      if (q1.question_type !== "scale" || q2.question_type !== "scale") return false
+      if (q1.config?.min !== q2.config?.min) return false
+      if (q1.config?.max !== q2.config?.max) return false
+      if (q1.config?.min_label !== q2.config?.min_label) return false
+      if (q1.config?.max_label !== q2.config?.max_label) return false
+      if (JSON.stringify(q1.options) !== JSON.stringify(q2.options)) return false
+      return true
+    }
+
+    for (const question of section.questions) {
+      if (currentGroup.length === 0) {
+        currentGroup.push(question)
+      } else {
+        const firstInGroup = currentGroup[0]
+        if (firstInGroup && isSameScale(firstInGroup, question)) {
+          currentGroup.push(question)
+        } else {
+          if (firstInGroup) {
+            groups.push(currentGroup.length === 1 ? firstInGroup : currentGroup)
+          }
+          currentGroup = [question]
+        }
+      }
+    }
+    if (currentGroup.length > 0) {
+      const first = currentGroup[0]
+      if (first) {
+        groups.push(currentGroup.length === 1 ? first : currentGroup)
+      }
+    }
+    return groups
+  }, [section])
 
   if (submitted) {
     const code = submittedWithdrawalCode
@@ -235,17 +298,29 @@ export function ClientSurveyForm({
   }
 
   const goNext = () => {
-    if (submitting) return
+    if (submitting || isTransitioning) return
+    if (isPhase1 && isFirst && !consentAccepted) {
+      setConsentTouched(true)
+      return
+    }
     if (!validateSection()) {
       setValidationAlertOpen(true)
       return
     }
-    if (!isLast) setSectionIdx((previous) => previous + 1)
+    if (!isLast) {
+      setIsTransitioning(true)
+      setSectionIdx((previous) => previous + 1)
+      setTimeout(() => setIsTransitioning(false), 500)
+    }
   }
 
   const goPrev = () => {
-    if (submitting) return
-    if (!isFirst) setSectionIdx((previous) => previous - 1)
+    if (submitting || isTransitioning) return
+    if (!isFirst) {
+      setIsTransitioning(true)
+      setSectionIdx((previous) => previous - 1)
+      setTimeout(() => setIsTransitioning(false), 500)
+    }
   }
 
   const setAnswer = (questionId: string, value: PublicAnswerValue) => {
@@ -366,7 +441,7 @@ export function ClientSurveyForm({
 
   const onSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
-    if (submitting || staleConsent || retryBlocked) return
+    if (submitting || staleConsent || retryBlocked || isTransitioning) return
     if (isPhase1 && !consentAccepted) {
       setConsentTouched(true)
       return
@@ -391,51 +466,64 @@ export function ClientSurveyForm({
             {/* Minimal Header */}
             <div className="mb-12">
               <h1 className="text-3xl font-semibold tracking-tight text-zinc-900">{title}</h1>
-              {description && (
-                <p className="mt-3 text-[15px] leading-relaxed text-zinc-500">{description}</p>
-              )}
+              {isFirst && description && <SurveyDescription text={description} />}
             </div>
 
-            {/* Subtle Progress Indicator */}
+            {/* Section Header & Progress */}
             <div className="mb-10">
+              <h2 className="mb-6">
+                {renderSectionTitle(section.title, `Section ${sectionIdx + 1}`)}
+              </h2>
+              
               <div className="flex items-end justify-between text-[13px] font-medium text-zinc-500">
-                <div className="flex flex-col gap-1">
-                  <span className="text-zinc-900">{section.title || `Section ${sectionIdx + 1}`}</span>
-                  <span className="text-[12px] text-zinc-400 font-normal">
-                    {Object.keys(answers).length} of {sections.reduce((total, current) => total + current.questions.length, 0)} answered
-                  </span>
-                </div>
-                <span>{Math.round(((sectionIdx + 1) / sections.length) * 100)}%</span>
+                <span className="text-[13px] text-zinc-500 font-medium tracking-wide uppercase">
+                  {Object.keys(answers).length} / {sections.reduce((total, current) => total + current.questions.length, 0)} answered
+                </span>
+                <span className="tracking-wide">{Math.round(((sectionIdx + 1) / sections.length) * 100)}%</span>
               </div>
-              <div className="mt-3 h-px w-full bg-zinc-200">
+              <div className="mt-3.5 h-[2px] w-full bg-zinc-100 rounded-full overflow-hidden">
                 <div
-                  className="h-full bg-zinc-900 transition-all duration-300"
+                  className="h-full bg-zinc-900 transition-all duration-500 ease-out"
                   style={{ width: `${((sectionIdx + 1) / sections.length) * 100}%` }}
                 />
               </div>
               {section.description && (
-                <p className="mt-6 text-[15px] leading-relaxed text-zinc-600">
-                  {section.description}
-                </p>
+                <div className="mt-8 border-t border-zinc-100 pt-3">
+                  <SurveyDescription text={section.description} />
+                </div>
               )}
             </div>
 
             {/* Questions Container */}
             <div className="space-y-6">
-              {section.questions.map((question) => (
-                <QuestionInput
-                  key={question.id}
-                  question={question}
-                  answer={answers[question.id]}
-                  error={errors[question.id]}
-                  onAnswer={setAnswer}
-                  onToggleMultiple={toggleMultiple}
-                />
-              ))}
+              {groupedQuestions.map((item, index) => {
+                if (Array.isArray(item)) {
+                  return (
+                    <GroupedScaleGrid
+                      key={`group-${index}`}
+                      questions={item}
+                      answers={answers}
+                      errors={errors}
+                      onAnswer={setAnswer}
+                    />
+                  )
+                }
+                return (
+                  <QuestionInput
+                    key={item.id}
+                    question={item}
+                    answer={answers[item.id]}
+                    error={errors[item.id]}
+                    onAnswer={setAnswer}
+                    onToggleMultiple={toggleMultiple}
+                    userEmail={userEmail ?? null}
+                  />
+                )
+              })}
             </div>
 
             {/* Consent card */}
-            {isPhase1 && (
+            {isPhase1 && isFirst && (
               <div className="mt-6">
                 <SurveyConsentCard
                   consent={consent}
@@ -464,20 +552,20 @@ export function ClientSurveyForm({
               </div>
               <div className="flex gap-3">
                 {!isFirst && (
-                  <Button type="button" variant="outline" onClick={goPrev} className="h-10 gap-2 rounded-lg border-zinc-200 px-5 text-sm text-zinc-700 hover:bg-zinc-50">
+                  <Button type="button" variant="outline" onClick={goPrev} disabled={isTransitioning} className="h-10 gap-2 rounded-lg border-zinc-200 px-5 text-sm text-zinc-700 hover:bg-zinc-50 disabled:opacity-50">
                     <ArrowLeft className="size-4" data-icon="inline-start" />
                     Previous
                   </Button>
                 )}
                 {!isLast ? (
-                  <Button type="button" onClick={goNext} className="h-10 gap-2 rounded-lg bg-zinc-900 px-6 text-sm font-medium text-white shadow-sm transition-all hover:bg-zinc-800">
+                  <Button type="button" onClick={goNext} disabled={isTransitioning} className="h-10 gap-2 rounded-lg bg-zinc-900 px-6 text-sm font-medium text-white shadow-sm transition-all hover:bg-zinc-800 disabled:opacity-50">
                     Next
                     <ArrowRight className="size-4" data-icon="inline-end" />
                   </Button>
                 ) : (
                   <Button
                     type="submit"
-                    disabled={submitting || (isPhase1 && !consentAccepted) || staleConsent || retryBlocked}
+                    disabled={submitting || isTransitioning || (isPhase1 && !consentAccepted) || staleConsent || retryBlocked}
                     className="h-10 gap-2 rounded-lg bg-zinc-900 px-6 text-sm font-medium text-white shadow-sm transition-all hover:bg-zinc-800 disabled:opacity-50"
                   >
                     {submitting ? (
@@ -513,7 +601,7 @@ export function ClientSurveyForm({
                 Missing Information
               </DialogTitle>
               <DialogDescription className="text-[15px] text-slate-500 mt-2 leading-relaxed max-w-[95%] text-center">
-                Please complete all required questions before proceeding to the next section.
+                Please complete all required questions before {isLast ? "submitting your response" : "proceeding to the next section"}.
               </DialogDescription>
             </DialogHeader>
           </div>
@@ -529,6 +617,186 @@ export function ClientSurveyForm({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+    </div>
+  )
+}
+
+function GroupedScaleGrid({
+  questions,
+  answers,
+  errors,
+  onAnswer,
+}: {
+  questions: PublicSurveyQuestion[]
+  answers: PublicAnswers
+  errors: Record<string, string>
+  onAnswer: (questionId: string, value: PublicAnswerValue) => void
+}) {
+  const first = questions[0]
+  if (!first) return null
+
+  const min = typeof first.config?.min === "number" ? first.config.min : 1
+  const max = typeof first.config?.max === "number" ? first.config.max : (first.options?.length ?? 4)
+  const range = Array.from({ length: max - min + 1 }, (_, index) => min + index)
+
+  return (
+    <div className="rounded-2xl bg-white p-6 sm:p-8 border border-zinc-200 shadow-sm overflow-hidden">
+      <div className="-mx-6 sm:-mx-8 px-6 sm:px-8">
+        <table className="w-full table-fixed border-collapse text-sm">
+          <thead>
+            <tr className="border-b border-zinc-200">
+              <th scope="col" className="w-1/2 py-3 pr-4 text-left text-[11px] font-medium uppercase tracking-wider text-zinc-400" />
+              {range.map((number, idx) => (
+                <th scope="col" key={number} className="px-1 sm:px-3 py-3 text-center text-[11px] sm:text-[12px] font-medium text-zinc-500">
+                  <span className="block text-zinc-900 font-semibold mb-1">{number}</span>
+                  {first.options && first.options[idx] && (
+                    <span className="block text-[11px] font-normal">{first.options[idx]}</span>
+                  )}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {questions.map((q) => {
+              const hasError = Boolean(errors[q.id])
+              return (
+                <tr key={q.id} className={`border-b border-zinc-100 transition-colors last:border-0 hover:bg-zinc-50/50 ${hasError ? "bg-red-50/30" : ""}`}>
+                  <th scope="row" className="py-4 pr-4 text-left text-[14px] font-medium text-zinc-800 text-pretty">
+                    <span className={hasError ? "text-red-700" : ""}>{q.question_text}</span>
+                    {q.is_required && <span className="ml-1 text-red-500" aria-hidden="true">*</span>}
+                  </th>
+                  {range.map((number) => {
+                    const selected = answers[q.id] === number
+                    return (
+                      <td key={number} className="px-3 py-4 text-center">
+                        <input
+                          type="radio"
+                          name={`scale-group-${q.id}`}
+                          value={number}
+                          checked={selected}
+                          onChange={() => onAnswer(q.id, number)}
+                          aria-label={`${q.question_text}: ${number}`}
+                          aria-invalid={hasError}
+                          className="size-4 cursor-pointer accent-zinc-900"
+                        />
+                      </td>
+                    )
+                  })}
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
+function renderSectionTitle(title: string | null, fallback: string) {
+  const text = title || fallback;
+  if (!text.includes(": ")) {
+    return (
+      <span className="text-[22px] font-semibold tracking-tight text-zinc-900 leading-snug">
+        {text}
+      </span>
+    );
+  }
+
+  const index = text.indexOf(": ");
+  const main = text.substring(0, index);
+  const sub = text.substring(index + 2);
+
+  return (
+    <>
+      <span className="block mb-2 text-[12.5px] font-bold tracking-widest text-zinc-400 uppercase">
+        {main}
+      </span>
+      <span className="block text-[24px] font-semibold tracking-tight text-zinc-900 leading-snug">
+        {sub}
+      </span>
+    </>
+  );
+}
+
+function SurveyDescription({ text }: { text: string }) {
+  if (!text) return null;
+
+  let cleanText = text;
+  let asteriskWarning = "";
+  if (cleanText.includes("Required fields are marked with an asterisk (*)")) {
+    cleanText = cleanText.replace("Required fields are marked with an asterisk (*)", "");
+    asteriskWarning = "Required fields are marked with an asterisk (*)";
+  }
+
+  const sectionRegex = /(Purpose:|Instructions:|Instruction:|Data Privacy Notice:|Note:|Scale:)/i;
+  
+  if (!sectionRegex.test(cleanText)) {
+    return (
+      <div className="mt-4 space-y-4">
+        {cleanText.split('\n').filter(Boolean).map((line, i) => (
+          <p key={i} className="text-[15px] leading-relaxed text-zinc-500">
+            {line.trim()}
+          </p>
+        ))}
+        {asteriskWarning && (
+          <p className="text-[13px] text-zinc-400 mt-4 italic">{asteriskWarning}</p>
+        )}
+      </div>
+    )
+  }
+
+  const parts = cleanText.split(/(Purpose:|Instructions:|Instruction:|Data Privacy Notice:|Note:|Scale:)/i);
+  const elements = [];
+  
+  for (let i = 0; i < parts.length; i++) {
+    const part = parts[i];
+    if (part === undefined) continue;
+
+    if (/(Purpose:|Instructions:|Instruction:|Data Privacy Notice:|Note:|Scale:)/i.test(part)) {
+      const content = parts[i+1] || "";
+      const isPurpose = /Purpose/i.test(part);
+      const isPrivacy = /Privacy/i.test(part);
+      const isNote = /Note/i.test(part);
+      const isScale = /Scale/i.test(part);
+      
+      let Icon = Info;
+      if (isPurpose) Icon = Target;
+      else if (isPrivacy) Icon = ShieldCheck;
+      else if (isNote) Icon = AlertCircle;
+      else if (isScale) Icon = List;
+      
+      elements.push(
+        <div key={i} className="mb-8 last:mb-0">
+          <h3 className="text-[13px] font-semibold tracking-wider uppercase text-zinc-900 mb-3 flex items-center gap-2.5">
+            <Icon className="size-4 text-zinc-400" />
+            {part.replace(':', '')}
+          </h3>
+          <p className="text-[15px] leading-relaxed text-zinc-500">
+            {content.trim()}
+          </p>
+        </div>
+      );
+      i++;
+    } else if (part.trim()) {
+      elements.push(
+        <p key={i} className="mb-6 mt-3 text-[15px] leading-relaxed text-zinc-500">
+          {part.trim()}
+        </p>
+      );
+    }
+  }
+
+  return (
+    <div className="mt-8">
+      <div className="flex flex-col">
+        {elements}
+      </div>
+      {asteriskWarning && (
+        <div className="mt-8 flex items-center gap-2.5 text-[13.5px] text-zinc-500">
+          <Asterisk className="size-4 text-zinc-400" /> 
+          <span>{asteriskWarning.replace(' (*)', '')}</span>
+        </div>
+      )}
     </div>
   )
 }

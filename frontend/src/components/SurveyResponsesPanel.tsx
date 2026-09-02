@@ -44,6 +44,9 @@ const AGGREGATE_QUESTION_TYPES = new Set([
   "scale",
   "ranking",
   "matrix",
+  "text",
+  "number",
+  "datetime",
 ])
 
 function isAggregateSupported(question: SurveyQuestion): boolean {
@@ -107,7 +110,7 @@ function AggregateQuestion({
   aggregate: SurveyResponseAggregate | undefined
 }) {
   if (!isAggregateSupported(question)) {
-    return <p className="py-2 text-sm italic text-slate-400">Aggregates are unavailable for this question type.</p>
+    return <p className="py-2 text-[14px] text-slate-500">Aggregates are unavailable for this question type.</p>
   }
 
   if (!aggregate) {
@@ -117,6 +120,19 @@ function AggregateQuestion({
   const presentation = buildAggregatePresentation(aggregate, question)
   if (presentation.kind === "empty") {
     return <p className="py-2 text-[14px] text-slate-500">No aggregate values are available.</p>
+  }
+
+  if (presentation.kind === "list") {
+    return (
+      <div className="max-h-96 space-y-2 overflow-y-auto py-2 pr-2">
+        {presentation.items.map((item, index) => (
+          <div key={index} className="rounded-md border border-slate-100 bg-slate-50 px-3 py-2 text-[14px] text-slate-700">
+            {item.label}
+            {item.count > 1 && <span className="ml-2 font-medium text-slate-400">({item.count} responses)</span>}
+          </div>
+        ))}
+      </div>
+    )
   }
 
   if (presentation.kind === "bars") {

@@ -82,6 +82,7 @@ export default async function SurveyPage({
 }) {
   const { alumniToken } = await params
   let accessToken: string | null = null
+  let userEmail: string | null = null
 
   try {
     const supabase = await createSurveySupabaseServerClient()
@@ -91,6 +92,7 @@ export default async function SurveyPage({
     ])
     if (claimsResult?.data?.claims && sessionResult?.data?.session?.access_token) {
       accessToken = sessionResult.data.session.access_token
+      userEmail = sessionResult.data.session.user?.email || null
     }
   } catch {
     accessToken = null
@@ -117,6 +119,7 @@ export default async function SurveyPage({
       sections={result.survey.sections}
       submissionPhase={result.survey.submission_phase}
       token={alumniToken}
+      userEmail={userEmail}
     />
   )
 }
@@ -148,16 +151,13 @@ function SurveyAuthInterstitial({ token }: { token: string }) {
             <ShieldCheck aria-hidden="true" />
           </div>
           <h1 className="font-heading text-base leading-snug font-medium">Continue with Google</h1>
-          <CardDescription>
-            A verified Google sign-in is required before the survey questions are displayed.
-            Your verified email and display name will be stored with your response, and
-            authorized researchers can identify you. Your identity also limits participation
-            to one response per Google account for this survey. Withdrawal removes your answers
-            and direct identity, but retains a survey-scoped pseudonymous deduplication value so
-            the account cannot submit again; administrative erasure clears that value.
-            Short-lived sign-in proof data is deleted after it expires. This identified survey
-            does not promise anonymity or confidentiality. Review the full privacy and retention
-            notice before submitting.
+          <CardDescription className="flex flex-col gap-3">
+            <span>
+              Sign in to verify your identity and access the survey.
+            </span>
+            <span className="text-xs">
+              To prevent duplicate submissions, your email will be visible to the research team. Review the full privacy notice for details on data retention.
+            </span>
           </CardDescription>
         </CardHeader>
         <CardContent>

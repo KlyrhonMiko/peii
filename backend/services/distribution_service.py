@@ -42,7 +42,7 @@ def _public_token_error() -> AppError:
 def _normalize_expiry(expires_at: datetime | None) -> datetime | None:
     now = utc_now()
     if expires_at is None:
-        return now + timedelta(days=settings.SURVEY_DISTRIBUTION_DEFAULT_EXPIRY_DAYS)
+        return None
     normalized = expires_at.astimezone(UTC).replace(tzinfo=None)
     if normalized <= now:
         raise AppError(

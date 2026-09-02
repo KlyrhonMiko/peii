@@ -54,6 +54,7 @@ interface QuestionInputProps {
   error: string | undefined
   onAnswer: (questionId: string, value: PublicAnswerValue) => void
   onToggleMultiple: (questionId: string, option: string) => void
+  userEmail?: string | null
 }
 
 export function QuestionInput({
@@ -62,6 +63,7 @@ export function QuestionInput({
   error,
   onAnswer,
   onToggleMultiple,
+  userEmail,
 }: QuestionInputProps) {
   const [singleChoiceOpen, setSingleChoiceOpen] = useState(false)
   const errorId = `${question.id}-error`
@@ -71,6 +73,8 @@ export function QuestionInput({
     "aria-describedby": hasError ? errorId : undefined,
   } as const
 
+  const isEmailRecordQuestion = question.question_type === "text" && question.question_text.includes("Record <email>")
+
   return (
     <div
       role="group"
@@ -78,17 +82,19 @@ export function QuestionInput({
       aria-describedby={hasError ? errorId : undefined}
       className={`rounded-2xl bg-white p-6 sm:p-8 transition-all ${hasError ? "border border-red-300" : "border border-zinc-200 shadow-sm"}`}
     >
-      <div className="mb-3 flex items-center gap-2 text-zinc-400">
-        {(() => {
-          const Icon = TYPE_ICON[question.question_type] ?? Type
-          return <Icon className="size-[14px]" />
-        })()}
-        <span className="text-[11px] font-medium uppercase tracking-widest">
-          {TYPE_LABEL[question.question_type] ?? question.question_type}
-        </span>
-      </div>
+      {!isEmailRecordQuestion && (
+        <div className="mb-3 flex items-center gap-2 text-zinc-400">
+          {(() => {
+            const Icon = TYPE_ICON[question.question_type] ?? Type
+            return <Icon className="size-[14px]" />
+          })()}
+          <span className="text-[11px] font-medium uppercase tracking-widest">
+            {TYPE_LABEL[question.question_type] ?? question.question_type}
+          </span>
+        </div>
+      )}
       
-      <div id={`q-title-${question.id}`} className="mb-6 text-[16px] font-medium leading-relaxed text-zinc-900">
+      <div id={`q-title-${question.id}`} className={isEmailRecordQuestion ? "sr-only" : "mb-6 text-[16px] font-medium leading-relaxed text-zinc-900"}>
         {question.question_text}
         {question.is_required && <span className="ml-1 text-red-500" aria-hidden="true">*</span>}
         {question.is_required && <span className="sr-only"> (required)</span>}
@@ -176,7 +182,7 @@ export function QuestionInput({
       )}
 
       {/* Text */}
-      {question.question_type === "text" && (
+      {question.question_type === "text" && !isEmailRecordQuestion && (
         <textarea
           id={`q-${question.id}`}
           rows={1}
@@ -191,6 +197,30 @@ export function QuestionInput({
           className="w-full resize-none border-b border-zinc-200 bg-transparent pb-2 pt-1 text-[15px] font-normal text-zinc-900 outline-none transition-colors placeholder:text-zinc-400 focus:border-zinc-900"
           placeholder="Your answer"
         />
+      )}
+
+      {/* Email Record Checkbox */}
+      {isEmailRecordQuestion && (
+        <label className="group flex cursor-pointer items-center gap-3.5 py-1">
+          <input
+            type="checkbox"
+            checked={!!answer}
+            onChange={(e) => {
+              if (e.target.checked) {
+                onAnswer(question.id, userEmail || "recorded@email.com")
+              } else {
+                onAnswer(question.id, "")
+              }
+            }}
+            aria-label={question.question_text}
+            {...fieldProps}
+            className="size-[18px] cursor-pointer rounded-sm accent-zinc-900"
+          />
+          <span className={`text-[15px] transition-colors group-hover:text-zinc-900 ${answer ? "font-medium text-zinc-900" : "text-zinc-600"}`}>
+            {question.question_text.replace("<email>", userEmail || "your email")}
+            {question.is_required && <span className="ml-1 text-red-500" aria-hidden="true">*</span>}
+          </span>
+        </label>
       )}
 
       {/* Number */}
@@ -295,14 +325,14 @@ export function QuestionInput({
         const rows = question.options ?? []
         const matrixAnswers = (answer as Record<string, string> | undefined) ?? {}
         return (
-          <div className="-mx-6 overflow-x-auto sm:-mx-8 px-6 sm:px-8">
-            <table className="w-full min-w-[500px] border-collapse text-sm">
+          <div className="-mx-6 sm:-mx-8 px-6 sm:px-8">
+            <table className="w-full table-fixed border-collapse text-sm">
               <caption className="sr-only">{question.question_text}</caption>
               <thead>
                 <tr className="border-b border-zinc-200">
-                  <th scope="col" className="w-2/5 py-3 pr-4 text-left text-[11px] font-medium uppercase tracking-wider text-zinc-400" />
+                  <th scope="col" className="w-1/2 py-3 pr-4 text-left text-[11px] font-medium uppercase tracking-wider text-zinc-400" />
                   {columns.map((column) => (
-                    <th scope="col" key={column} className="w-1/5 min-w-[80px] px-3 py-3 text-center text-[12px] font-semibold text-zinc-500">
+                    <th scope="col" key={column} className="px-1 sm:px-3 py-3 text-center text-[11px] sm:text-[12px] font-semibold text-zinc-500">
                       {column}
                     </th>
                   ))}
@@ -311,7 +341,7 @@ export function QuestionInput({
               <tbody>
                 {rows.map((row, rowIndex) => (
                   <tr key={row} className="border-b border-zinc-100 transition-colors last:border-0 hover:bg-zinc-50/50">
-                    <th scope="row" className="py-4 pr-4 text-left text-[14px] font-medium text-zinc-800">{row}</th>
+                    <th scope="row" className="py-4 pr-4 text-left text-[14px] font-medium text-zinc-800 text-pretty">{row}</th>
                     {columns.map((column) => (
                       <td key={column} className="px-3 py-4 text-center">
                         <input
