@@ -1,4 +1,5 @@
 from models.audit_log import AuditLog
+from models.false_positive_feedback import FalsePositiveFeedback
 from models.google_survey_auth_proof import GoogleSurveyAuthProof
 from models.rbac import Permission, Role, RolePermission, UserRole
 from models.survey import Survey
@@ -20,4 +21,5 @@ __all__ = [
     "Role",
     "RolePermission",
     "UserRole",
+    "FalsePositiveFeedback",
 ]

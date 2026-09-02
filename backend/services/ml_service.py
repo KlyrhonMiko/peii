@@ -316,6 +316,37 @@ class FeedbackAnalyzer:
 # Background task (called per response by the FastAPI app and run_ml.py)
 # ---------------------------------------------------------------------------
 
+    def register_false_positive(self, text: str):
+        logger.info(f"Registering false positive for text: {text[:50]}...")
+        # 1. Flip sentiment immediately in cache
+        current_res = self.analyze_feedback(text)
+        if current_res:
+            logger.info(f"      -> Original Result: {current_res}")
+            # Reconstruct with opposite polarity
+            new_res = tuple((dim, -polarity) for dim, polarity in current_res)
+            logger.info(f"      -> Corrected Result: {new_res}")
+            _disk_cache[text] = new_res
+            save_cache()
+            logger.info("      -> Cache updated successfully.")
+            
+            # 2. Append to a JSONL file for future model fine-tuning
+            try:
+                import os, json
+                training_file = "ml_training_data.jsonl"
+                with open(training_file, "a") as f:
+                    entry = {
+                        "text": text,
+                        "original_result": current_res,
+                        "corrected_result": new_res,
+                        "is_false_positive": True
+                    }
+                    f.write(json.dumps(entry) + "\n")
+                logger.info(f"      -> Appended to training data file: {training_file}")
+            except Exception as e:
+                logger.error(f"Failed to write to training data: {e}")
+        else:
+            logger.warning(f"      -> No original result found in cache or model for text: {text[:50]}...")
+
 import asyncio
 from sqlmodel import select
 from models.survey_response import SurveyResponse

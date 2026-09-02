@@ -217,21 +217,39 @@ export interface PEIIDemographics {
   department_distribution: Record<string, number>
 }
 
-export interface SentimentDivergenceTier {
-  tier: string
-  alignment: number
-  divergence: number
+export interface FeedbackClassification {
+  dimension: string
+  positive: number
+  neutral: number
+  negative: number
 }
 
-export interface SentimentDivergenceData {
-  tiers: SentimentDivergenceTier[]
+export interface FeedbackClassificationData {
+  classifications: FeedbackClassification[]
+}
+
+export interface PEIIHistoricalTrend {
+  batch_year: string
+  peii_score: number
+}
+
+export interface QualitativeFeedback {
+  response_id: string
+  question_id: string
+  question_text: string
+  response_text: string
+  sentiment_score: number
+  is_false_positive: boolean
+  dimension?: string
 }
 
 export interface PEIIAnalyticsResponse {
   cohort_result: PEIICohortResult
   baseline_result: PEIICohortResult | null
+  historical_trend: PEIIHistoricalTrend[]
   demographics: PEIIDemographics | null
-  sentiment_divergence: SentimentDivergenceData | null
+  feedback_classification: FeedbackClassificationData | null
+  qualitative_feedback: QualitativeFeedback[]
 }
 
 export interface EraseSelectedResponsesPayload {
@@ -691,6 +709,17 @@ export async function fetchPEII(
     { timeout: 120000 }
   )
   return res.data!
+}
+
+export async function markFalsePositive(
+  surveyUuid: string,
+  responseId: string,
+  questionId: string,
+): Promise<void> {
+  await api.post(`/surveys/${surveyUuid}/responses/peii/false-positive`, {
+    response_id: responseId,
+    question_id: questionId,
+  })
 }
 
 export async function exportResponses(surveyUuid: string): Promise<void> {

@@ -33,44 +33,36 @@ export function ClientDemographicsOverview({
   const topDept = getTop(demographics.department_distribution)
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8 animate-in fade-in slide-in-from-bottom-4 duration-700 fill-mode-both">
+    <div className="flex flex-col gap-12 animate-in fade-in slide-in-from-bottom-4 duration-700 fill-mode-both">
       
       {/* Total Responses */}
-      <div className="flex flex-col justify-between p-6 rounded-2xl bg-white border border-slate-200/80 shadow-sm shadow-slate-100/50 relative overflow-hidden group">
-        <div className="absolute -right-8 -top-8 w-32 h-32 bg-blue-50 rounded-full blur-3xl opacity-60 group-hover:bg-blue-100 transition-colors duration-500" />
-        <div className="flex items-center gap-3 text-slate-500 font-medium z-10">
-          <div className="p-2.5 bg-blue-50/80 text-blue-600 rounded-xl border border-blue-100/50">
-            <Users size={18} strokeWidth={2.5} />
-          </div>
-          Total Respondents
+      <div className="flex flex-col">
+        <div className="mb-6">
+          <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500">Total Respondents</span>
         </div>
-        <div className="mt-5 flex items-baseline gap-2 z-10">
-          <span className="text-4xl font-bold tracking-tight text-slate-900">
+        <div className="mt-auto flex flex-col gap-2">
+          <span className="text-5xl font-light tracking-tighter text-slate-900 leading-[1.1] break-words">
             {demographics.total_responses}
           </span>
           {topGender && (
             <span className="text-sm font-medium text-slate-500">
-              ({topGender[0]} Majority)
+              {Math.round((topGender[1] / demographics.total_responses) * 100)}% {topGender[0]}
             </span>
           )}
         </div>
       </div>
 
       {/* Top Location */}
-      <div className="flex flex-col justify-between p-6 rounded-2xl bg-white border border-slate-200/80 shadow-sm shadow-slate-100/50 relative overflow-hidden group" style={{ animationDelay: '100ms' }}>
-        <div className="absolute -right-8 -top-8 w-32 h-32 bg-emerald-50 rounded-full blur-3xl opacity-60 group-hover:bg-emerald-100 transition-colors duration-500" />
-        <div className="flex items-center gap-3 text-slate-500 font-medium z-10">
-          <div className="p-2.5 bg-emerald-50/80 text-emerald-600 rounded-xl border border-emerald-100/50">
-            <MapPin size={18} strokeWidth={2.5} />
-          </div>
-          Primary Location
+      <div className="flex flex-col" style={{ animationDelay: '100ms' }}>
+        <div className="mb-6">
+          <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500">Primary Location</span>
         </div>
-        <div className="mt-5 flex flex-col z-10">
-          <span className="text-2xl font-bold tracking-tight text-slate-900 truncate">
+        <div className="mt-auto flex flex-col gap-2">
+          <span className="text-5xl font-light tracking-tighter text-slate-900 leading-[1.1] break-words">
             {topLocation ? topLocation[0] : "—"}
           </span>
           {topLocation && (
-            <span className="text-sm font-medium text-slate-500 mt-0.5">
+            <span className="text-sm font-medium text-slate-500">
               {Math.round((topLocation[1] / demographics.total_responses) * 100)}% of cohort
             </span>
           )}
@@ -78,20 +70,16 @@ export function ClientDemographicsOverview({
       </div>
 
       {/* Top Department */}
-      <div className="flex flex-col justify-between p-6 rounded-2xl bg-white border border-slate-200/80 shadow-sm shadow-slate-100/50 relative overflow-hidden group" style={{ animationDelay: '200ms' }}>
-        <div className="absolute -right-8 -top-8 w-32 h-32 bg-purple-50 rounded-full blur-3xl opacity-60 group-hover:bg-purple-100 transition-colors duration-500" />
-        <div className="flex items-center gap-3 text-slate-500 font-medium z-10">
-          <div className="p-2.5 bg-purple-50/80 text-purple-600 rounded-xl border border-purple-100/50">
-            <GraduationCap size={18} strokeWidth={2.5} />
-          </div>
-          Top Program
+      <div className="flex flex-col" style={{ animationDelay: '200ms' }}>
+        <div className="mb-6">
+          <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500">Top Program</span>
         </div>
-        <div className="mt-5 flex flex-col z-10">
-          <span className="text-2xl font-bold tracking-tight text-slate-900 truncate">
+        <div className="mt-auto flex flex-col gap-2">
+          <span className="text-5xl font-light tracking-tighter text-slate-900 leading-[1.1] break-words">
             {topDept ? topDept[0] : "—"}
           </span>
           {topDept && (
-            <span className="text-sm font-medium text-slate-500 mt-0.5">
+            <span className="text-sm font-medium text-slate-500">
               {topDept[1]} respondents
             </span>
           )}

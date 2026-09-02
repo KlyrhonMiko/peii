@@ -25,14 +25,34 @@ class PEIIDemographics(BaseModel):
     department_distribution: dict[str, int]
 
 
-class SentimentDivergenceTier(BaseModel):
-    tier: str
-    alignment: int
-    divergence: int
+class FeedbackClassification(BaseModel):
+    dimension: str
+    positive: int
+    neutral: int
+    negative: int
 
 
-class SentimentDivergenceData(BaseModel):
-    tiers: list[SentimentDivergenceTier]
+class FeedbackClassificationData(BaseModel):
+    classifications: list[FeedbackClassification]
+
+
+class PEIIHistoricalTrend(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    batch_year: str
+    peii_score: float
+
+
+class QualitativeFeedback(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    response_id: str
+    question_id: str
+    question_text: str
+    response_text: str
+    sentiment_score: float
+    is_false_positive: bool = False
+    dimension: str | None = None
 
 
 class PEIIAnalyticsResponse(BaseModel):
@@ -40,5 +60,7 @@ class PEIIAnalyticsResponse(BaseModel):
 
     cohort_result: PEIICohortResult
     baseline_result: PEIICohortResult | None = None
+    historical_trend: list[PEIIHistoricalTrend] = []
     demographics: PEIIDemographics | None = None
-    sentiment_divergence: SentimentDivergenceData | None = None
+    feedback_classification: FeedbackClassificationData | None = None
+    qualitative_feedback: list[QualitativeFeedback] = []

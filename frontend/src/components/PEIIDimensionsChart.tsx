@@ -37,27 +37,25 @@ interface PEIIDimensionsChartProps {
 export function PEIIDimensionsChart({ data, isLoading }: PEIIDimensionsChartProps) {
   return (
     <div className="flex flex-col h-full relative overflow-hidden">
-      {/* Background decoration */}
-      <div className="absolute -top-24 -right-24 w-48 h-48 bg-emerald-50 rounded-full blur-3xl opacity-50 pointer-events-none" />
-      <div className="absolute -bottom-24 -left-24 w-48 h-48 bg-blue-50 rounded-full blur-3xl opacity-50 pointer-events-none" />
-
-      <div className="px-5 py-4 border-b border-slate-100 bg-white/50 backdrop-blur-sm z-10 relative">
-        <h3 className="text-[14px] font-semibold text-slate-900">Multi-Dimensional Index (Phase 1)</h3>
-        <p className="text-[12px] text-slate-500 mt-0.5">Pre-Graduation baseline vs. Post-Graduation AHP-weighted scores</p>
+      <div className="mb-6 flex items-start justify-between">
+        <div>
+          <h3 className="font-semibold text-slate-900">Multi-Dimensional Index</h3>
+          <p className="text-sm text-slate-500 mt-1">Pre-Graduation vs. Post-Graduation</p>
+        </div>
       </div>
 
-      <div className="h-[400px] w-full px-4 py-6 z-10 relative">
+      <div className="h-[400px] w-full z-10 relative">
         {isLoading ? (
           <div className="w-full h-full flex items-center justify-center text-slate-400 text-sm">Loading data...</div>
         ) : data.length === 0 ? (
           <div className="w-full h-full flex items-center justify-center text-slate-400 text-sm">No data available for these filters.</div>
         ) : (
           <ResponsiveContainer width="100%" height="100%">
-            <RadarChart cx="50%" cy="50%" outerRadius="75%" data={data}>
+            <RadarChart cx="50%" cy="50%" outerRadius="65%" data={data}>
             <defs>
               <linearGradient id="colorPost" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%" stopColor="#10b981" stopOpacity={0.4} />
-                <stop offset="95%" stopColor="#10b981" stopOpacity={0.1} />
+                <stop offset="5%" stopColor="#0f172a" stopOpacity={0.4} />
+                <stop offset="95%" stopColor="#0f172a" stopOpacity={0.1} />
               </linearGradient>
               <linearGradient id="colorPre" x1="0" y1="0" x2="0" y2="1">
                 <stop offset="5%" stopColor="#94a3b8" stopOpacity={0.3} />
@@ -67,10 +65,25 @@ export function PEIIDimensionsChart({ data, isLoading }: PEIIDimensionsChartProp
             <PolarGrid stroke="#e2e8f0" />
             <PolarAngleAxis 
               dataKey="dimension" 
-              tick={{ fill: '#475569', fontSize: 11, fontWeight: 500 }}
+              tick={({ payload, x, y, textAnchor }) => {
+                // Shorten "Employability and Economic Mobility" -> "Employability"
+                let shortName = payload.value.split(" and ")[0];
+                if (shortName.includes("NGO")) shortName = "Govt Trust"; // Special case
+                
+                const words = shortName.split(" ");
+                const line1 = words[0];
+                const line2 = words.slice(1).join(" ");
+                
+                return (
+                  <text x={x} y={y} className="text-[10px] font-medium fill-slate-600" textAnchor={textAnchor}>
+                    <tspan x={x} dy={0}>{line1}</tspan>
+                    {line2 && <tspan x={x} dy={12}>{line2}</tspan>}
+                  </text>
+                );
+              }}
             />
             <PolarRadiusAxis 
-              domain={[0, 1]} 
+              domain={[0, 5]} 
               tick={false}
               axisLine={false}
               tickLine={false}
@@ -108,7 +121,7 @@ export function PEIIDimensionsChart({ data, isLoading }: PEIIDimensionsChartProp
             <Radar
               name="postGrad"
               dataKey="postGrad"
-              stroke="#10b981"
+              stroke="#0f172a"
               strokeWidth={2}
               fill="url(#colorPost)"
               fillOpacity={1}

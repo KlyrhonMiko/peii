@@ -15,13 +15,16 @@ from models.survey import Survey
 from models.survey_question import SurveyQuestion
 from models.survey_response import SurveyResponse
 from models.survey_section import SurveySection
+from models.false_positive_feedback import FalsePositiveFeedback
 from schemas.peii import (
     PEIIAnalyticsResponse, 
     PEIICohortResult, 
     PEIIDomainScore, 
     PEIIDemographics,
-    SentimentDivergenceTier,
-    SentimentDivergenceData
+    FeedbackClassification,
+    FeedbackClassificationData,
+    PEIIHistoricalTrend,
+    QualitativeFeedback
 )
 from services.ml_service import FeedbackAnalyzer
 
@@ -578,12 +581,13 @@ async def compute_peii_scores(
     location_dist = Counter()
     dept_dist = Counter()
     
-    tier_counts = {
-        "Moderate Improvement": {"alignment": 0, "divergence": 0},
-        "Slight Improvement": {"alignment": 0, "divergence": 0},
-        "No to Very Low Improvement": {"alignment": 0, "divergence": 0},
-        "Negative Impact": {"alignment": 0, "divergence": 0},
+    classification_counts = {
+        domain_name.split(". ", 1)[-1]: {"positive": 0, "neutral": 0, "negative": 0}
+        for domain_name in DOMAIN_WEIGHTS.keys()
     }
+    classification_counts["General Feedback"] = {"positive": 0, "neutral": 0, "negative": 0}
+    
+    qualitative_feedbacks = []
     
     
     
@@ -593,6 +597,14 @@ async def compute_peii_scores(
             select(SurveyResponse)
             .where(col(SurveyResponse.survey_id) == sid, col(SurveyResponse.is_deleted).is_(False))
         )).all()
+        
+        # Pre-fetch false positives
+        fp_records = (await session.exec(
+            select(FalsePositiveFeedback)
+            .where(col(FalsePositiveFeedback.response_id).in_([r.id for r in responses]))
+        )).all()
+        fp_set = {(str(fp.response_id), str(fp.question_id)) for fp in fp_records}
+
         
         for resp in responses:
             ans = resp.answers
@@ -674,25 +686,67 @@ async def compute_peii_scores(
                     sentiments_dict = resp.ml_sentiments or {}
                     sentiments_for_q = sentiments_dict.get(qid) or []
                     
-                    for dim, polarity in sentiments_for_q:
-                        if dim in individual_deltas:
-                            delta_q = individual_deltas[dim]
-                            d_metric = delta_q - polarity
+                    primary_dim = "General Feedback"
+                    if sentiments_for_q:
+                        avg_polarity = sum(p for _, p in sentiments_for_q) / len(sentiments_for_q)
+                        primary_dim = sentiments_for_q[0][0]
+                    else:
+                        # Fallback heuristic since ML was run externally and might have skipped this text
+                        lower_text = text_ans.lower()
+                        critical_words = ['sana', 'ayusin', 'kulang', 'more', 'lack', 'improve', 'wala', 'needs', 'better']
+                        positive_words = ['good', 'happy', 'great', 'excellent', 'keep up', 'thanks', 'salamat']
+                        
+                        if any(w in lower_text for w in critical_words):
+                            avg_polarity = -0.5
+                        elif any(w in lower_text for w in positive_words):
+                            avg_polarity = 0.5
+                        else:
+                            avg_polarity = 0.0
                             
-                            # Determine Tier
-                            if delta_q > 0.50:
-                                tier = "Moderate Improvement"
-                            elif delta_q > 0.10:
-                                tier = "Slight Improvement"
-                            elif delta_q >= -0.10:
-                                tier = "No to Very Low Improvement"
-                            else:
-                                tier = "Negative Impact"
+                        dimension_keywords = {
+                            "Employability and Economic Mobility": ["job", "work", "career", "salary", "employ", "income", "trabaho", "sweldo", "pera", "promot", "hire", "opportunity", "business", "negosyo", "workplace", "professional"],
+                            "Family Upliftment and Financial Stability": ["family", "pamilya", "financial", "children", "parents", "anak", "magulang", "bahay", "house", "budget", "gastos", "kapatid", "tulong sa pamilya", "provide"],
+                            "Personal Development and Life Quality": ["skill", "learn", "grow", "develop", "confidence", "happy", "health", "buhay", "sarili", "improve", "training", "aral", "knowledge", "natutunan", "experience", "mindset"],
+                            "Civic Engagement and Community Contribution": ["community", "help", "others", "society", "volunteer", "tulong", "kapwa", "barangay", "lipunan", "tao", "serve", "serbisyo", "contribute"],
+                            "Government Trust and LGU Support Valuation": ["gov", "mayor", "lgu", "support", "trust", "gobyerno", "program", "scholar", "city", "pasig", "officials", "leader", "public"]
+                        }
+                        
+                        matched_dim = None
+                        for dim, kws in dimension_keywords.items():
+                            if any(w in lower_text for w in kws):
+                                matched_dim = dim
+                                break
                                 
-                            if abs(d_metric) < 0.40:
-                                tier_counts[tier]["alignment"] += 1
-                            elif d_metric >= 0.60 or d_metric <= -0.60:
-                                tier_counts[tier]["divergence"] += 1
+                        if not matched_dim:
+                            matched_dim = "General Feedback"
+                            
+                        primary_dim = matched_dim
+                        if avg_polarity < 0:
+                            classification_counts[matched_dim]["negative"] += 1
+                        elif avg_polarity > 0:
+                            classification_counts[matched_dim]["positive"] += 1
+                        else:
+                            classification_counts[matched_dim]["neutral"] += 1
+
+                    qualitative_feedbacks.append(QualitativeFeedback(
+                        response_id=str(resp.id),
+                        question_id=qid,
+                        question_text=qtext,
+                        response_text=text_ans.strip(),
+                        sentiment_score=avg_polarity,
+                        is_false_positive=(str(resp.id), qid) in fp_set,
+                        dimension=primary_dim
+                    ))
+                    
+                    if sentiments_for_q:
+                        for dim, polarity in sentiments_for_q:
+                            if dim in classification_counts:
+                                if polarity >= 0.3:
+                                    classification_counts[dim]["positive"] += 1
+                                elif polarity <= -0.3:
+                                    classification_counts[dim]["negative"] += 1
+                                else:
+                                    classification_counts[dim]["neutral"] += 1
 
     # 4. Compute PEII for requested cohort and baseline (2023)
     def compute_for_cohort(year: str) -> PEIICohortResult | None:
@@ -763,23 +817,46 @@ async def compute_peii_scores(
         department_distribution=dict(dept_dist)
     )
 
-    divergence_tiers = []
-    for t_name, counts in tier_counts.items():
-        total = counts["alignment"] + counts["divergence"]
+
+    historical_trend = []
+    # Build historical trend (only include actual years, not "All Batches")
+    for year in sorted(cohort_stats.keys()):
+        if year != "All Batches":
+            year_result = compute_for_cohort(year)
+            if year_result and year_result.peii_score > 0:
+                historical_trend.append(PEIIHistoricalTrend(
+                    batch_year=year,
+                    peii_score=year_result.peii_score
+                ))
+
+    # Sort feedbacks: lowest sentiment (most negative/critical) first, as requested by user for actionable insights
+    qualitative_feedbacks.sort(key=lambda x: x.sentiment_score)
+    # We used to limit this to 50, but users need to see the full set of qualitative data that matches the chart counts.
+    # Frontend handles scrolling.
+    
+    # Assemble Feedback Classification Data
+    feedback_classifications = []
+    for dim, counts in classification_counts.items():
+        total = counts["positive"] + counts["neutral"] + counts["negative"]
         if total > 0:
-            align_pct = int(round((counts["alignment"] / total) * 100))
-            div_pct = 100 - align_pct
-        else:
-            align_pct, div_pct = 0, 0
-        divergence_tiers.append(SentimentDivergenceTier(
-            tier=t_name,
-            alignment=align_pct,
-            divergence=div_pct
-        ))
+            feedback_classifications.append(
+                FeedbackClassification(
+                    dimension=dim,
+                    positive=counts["positive"],
+                    neutral=counts["neutral"],
+                    negative=counts["negative"]
+                )
+            )
+            
+    feedback_classification_data = None
+    if feedback_classifications:
+        feedback_classification_data = FeedbackClassificationData(classifications=feedback_classifications)
 
     return PEIIAnalyticsResponse(
         cohort_result=cohort_result,
         baseline_result=baseline_result,
+        historical_trend=historical_trend,
         demographics=demographics,
-        sentiment_divergence=SentimentDivergenceData(tiers=divergence_tiers)
+        feedback_classification=feedback_classification_data,
+        qualitative_feedback=qualitative_feedbacks
     )
