@@ -58,9 +58,13 @@ async def compute_peii(
     )
 
 from pydantic import BaseModel
+from typing import Optional
+
 class FalsePositiveRequest(BaseModel):
     response_id: UUID
     question_id: UUID
+    # None = flip (classic FP), 1.0 = force positive, -1.0 = force negative
+    polarity_override: Optional[float] = None
 
 @router.post(
     "/peii/false-positive",
@@ -80,15 +84,29 @@ async def mark_false_positive(
     from models.survey_question import SurveyQuestion
     from services.ml_service import FeedbackAnalyzer
     import asyncio
+    from sqlmodel import select
     
-    # 1. Insert record
-    fp = FalsePositiveFeedback(
-        response_id=payload.response_id,
-        question_id=payload.question_id
-    )
-    session.add(fp)
+    # Upsert: if already flagged, update polarity_override instead of inserting duplicate
+    existing = (
+        await session.exec(
+            select(FalsePositiveFeedback)
+            .where(FalsePositiveFeedback.response_id == payload.response_id)
+            .where(FalsePositiveFeedback.question_id == payload.question_id)
+        )
+    ).first()
     
-    # 2. Update ML cache and ml_sentiments if response exists
+    if existing:
+        existing.polarity_override = payload.polarity_override
+        session.add(existing)
+    else:
+        fp = FalsePositiveFeedback(
+            response_id=payload.response_id,
+            question_id=payload.question_id,
+            polarity_override=payload.polarity_override,
+        )
+        session.add(fp)
+    
+    # Update ML cache and ml_sentiments if response exists
     resp = await session.get(SurveyResponse, payload.response_id)
     if resp and isinstance(resp.answers, dict):
         text_ans = resp.answers.get(str(payload.question_id))
@@ -111,17 +129,20 @@ async def mark_false_positive(
                 # Tell ML Service to register it in a background thread
                 asyncio.create_task(asyncio.to_thread(_register_fp))
             
-            # Flip polarity in database if it exists
+            # Flip or set polarity in database
             if resp.ml_sentiments:
                 q_sents = resp.ml_sentiments.get(str(payload.question_id), [])
                 if q_sents:
-                    new_sents = [[dim, -polarity] for dim, polarity in q_sents]
+                    if payload.polarity_override is not None:
+                        # Force exact polarity
+                        new_sents = [[dim, payload.polarity_override] for dim, _ in q_sents]
+                    else:
+                        # Classic flip
+                        new_sents = [[dim, -polarity] for dim, polarity in q_sents]
                     resp.ml_sentiments[str(payload.question_id)] = new_sents
                     
-                    # We need to flag column as modified so sqlalchemy detects jsonb change
                     from sqlalchemy.orm.attributes import flag_modified
                     flag_modified(resp, "ml_sentiments")
-                    
                     session.add(resp)
             
     await session.commit()

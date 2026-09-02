@@ -346,6 +346,22 @@ class FeedbackAnalyzer:
                 logger.error(f"Failed to write to training data: {e}")
         else:
             logger.warning(f"      -> No original result found in cache or model for text: {text[:50]}...")
+            # Still append to the training data file so the model can learn from its blind spots!
+            try:
+                import os, json
+                training_file = "ml_training_data.jsonl"
+                with open(training_file, "a") as f:
+                    entry = {
+                        "text": text,
+                        "original_result": [],
+                        "corrected_result": [],
+                        "is_false_positive": True,
+                        "note": "Heuristic fallback"
+                    }
+                    f.write(json.dumps(entry) + "\n")
+                logger.warning(f"      -> Appended heuristic fallback to training data file: {training_file}")
+            except Exception as e:
+                logger.error(f"Failed to write to training data: {e}")
 
 import asyncio
 from sqlmodel import select

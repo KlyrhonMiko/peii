@@ -715,10 +715,12 @@ export async function markFalsePositive(
   surveyUuid: string,
   responseId: string,
   questionId: string,
+  polarityOverride?: number,
 ): Promise<void> {
   await api.post(`/surveys/${surveyUuid}/responses/peii/false-positive`, {
     response_id: responseId,
     question_id: questionId,
+    ...(polarityOverride !== undefined ? { polarity_override: polarityOverride } : {}),
   })
 }
 

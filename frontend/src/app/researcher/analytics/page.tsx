@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useMemo } from "react"
+import { useState, useEffect, useMemo, useCallback } from "react"
 import { ClientPEIIDimensionsChart } from "@/components/ClientPEIIDimensionsChart"
 import { ClientFeedbackClassificationChart } from "@/components/ClientFeedbackClassificationChart"
 import { ClientDemographicsOverview } from "@/components/ClientDemographicsOverview"
@@ -28,70 +28,74 @@ export default function AnalyticsPage() {
   const [surveyId, setSurveyId] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(true)
 
-  useEffect(() => {
-    async function loadData() {
+  const loadData = useCallback(async (backgroundFetch = false) => {
+    if (!backgroundFetch) {
       setIsLoading(true)
-      try {
-        const { surveys } = await fetchSurveys({ status: "Active" })
-        const activeTracerSurvey = surveys.find(s => s.title === "GRADUATE TRACER STUDY SURVEY")
-        if (!activeTracerSurvey) {
-          setChartData([])
-          return
-        }
-        setSurveyId(activeTracerSurvey.id)
-
-        const [data, aggData] = await Promise.all([
-          fetchPEII(activeTracerSurvey.id, {
-            batch: filters.batch,
-            department: filters.department
-          }),
-          fetchResponseAggregates(activeTracerSurvey.id)
-        ])
-
-        setAggregates(aggData || [])
-
-        if (data.cohort_result && data.cohort_result.domains) {
-          setChartData(data.cohort_result.domains.map(d => ({
-            dimension: d.dimension,
-            preGrad: d.pre_grad,
-            postGrad: d.post_grad
-          })))
-          setPeiiScore(data.cohort_result.peii_score ?? null)
-          setPeiiIndex(data.cohort_result.peii_index ?? null)
-          setHistoricalTrend(data.historical_trend || [])
-          setQualitativeFeedback(data.qualitative_feedback || [])
-        } else {
-          setChartData([])
-          setPeiiScore(null)
-          setPeiiIndex(null)
-          setHistoricalTrend([])
-          setQualitativeFeedback([])
-        }
-        
-        setDemographics(data.demographics)
-        
-        if (data.feedback_classification && data.feedback_classification.classifications) {
-          setClassificationData(data.feedback_classification.classifications)
-        } else {
-          setClassificationData([])
-        }
-      } catch (error) {
-        console.error("Failed to load PEII data", error)
+    }
+    try {
+      const { surveys } = await fetchSurveys({ status: "Active" })
+      const activeTracerSurvey = surveys.find(s => s.title === "GRADUATE TRACER STUDY SURVEY")
+      if (!activeTracerSurvey) {
         setChartData([])
-        setDemographics(null)
-        setClassificationData([])
+        return
+      }
+      setSurveyId(activeTracerSurvey.id)
+
+      const [data, aggData] = await Promise.all([
+        fetchPEII(activeTracerSurvey.id, {
+          batch: filters.batch,
+          department: filters.department
+        }),
+        fetchResponseAggregates(activeTracerSurvey.id)
+      ])
+
+      setAggregates(aggData || [])
+
+      if (data.cohort_result && data.cohort_result.domains) {
+        setChartData(data.cohort_result.domains.map(d => ({
+          dimension: d.dimension,
+          preGrad: d.pre_grad,
+          postGrad: d.post_grad
+        })))
+        setPeiiScore(data.cohort_result.peii_score ?? null)
+        setPeiiIndex(data.cohort_result.peii_index ?? null)
+        setHistoricalTrend(data.historical_trend || [])
+        setQualitativeFeedback(data.qualitative_feedback || [])
+      } else {
+        setChartData([])
         setPeiiScore(null)
         setPeiiIndex(null)
         setHistoricalTrend([])
         setQualitativeFeedback([])
-        setAggregates([])
-      } finally {
+      }
+      
+      setDemographics(data.demographics)
+      
+      if (data.feedback_classification && data.feedback_classification.classifications) {
+        setClassificationData(data.feedback_classification.classifications)
+      } else {
+        setClassificationData([])
+      }
+    } catch (error) {
+      console.error("Failed to load PEII data", error)
+      setChartData([])
+      setDemographics(null)
+      setClassificationData([])
+      setPeiiScore(null)
+      setPeiiIndex(null)
+      setHistoricalTrend([])
+      setQualitativeFeedback([])
+      setAggregates([])
+    } finally {
+      if (!backgroundFetch) {
         setIsLoading(false)
       }
     }
-    
-    void loadData()
   }, [filters])
+
+  useEffect(() => {
+    void loadData(false)
+  }, [loadData])
 
   const analyticsMetrics = useMemo(() => {
     if (!demographics) return []
@@ -214,7 +218,7 @@ export default function AnalyticsPage() {
 
               {/* Curriculum Feedback */}
               <div className="pb-16">
-                <ClientCurriculumFeedback surveyId={surveyId} feedbacks={qualitativeFeedback} isLoading={isLoading} />
+                <ClientCurriculumFeedback surveyId={surveyId} feedbacks={qualitativeFeedback} isLoading={isLoading} onRefresh={() => loadData(true)} />
               </div>
 
             </div>

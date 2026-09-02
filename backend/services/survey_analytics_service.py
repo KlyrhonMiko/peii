@@ -598,12 +598,16 @@ async def compute_peii_scores(
             .where(col(SurveyResponse.survey_id) == sid, col(SurveyResponse.is_deleted).is_(False))
         )).all()
         
-        # Pre-fetch false positives
+        # Pre-fetch false positives — store polarity_override keyed by (response_id, question_id)
         fp_records = (await session.exec(
             select(FalsePositiveFeedback)
             .where(col(FalsePositiveFeedback.response_id).in_([r.id for r in responses]))
         )).all()
-        fp_set = {(str(fp.response_id), str(fp.question_id)) for fp in fp_records}
+        # value is None (flip) or explicit float override
+        fp_map: dict[tuple[str, str], float | None] = {
+            (str(fp.response_id), str(fp.question_id)): fp.polarity_override
+            for fp in fp_records
+        }
 
         
         for resp in responses:
@@ -685,11 +689,19 @@ async def compute_peii_scores(
                     # Read pre-computed ML sentiments from the database column
                     sentiments_dict = resp.ml_sentiments or {}
                     sentiments_for_q = sentiments_dict.get(qid) or []
-                    
+                    fp_key = (str(resp.id), qid)
+                    is_fp = fp_key in fp_map
+                    fp_polarity_override = fp_map.get(fp_key)  # None = flip, float = force
                     primary_dim = "General Feedback"
                     if sentiments_for_q:
                         avg_polarity = sum(p for _, p in sentiments_for_q) / len(sentiments_for_q)
                         primary_dim = sentiments_for_q[0][0]
+                        # Apply override BEFORE chart counts for ML-classified items too
+                        if is_fp:
+                            if fp_polarity_override is not None:
+                                avg_polarity = fp_polarity_override
+                            else:
+                                avg_polarity = -avg_polarity
                     else:
                         # Fallback heuristic since ML was run externally and might have skipped this text
                         lower_text = text_ans.lower()
@@ -720,6 +732,13 @@ async def compute_peii_scores(
                         if not matched_dim:
                             matched_dim = "General Feedback"
                             
+                        # Apply override for heuristic-classified items
+                        if is_fp:
+                            if fp_polarity_override is not None:
+                                avg_polarity = fp_polarity_override
+                            else:
+                                avg_polarity = -avg_polarity
+                            
                         primary_dim = matched_dim
                         if avg_polarity < 0:
                             classification_counts[matched_dim]["negative"] += 1
@@ -734,7 +753,7 @@ async def compute_peii_scores(
                         question_text=qtext,
                         response_text=text_ans.strip(),
                         sentiment_score=avg_polarity,
-                        is_false_positive=(str(resp.id), qid) in fp_set,
+                        is_false_positive=is_fp,
                         dimension=primary_dim
                     ))
                     
