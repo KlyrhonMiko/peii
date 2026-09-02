@@ -224,7 +224,7 @@ export function ClientCurriculumFeedback({ surveyId, feedbacks, isLoading, onRef
                   <SentimentBadge score={f.sentiment_score} />
                 </div>
                 <p className="text-xl font-light tracking-tight text-slate-900 leading-snug">
-                  "{f.response_text}"
+                  &ldquo;{f.response_text}&rdquo;
                 </p>
               </div>
             ))}

@@ -1,6 +1,7 @@
 "use client"
 
-import { Users, MapPin, GraduationCap } from "lucide-react"
+
+
 import type { PEIIDemographics } from "@/lib/surveys"
 
 export function ClientDemographicsOverview({

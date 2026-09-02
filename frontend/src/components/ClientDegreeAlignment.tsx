@@ -52,7 +52,7 @@ export function ClientDegreeAlignment({ aggregates, isLoading }: ClientDegreeAli
       <div className="mb-6 flex flex-col">
         <h3 className="font-semibold text-slate-900">Degree Alignment</h3>
         <p className="text-sm text-slate-500 mt-1">
-          "My job is aligned with my degree" (Post-Grad)
+          &ldquo;My job is aligned with my degree&rdquo; (Post-Grad)
         </p>
       </div>
 

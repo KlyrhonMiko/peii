@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useMemo, useCallback } from "react"
+import { useState, useEffect, useMemo } from "react"
 import { ClientPEIIDimensionsChart } from "@/components/ClientPEIIDimensionsChart"
 import { ClientFeedbackClassificationChart } from "@/components/ClientFeedbackClassificationChart"
 import { ClientDemographicsOverview } from "@/components/ClientDemographicsOverview"
@@ -206,75 +206,77 @@ export default function AnalyticsPage() {
   const [aggregates, setAggregates] = useState<SurveyResponseAggregate[]>([])
   const [surveyId, setSurveyId] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(true)
+  const [refreshKey, setRefreshKey] = useState(0)
 
-  const loadData = useCallback(async (backgroundFetch = false) => {
-    if (!backgroundFetch) {
-      setIsLoading(true)
-    }
-    try {
-      const { surveys } = await fetchSurveys({ status: "Active" })
-      const activeTracerSurvey = surveys.find(s => s.title === "GRADUATE TRACER STUDY SURVEY")
-      if (!activeTracerSurvey) {
+  useEffect(() => {
+    let cancelled = false
+
+    async function fetchData() {
+      if (!cancelled) setIsLoading(true)
+      try {
+        const { surveys } = await fetchSurveys({ status: "Active" })
+        const activeTracerSurvey = surveys.find(s => s.title === "GRADUATE TRACER STUDY SURVEY")
+        if (!activeTracerSurvey) {
+          if (!cancelled) setChartData([])
+          return
+        }
+        if (!cancelled) setSurveyId(activeTracerSurvey.id)
+
+        const [data, aggData] = await Promise.all([
+          fetchPEII(activeTracerSurvey.id, {
+            batch: filters.batch,
+            department: filters.department
+          }),
+          fetchResponseAggregates(activeTracerSurvey.id)
+        ])
+
+        if (cancelled) return
+        setAggregates(aggData || [])
+
+        if (data.cohort_result && data.cohort_result.domains) {
+          setChartData(data.cohort_result.domains.map(d => ({
+            dimension: d.dimension,
+            preGrad: d.pre_grad,
+            postGrad: d.post_grad
+          })))
+          setPeiiScore(data.cohort_result.peii_score ?? null)
+          setPeiiIndex(data.cohort_result.peii_index ?? null)
+          setHistoricalTrend(data.historical_trend || [])
+          setQualitativeFeedback(data.qualitative_feedback || [])
+        } else {
+          setChartData([])
+          setPeiiScore(null)
+          setPeiiIndex(null)
+          setHistoricalTrend([])
+          setQualitativeFeedback([])
+        }
+
+        setDemographics(data.demographics)
+
+        if (data.feedback_classification && data.feedback_classification.classifications) {
+          setClassificationData(data.feedback_classification.classifications)
+        } else {
+          setClassificationData([])
+        }
+      } catch (error) {
+        if (cancelled) return
+        console.error("Failed to load PEII data", error)
         setChartData([])
-        return
-      }
-      setSurveyId(activeTracerSurvey.id)
-
-      const [data, aggData] = await Promise.all([
-        fetchPEII(activeTracerSurvey.id, {
-          batch: filters.batch,
-          department: filters.department
-        }),
-        fetchResponseAggregates(activeTracerSurvey.id)
-      ])
-
-      setAggregates(aggData || [])
-
-      if (data.cohort_result && data.cohort_result.domains) {
-        setChartData(data.cohort_result.domains.map(d => ({
-          dimension: d.dimension,
-          preGrad: d.pre_grad,
-          postGrad: d.post_grad
-        })))
-        setPeiiScore(data.cohort_result.peii_score ?? null)
-        setPeiiIndex(data.cohort_result.peii_index ?? null)
-        setHistoricalTrend(data.historical_trend || [])
-        setQualitativeFeedback(data.qualitative_feedback || [])
-      } else {
-        setChartData([])
+        setDemographics(null)
+        setClassificationData([])
         setPeiiScore(null)
         setPeiiIndex(null)
         setHistoricalTrend([])
         setQualitativeFeedback([])
-      }
-      
-      setDemographics(data.demographics)
-      
-      if (data.feedback_classification && data.feedback_classification.classifications) {
-        setClassificationData(data.feedback_classification.classifications)
-      } else {
-        setClassificationData([])
-      }
-    } catch (error) {
-      console.error("Failed to load PEII data", error)
-      setChartData([])
-      setDemographics(null)
-      setClassificationData([])
-      setPeiiScore(null)
-      setPeiiIndex(null)
-      setHistoricalTrend([])
-      setQualitativeFeedback([])
-      setAggregates([])
-    } finally {
-      if (!backgroundFetch) {
-        setIsLoading(false)
+        setAggregates([])
+      } finally {
+        if (!cancelled) setIsLoading(false)
       }
     }
-  }, [filters])
 
-  useEffect(() => {
-    void loadData(false)
-  }, [loadData])
+    void fetchData()
+    return () => { cancelled = true }
+  }, [filters, refreshKey])
 
   const analyticsMetrics = useMemo(() => {
     if (!demographics) return []
@@ -397,7 +399,7 @@ export default function AnalyticsPage() {
 
               {/* Curriculum Feedback */}
               <div className="pb-16">
-                <ClientCurriculumFeedback surveyId={surveyId} feedbacks={qualitativeFeedback} isLoading={isLoading} onRefresh={() => loadData(true)} />
+                <ClientCurriculumFeedback surveyId={surveyId} feedbacks={qualitativeFeedback} isLoading={isLoading} onRefresh={() => setRefreshKey(k => k + 1)} />
               </div>
 
             </div>

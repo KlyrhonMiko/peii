@@ -2,15 +2,16 @@
 
 import { useMemo } from "react"
 import { Line, LineChart, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts"
+import type { TooltipProps } from "recharts"
+import type { ValueType, NameType } from "recharts/types/component/DefaultTooltipContent"
 import type { PEIIHistoricalTrend } from "@/lib/surveys"
-import { TrendingUp } from "lucide-react"
 
 export interface ClientPEIIHistoricalTrendChartProps {
   data: PEIIHistoricalTrend[]
   isLoading?: boolean
 }
 
-function CustomTooltip({ active, payload, label }: any) {
+function CustomTooltip({ active, payload, label }: TooltipProps<ValueType, NameType>) {
   if (active && payload && payload.length) {
     return (
       <div className="bg-white p-3 border border-slate-200 rounded-lg shadow-sm">
