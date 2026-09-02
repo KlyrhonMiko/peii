@@ -1,6 +1,6 @@
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Header, Response, status
+from fastapi import APIRouter, Depends, Header, Response, status, BackgroundTasks
 from sqlmodel import col, select
 
 from core.config import settings
@@ -25,6 +25,7 @@ from schemas.survey_response import (
     SurveyResponseWithdrawalResult,
 )
 from services import response_service, survey_consent
+from services.ml_service import analyze_response_background
 
 router = APIRouter()
 
@@ -150,6 +151,7 @@ async def submit_response(
     session: AsyncDBSession,
     http_response: Response,
     respondent: CurrentGoogleSurveyRespondent,
+    background_tasks: BackgroundTasks,
     idempotency_header: str | None = Header(default=None, alias="Idempotency-Key"),
 ) -> APIResponse[SurveyResponseAcknowledgement]:
     await enforce_authenticated_survey_rate_limit(
@@ -184,6 +186,9 @@ async def submit_response(
     )
     if replayed:
         http_response.status_code = status.HTTP_200_OK
+    
+    background_tasks.add_task(analyze_response_background, str(_response.id))
+
     return success_response(
         SurveyResponseAcknowledgement(accepted=True),
         message="Response submitted.",
@@ -202,6 +207,7 @@ async def submit_phase2_response(
     payload: SurveyResponsePhase2Submit,
     session: AsyncDBSession,
     respondent: CurrentGoogleSurveyRespondent,
+    background_tasks: BackgroundTasks,
     idempotency_header: str | None = Header(default=None, alias="Idempotency-Key"),
 ) -> APIResponse[SurveyResponseAcknowledgement]:
     await enforce_authenticated_survey_rate_limit(
@@ -231,6 +237,9 @@ async def submit_phase2_response(
         respondent=respondent,
         actor_id=settings.SYSTEM_ACTOR_ID,
     )
+    
+    background_tasks.add_task(analyze_response_background, str(_response.id))
+
     return success_response(
         SurveyResponseAcknowledgement(accepted=True),
         message="Follow-up response submitted." if not replayed else "Response submitted.",

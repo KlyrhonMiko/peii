@@ -23,15 +23,18 @@ function formatTooltipValue(value: TooltipValue) {
   return value ?? ""
 }
 
-const data = [
-  { dimension: "Employability & Economics", preGrad: 0.65, postGrad: 0.88 },
-  { dimension: "Family & Finance", preGrad: 0.60, postGrad: 0.82 },
-  { dimension: "Personal Development", preGrad: 0.70, postGrad: 0.76 },
-  { dimension: "Civic Engagement", preGrad: 0.55, postGrad: 0.65 },
-  { dimension: "Governance & Support", preGrad: 0.50, postGrad: 0.58 },
-]
+export interface PEIIDomainScore {
+  dimension: string
+  preGrad: number
+  postGrad: number
+}
 
-export function PEIIDimensionsChart() {
+interface PEIIDimensionsChartProps {
+  data: PEIIDomainScore[]
+  isLoading?: boolean
+}
+
+export function PEIIDimensionsChart({ data, isLoading }: PEIIDimensionsChartProps) {
   return (
     <div className="flex flex-col h-full relative overflow-hidden">
       {/* Background decoration */}
@@ -44,8 +47,13 @@ export function PEIIDimensionsChart() {
       </div>
 
       <div className="h-[400px] w-full px-4 py-6 z-10 relative">
-        <ResponsiveContainer width="100%" height="100%">
-          <RadarChart cx="50%" cy="50%" outerRadius="75%" data={data}>
+        {isLoading ? (
+          <div className="w-full h-full flex items-center justify-center text-slate-400 text-sm">Loading data...</div>
+        ) : data.length === 0 ? (
+          <div className="w-full h-full flex items-center justify-center text-slate-400 text-sm">No data available for these filters.</div>
+        ) : (
+          <ResponsiveContainer width="100%" height="100%">
+            <RadarChart cx="50%" cy="50%" outerRadius="75%" data={data}>
             <defs>
               <linearGradient id="colorPost" x1="0" y1="0" x2="0" y2="1">
                 <stop offset="5%" stopColor="#10b981" stopOpacity={0.4} />
@@ -105,8 +113,9 @@ export function PEIIDimensionsChart() {
               fill="url(#colorPost)"
               fillOpacity={1}
             />
-          </RadarChart>
-        </ResponsiveContainer>
+            </RadarChart>
+          </ResponsiveContainer>
+        )}
       </div>
     </div>
   )

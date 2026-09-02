@@ -23,14 +23,17 @@ function formatTooltipValue(value: TooltipValue) {
   return value ?? ""
 }
 
-const data = [
-  { tier: "Moderate Improvement", agreement: 92, divergence: 8 },
-  { tier: "Slight Improvement", agreement: 85, divergence: 15 },
-  { tier: "No to Very Low Improvement", agreement: 76, divergence: 24 },
-  { tier: "Negative Impact", agreement: 68, divergence: 32 },
-]
+import type { SentimentDivergenceTier } from "@/lib/surveys"
 
-export function SentimentDivergenceChart() {
+export function SentimentDivergenceChart({ data }: { data?: SentimentDivergenceTier[] }) {
+  if (!data || data.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center h-full min-h-[400px] text-slate-500 text-sm bg-slate-50/50">
+        No sentiment data available for this cohort.
+      </div>
+    )
+  }
+
   return (
     <div className="flex flex-col h-full relative overflow-hidden bg-white">
       {/* Background decoration */}

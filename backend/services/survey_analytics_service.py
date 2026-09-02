@@ -11,9 +11,20 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from core.exceptions import AppError
 from models.question_type import QuestionType
+from models.survey import Survey
 from models.survey_question import SurveyQuestion
 from models.survey_response import SurveyResponse
 from models.survey_section import SurveySection
+from schemas.peii import (
+    PEIIAnalyticsResponse, 
+    PEIICohortResult, 
+    PEIIDomainScore, 
+    PEIIDemographics,
+    SentimentDivergenceTier,
+    SentimentDivergenceData
+)
+from services.ml_service import FeedbackAnalyzer
+
 from schemas.survey_analytics import (
     AggregateCell,
     AggregateQuestionType,
@@ -306,7 +317,7 @@ def _aggregate_cells(state: _AggregateState) -> list[dict[str, object]]:
             cast(list[str] | None, scale_options), state.config
         )
         return [
-            {"value": value, "count": state.counts.get(value, 0)}
+            {"value": scale_options[value - minimum] if scale_options and (value - minimum) < len(scale_options) else value, "count": state.counts.get(value, 0)}
             for value in range(minimum, maximum + 1)
         ]
     if state.question_type == QuestionType.RANKING:
@@ -469,3 +480,306 @@ async def aggregate_responses(
     for question in questions:
         aggregates.append(_finalize_aggregate(states[str(question.id)]))
     return aggregates
+
+
+DOMAIN_WEIGHTS = {
+    "A. Employability and Economic Mobility": 0.30,
+    "B. Family Upliftment and Financial Stability": 0.25,
+    "C. Personal Development and Life Quality": 0.20,
+    "D. Civic Engagement and Community Contribution": 0.15,
+    "E. Government Trust and LGU Support Valuation": 0.10,
+}
+
+DEPARTMENT_MAPPING = {
+    "Business": ["BSA", "BSBA", "BSHM"],
+    "Education": ["BSE", "BEE", "BSE - Fil", "BSE - Eng", "BSE - Math", "BSEE", "CTP"],
+    "Science & Technology": ["BSCS", "BSIT", "BSN"],
+    "Arts & Humanities": ["BAP"],
+}
+
+async def compute_peii_scores(
+    session: AsyncSession,
+    survey_ids: list[UUID] | None = None,
+    exclude_survey_ids: list[UUID] | None = None,
+    batch_year: str | None = None,
+    department: str | None = None,
+) -> PEIIAnalyticsResponse:
+    # 1. Find target surveys
+    query = select(Survey).where(col(Survey.title) == "GRADUATE TRACER STUDY SURVEY", col(Survey.status) == "Active")
+    if survey_ids:
+        query = query.where(col(Survey.id).in_(survey_ids))
+    if exclude_survey_ids:
+        query = query.where(col(Survey.id).not_in(exclude_survey_ids))
+        
+    surveys = (await session.exec(query)).all()
+    if not surveys:
+        return PEIIAnalyticsResponse(cohort_result=PEIICohortResult(batch_year=batch_year or "All Batches", domains=[], peii_score=0.0))
+
+    target_survey_ids = [s.id for s in surveys]
+
+    # 2. Map questions for all surveys
+    # We need to find the profile questions for Year Graduated and Degree Program
+    # We also need to map the PEII domain questions.
+    # To do this efficiently, let's load all sections and questions for these surveys.
+    
+    sections = (await session.exec(
+        select(SurveySection)
+        .where(col(SurveySection.survey_id).in_(target_survey_ids))
+    )).all()
+    
+    questions = (await session.exec(
+        select(SurveyQuestion)
+        .where(col(SurveyQuestion.survey_id).in_(target_survey_ids))
+    )).all()
+
+    survey_maps = {} # survey_id -> mapping
+    for sid in target_survey_ids:
+        survey_maps[sid] = {
+            "year_q": None,
+            "degree_q": None,
+            "gender_q": None,
+            "location_q": None,
+            "domains": {d: {"pre": [], "post": []} for d in DOMAIN_WEIGHTS.keys()},
+            "feedback_qs": []
+        }
+
+    for sec in sections:
+        sec_qs = [q for q in questions if q.section_id == sec.id]
+        smap = survey_maps[sec.survey_id]
+        
+        # Profile section
+        if "RESPONDENT'S PROFILE" in sec.title:
+            for q in sec_qs:
+                if "Year Graduated" in q.question_text:
+                    smap["year_q"] = str(q.id)
+                elif "Degree Program" in q.question_text:
+                    smap["degree_q"] = str(q.id)
+                elif "Sex Assigned At Birth" in q.question_text:
+                    smap["gender_q"] = str(q.id)
+                elif "Current Location" in q.question_text:
+                    smap["location_q"] = str(q.id)
+                    
+        # Domains
+        for domain_name in DOMAIN_WEIGHTS.keys():
+            if domain_name in sec.title:
+                half = len(sec_qs) // 2
+                smap["domains"][domain_name]["pre"] = [str(q.id) for q in sec_qs[:half]]
+                smap["domains"][domain_name]["post"] = [str(q.id) for q in sec_qs[half:]]
+                
+        if "Feedback and Reflection" in sec.title:
+            smap["feedback_qs"].extend([(str(q.id), q.question_text) for q in sec_qs])
+
+    # 3. Process Responses
+    # We will accumulate scores per cohort (batch_year)
+    cohort_stats = {} # batch_year -> { domain_name -> { pre_sum, pre_count, post_sum, post_count } }
+    
+    total_valid_responses = 0
+    gender_dist = Counter()
+    location_dist = Counter()
+    dept_dist = Counter()
+    
+    tier_counts = {
+        "Moderate Improvement": {"alignment": 0, "divergence": 0},
+        "Slight Improvement": {"alignment": 0, "divergence": 0},
+        "No to Very Low Improvement": {"alignment": 0, "divergence": 0},
+        "Negative Impact": {"alignment": 0, "divergence": 0},
+    }
+    
+    
+    
+    for sid in target_survey_ids:
+        smap = survey_maps[sid]
+        responses = (await session.exec(
+            select(SurveyResponse)
+            .where(col(SurveyResponse.survey_id) == sid, col(SurveyResponse.is_deleted).is_(False))
+        )).all()
+        
+        for resp in responses:
+            ans = resp.answers
+            if not isinstance(ans, dict):
+                continue
+                
+            resp_year = ans.get(smap["year_q"])
+            if not resp_year:
+                continue # Unknown cohort
+                
+            if batch_year and batch_year != "All Batches" and resp_year != batch_year:
+                continue # Filtered out
+                
+            resp_deg = ans.get(smap["degree_q"])
+            if department and department != "All Departments":
+                # Check mapping
+                allowed_degrees = DEPARTMENT_MAPPING.get(department, [])
+                if resp_deg not in allowed_degrees:
+                    continue # Filtered out
+
+            if resp_year not in cohort_stats:
+                cohort_stats[resp_year] = {
+                    d: {"pre_sum": 0, "pre_count": 0, "post_sum": 0, "post_count": 0}
+                    for d in DOMAIN_WEIGHTS.keys()
+                }
+                
+            # Demographics tracking
+            total_valid_responses += 1
+            if resp_deg:
+                dept_dist[resp_deg] += 1
+            gender_ans = ans.get(smap["gender_q"])
+            if gender_ans:
+                gender_dist[gender_ans] += 1
+            loc_ans = ans.get(smap["location_q"])
+            if loc_ans:
+                location_dist[loc_ans] += 1
+                
+            stats = cohort_stats[resp_year]
+            for domain_name, phases in smap["domains"].items():
+                for qid in phases["pre"]:
+                    val = ans.get(qid)
+                    if isinstance(val, (int, float)): # Scale 1-5
+                        stats[domain_name]["pre_sum"] += val
+                        stats[domain_name]["pre_count"] += 1
+                for qid in phases["post"]:
+                    val = ans.get(qid)
+                    if isinstance(val, (int, float)):
+                        stats[domain_name]["post_sum"] += val
+                        stats[domain_name]["post_count"] += 1
+
+            # Individual Divergence Calculation
+            individual_deltas = {}
+            for domain_name, phases in smap["domains"].items():
+                pre_sum, pre_count = 0, 0
+                for qid in phases["pre"]:
+                    val = ans.get(qid)
+                    if isinstance(val, (int, float)):
+                        pre_sum += val
+                        pre_count += 1
+                post_sum, post_count = 0, 0
+                for qid in phases["post"]:
+                    val = ans.get(qid)
+                    if isinstance(val, (int, float)):
+                        post_sum += val
+                        post_count += 1
+                
+                if pre_count > 0 and post_count > 0:
+                    pre_avg = pre_sum / pre_count
+                    post_avg = post_sum / post_count
+                    # Normalized to [-1.0, 1.0] since max delta is 4
+                    delta_q = (post_avg - pre_avg) / 4.0
+                    clean_dim = domain_name.split(". ", 1)[-1]
+                    individual_deltas[clean_dim] = delta_q
+                    
+            for qid, qtext in smap["feedback_qs"]:
+                text_ans = ans.get(qid)
+                if isinstance(text_ans, str) and text_ans.strip():
+                    # Read pre-computed ML sentiments from the database column
+                    sentiments_dict = resp.ml_sentiments or {}
+                    sentiments_for_q = sentiments_dict.get(qid) or []
+                    
+                    for dim, polarity in sentiments_for_q:
+                        if dim in individual_deltas:
+                            delta_q = individual_deltas[dim]
+                            d_metric = delta_q - polarity
+                            
+                            # Determine Tier
+                            if delta_q > 0.50:
+                                tier = "Moderate Improvement"
+                            elif delta_q > 0.10:
+                                tier = "Slight Improvement"
+                            elif delta_q >= -0.10:
+                                tier = "No to Very Low Improvement"
+                            else:
+                                tier = "Negative Impact"
+                                
+                            if abs(d_metric) < 0.40:
+                                tier_counts[tier]["alignment"] += 1
+                            elif d_metric >= 0.60 or d_metric <= -0.60:
+                                tier_counts[tier]["divergence"] += 1
+
+    # 4. Compute PEII for requested cohort and baseline (2023)
+    def compute_for_cohort(year: str) -> PEIICohortResult | None:
+        if year not in cohort_stats:
+            return None
+            
+        stats = cohort_stats[year]
+        domain_scores = []
+        total_peii = 0.0
+        
+        for domain_name, weight in DOMAIN_WEIGHTS.items():
+            ds = stats[domain_name]
+            pre_grad = ds["pre_sum"] / ds["pre_count"] if ds["pre_count"] > 0 else 0.0
+            post_grad = ds["post_sum"] / ds["post_count"] if ds["post_count"] > 0 else 0.0
+            
+            # Shorten dimension name for chart
+            short_dim = domain_name.split(". ", 1)[-1]
+            
+            domain_scores.append(PEIIDomainScore(
+                dimension=short_dim,
+                pre_grad=pre_grad,
+                post_grad=post_grad
+            ))
+            
+            gain = post_grad - pre_grad
+            total_peii += gain * weight
+            
+        return PEIICohortResult(
+            batch_year=year,
+            domains=domain_scores,
+            peii_score=total_peii
+        )
+
+    # We might have accumulated all batches if `batch_year` was "All Batches".
+    # We should merge stats if "All Batches" is requested.
+    if batch_year == "All Batches" or not batch_year:
+        merged_stats = {
+            d: {"pre_sum": 0, "pre_count": 0, "post_sum": 0, "post_count": 0}
+            for d in DOMAIN_WEIGHTS.keys()
+        }
+        for year_stats in cohort_stats.values():
+            for d, ds in year_stats.items():
+                merged_stats[d]["pre_sum"] += ds["pre_sum"]
+                merged_stats[d]["pre_count"] += ds["pre_count"]
+                merged_stats[d]["post_sum"] += ds["post_sum"]
+                merged_stats[d]["post_count"] += ds["post_count"]
+        cohort_stats["All Batches"] = merged_stats
+        target_year = "All Batches"
+    else:
+        target_year = batch_year
+
+    cohort_result = compute_for_cohort(target_year)
+    if not cohort_result:
+        # Return empty
+        cohort_result = PEIICohortResult(batch_year=target_year, domains=[], peii_score=0.0)
+
+    # Base cohort is 2023
+    baseline_result = compute_for_cohort("2023")
+    
+    if baseline_result and baseline_result.peii_score > 0:
+        cohort_result.peii_index = (cohort_result.peii_score / baseline_result.peii_score) * 100
+        baseline_result.peii_index = 100.0
+
+    demographics = PEIIDemographics(
+        total_responses=total_valid_responses,
+        gender_distribution=dict(gender_dist),
+        location_distribution=dict(location_dist),
+        department_distribution=dict(dept_dist)
+    )
+
+    divergence_tiers = []
+    for t_name, counts in tier_counts.items():
+        total = counts["alignment"] + counts["divergence"]
+        if total > 0:
+            align_pct = int(round((counts["alignment"] / total) * 100))
+            div_pct = 100 - align_pct
+        else:
+            align_pct, div_pct = 0, 0
+        divergence_tiers.append(SentimentDivergenceTier(
+            tier=t_name,
+            alignment=align_pct,
+            divergence=div_pct
+        ))
+
+    return PEIIAnalyticsResponse(
+        cohort_result=cohort_result,
+        baseline_result=baseline_result,
+        demographics=demographics,
+        sentiment_divergence=SentimentDivergenceData(tiers=divergence_tiers)
+    )

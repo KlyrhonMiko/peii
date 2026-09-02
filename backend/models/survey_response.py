@@ -76,6 +76,10 @@ class SurveyResponse(BaseModel, table=True):
     answers: dict[str, object] = Field(
         sa_column=Column(JSON().with_variant(JSONB, "postgresql"), nullable=False)
     )
+    ml_sentiments: dict[str, object] | None = Field(
+        default=None,
+        sa_column=Column(JSON().with_variant(JSONB, "postgresql"), nullable=True)
+    )
 
 
 class ResponseErasureReceipt(TimestampedUUIDModel, table=True):

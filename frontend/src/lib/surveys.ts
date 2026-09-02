@@ -197,6 +197,43 @@ export interface SurveyResponseAggregate {
   cells: AggregateCell[]
 }
 
+export interface PEIIDomainScore {
+  dimension: string
+  pre_grad: number
+  post_grad: number
+}
+
+export interface PEIICohortResult {
+  batch_year: string
+  domains: PEIIDomainScore[]
+  peii_score: number
+  peii_index: number | null
+}
+
+export interface PEIIDemographics {
+  total_responses: number
+  gender_distribution: Record<string, number>
+  location_distribution: Record<string, number>
+  department_distribution: Record<string, number>
+}
+
+export interface SentimentDivergenceTier {
+  tier: string
+  alignment: number
+  divergence: number
+}
+
+export interface SentimentDivergenceData {
+  tiers: SentimentDivergenceTier[]
+}
+
+export interface PEIIAnalyticsResponse {
+  cohort_result: PEIICohortResult
+  baseline_result: PEIICohortResult | null
+  demographics: PEIIDemographics | null
+  sentiment_divergence: SentimentDivergenceData | null
+}
+
 export interface EraseSelectedResponsesPayload {
   scope: "selected"
   response_ids: string[]
@@ -638,6 +675,22 @@ export async function fetchResponseAggregates(
     `/surveys/${surveyUuid}/responses/aggregates`,
   )
   return res.data ?? []
+}
+
+export async function fetchPEII(
+  surveyUuid: string,
+  options: { batch?: string; department?: string } = {},
+): Promise<PEIIAnalyticsResponse> {
+  const query = new URLSearchParams()
+  if (options.batch && options.batch !== "All Batches") query.set("batch", options.batch)
+  if (options.department && options.department !== "All Departments") query.set("department", options.department)
+  
+  const queryString = query.toString() ? `?${query.toString()}` : ""
+  const res = await api.get<PEIIAnalyticsResponse>(
+    `/surveys/${surveyUuid}/responses/peii${queryString}`,
+    { timeout: 120000 }
+  )
+  return res.data!
 }
 
 export async function exportResponses(surveyUuid: string): Promise<void> {
