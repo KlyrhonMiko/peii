@@ -7,6 +7,9 @@ export type PublicAnswerValue =
 
 export type PublicAnswers = Record<string, PublicAnswerValue>
 
+export type PublicSurveyCollectionState = "phase1" | "phase2" | "completed" | "withdrawn"
+export type PublicSurveySubmissionPhase = 1 | 2
+
 export interface PublicSurveyQuestion {
   id: string
   question_text: string
@@ -40,6 +43,8 @@ export interface PublicSurvey {
   questions: PublicSurveyQuestion[]
   sections: PublicSurveySection[]
   consent: PublicSurveyConsent
+  collection_state: PublicSurveyCollectionState
+  submission_phase: PublicSurveySubmissionPhase | null
 }
 
 export interface PublicSurveyConsentSubmission {
@@ -88,6 +93,16 @@ function stringArray(value: unknown): string[] | null {
 
 function recordValue(value: unknown): Record<string, unknown> | null {
   return value === null || isRecord(value) ? value : null
+}
+
+function collectionStateValue(value: unknown): PublicSurveyCollectionState | null {
+  return value === "phase1" || value === "phase2" || value === "completed" || value === "withdrawn"
+    ? value
+    : null
+}
+
+function submissionPhaseValue(value: unknown): PublicSurveySubmissionPhase | null {
+  return value === 1 || value === 2 ? value : null
 }
 
 function parseQuestion(value: unknown): PublicSurveyQuestion | null {
@@ -175,6 +190,15 @@ export function parsePublicSurvey(value: unknown): PublicSurvey | null {
   const surveyId = stringValue(value.survey_id)
   const title = stringValue(value.title)
   const description = value.description === null ? null : stringValue(value.description)
+  const legacyState = value.collection_state === undefined || value.collection_state === null
+  const collectionState = legacyState
+    ? "phase1"
+    : collectionStateValue(value.collection_state)
+  const submissionPhase = value.submission_phase === undefined
+    ? 1
+    : value.submission_phase === null
+      ? legacyState ? 1 : null
+      : submissionPhaseValue(value.submission_phase)
   const questions = value.questions
   const sections = value.sections
   const consent = parseConsent(value.consent)
@@ -182,6 +206,8 @@ export function parsePublicSurvey(value: unknown): PublicSurvey | null {
     surveyId === null ||
     title === null ||
     description === null && value.description !== null ||
+    collectionState === null ||
+    value.submission_phase !== undefined && value.submission_phase !== null && submissionPhase === null ||
     !Array.isArray(questions) ||
     !Array.isArray(sections) ||
     consent === null
@@ -204,6 +230,8 @@ export function parsePublicSurvey(value: unknown): PublicSurvey | null {
     questions: validQuestions,
     sections: validSections,
     consent,
+    collection_state: collectionState,
+    submission_phase: submissionPhase,
   }
 }
 

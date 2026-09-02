@@ -83,7 +83,13 @@ def _audit_log_from_event(event: AuditEvent) -> AuditLog:
     is_public_response_event = (
         event.resource_type == "survey_response"
         and event.action
-        in {"create", "consent_recorded_on_legacy_replay", "response_replay_hash_upgraded"}
+        in {
+            "create",
+            "consent_recorded_on_legacy_replay",
+            "response_replay_hash_upgraded",
+            "phase1_submitted",
+            "phase2_submitted",
+        }
     ) or (event.resource_type == "survey" and event.action == "response_submitted")
     changes = event.changes
     ip_address = event.ip_address

@@ -179,16 +179,20 @@ capability requirement.
   by default), with separate 1,000-request global breakers; the shared Next.js BFF peer is not an
   end-user bucket.
 - New surveys default to retention enabled for 1,825 days (five years). Each response receives
-  an immutable submission-time `retention_expires_at`; disabled retention gives new responses a
-  null deadline and does not rewrite existing snapshots. Retention settings cannot change after
-  any response row exists, including a tombstone.
+  a submission-time `retention_expires_at`; the generated two-phase questionnaire resets the same
+  row's deadline when Phase 2 completes. Disabled retention gives new responses a null deadline
+  and does not rewrite existing snapshots. Retention settings cannot change after any response
+  row exists, including a tombstone.
 - Raw responses, aggregates, and exports exclude logically deleted and read-time expired rows,
   but authorized access remains available for archived surveys. Aggregates are available for
   every survey status, accept no filters, and return exact totals and cells even for one to four
   responses. Live results can change as responses arrive, and small-group aggregates are not
   anonymous or privacy-preserving. Raw listing is paginated (default 50, maximum 100) and
   supports only submission-time range and distribution filters.
-- The browser generates a private 256-bit withdrawal code and shows it once after submission.
+- The browser generates a private 256-bit withdrawal code and shows it once after Phase 1.
+  Generated two-phase surveys use POST to create one response row, then authenticated PATCH to
+  merge Phase 2 into that row; the same code withdraws the whole response and `responses_count`
+  remains one participant row.
   The backend stores only its HMAC-SHA-256 digest under `WITHDRAWAL_CODE_HMAC_SECRET`; a lost
   code cannot be recovered. The public withdrawal API is
   `POST /api/v1/survey/responses/withdraw`, with the frontend page at `/survey/withdraw`.

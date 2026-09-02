@@ -81,9 +81,10 @@ withdrawal/privacy contact. Placeholder values in local configuration are not ap
 - `retention_enabled` defaults to `true` and `retention_days` defaults to `1825` days (five
   years). The defaults are present in the backend model and request schemas and are also used by
   the frontend create flows.
-- On submission, the server snapshots the policy into the response as
-  `retention_expires_at = submission_time + retention_days`. The deadline belongs to that
-  response and is immutable; later policy changes never move an existing deadline.
+- On initial submission, the server snapshots the policy into the response as
+  `retention_expires_at = submission_time + retention_days`. For the generated two-phase
+  questionnaire, successful Phase 2 completion resets that same row's deadline from the final
+  completion time. Later survey-policy changes never move an existing deadline.
 - A survey's retention settings can be changed only before any response row exists. Once a
   survey has a response, including a withdrawn, erased, or otherwise tombstoned row, changing
   either setting is rejected with the retention-policy-immutable conflict.
@@ -104,8 +105,9 @@ scheduled purge has not run yet.
 
 - The browser generates a private code with 32 cryptographically random bytes (`crypto.getRandomValues`)
   and presents it as unpadded base64url text. This is a 256-bit respondent-held secret.
-- The code is sent with the response submission and is shown once after the minimal submission
-  acknowledgement. The browser provides copy support and links to the public `/survey/withdraw`
+- The code is sent with Phase 1 and is shown once after the minimal submission acknowledgement.
+  Phase 2 updates the same response and does not create another code. The browser provides copy
+  support and links to the public `/survey/withdraw`
   page. The backend never returns the code in a response, read schema, audit event, or log.
 - The backend stores only an HMAC-SHA-256 digest under the dedicated
   `WITHDRAWAL_CODE_HMAC_SECRET`; it never persists the plaintext code. Production requires a
@@ -139,7 +141,8 @@ not. The identity endpoint additionally requires `survey_responses.read_raw`.
 | Erasure | `POST /api/v1/surveys/{survey_id}/responses/erase` | `survey_responses.erase` plus request confirmation and UUID `Idempotency-Key` |
 
 The respondent routes are deliberately separate from these protected operations:
-`GET /api/v1/survey/{token}` and `POST /api/v1/survey/{token}/respond` require the dedicated
+`GET /api/v1/survey/{token}`, `POST /api/v1/survey/{token}/respond`, and
+`PATCH /api/v1/survey/{token}/respond` require the dedicated
 Google OAuth respondent session and backend proof. The server-rendered page may fetch the GET from
 FastAPI through `BACKEND_INTERNAL_URL` after isolated auth; browser submission uses the focused
 same-origin Next.js BFF at `/api/survey/[token]`. These operations do not use the portal
@@ -150,6 +153,19 @@ remains direct and code-only; the frontend withdrawal page is
 Raw, aggregate, and CSV response contracts remain identity-free. Identity snapshots are exposed
 only through the separately gated identity endpoint, which requires both raw-read and
 identity-read capability.
+
+### Generated two-phase questionnaire
+
+The generated Graduate Tracer questionnaire stores both phases in one response row under one
+distribution link. Question configuration marks Phase 1 and Phase 2 explicitly. The authenticated
+GET returns only the phase currently available to that Google respondent: POST creates the row for
+Phase 1, PATCH locks and merges Phase 2 answers into it, and a completed or withdrawn response
+returns no form. `created_at` records Phase 1; `updated_at` at completion and the immutable
+`phase1_submitted` / `phase2_submitted` audit events record the two submission times.
+
+The one withdrawal code removes the whole two-phase response. `responses_count` remains a count of
+participant rows, so Phase 2 does not increment it. Existing surveys whose questions do not carry
+phase metadata keep the original single-submit behavior.
 
 ### Raw response listing
 

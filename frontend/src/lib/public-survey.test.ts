@@ -19,29 +19,31 @@ function publicSurveyEnvelope(questionOverrides: Record<string, unknown> = {}) {
     ...questionOverrides,
   }
 
-  return {
-    data: {
-      survey_id: "survey-1",
-      title: "Alumni Survey",
-      description: null,
-      questions: [question],
-      sections: [
-        {
-          id: "section-1",
-          title: "Feedback",
-          description: null,
-          order_index: 0,
-          questions: [question],
-        },
-      ],
-      consent: {
-        version: "1",
-        notice: "Notice",
-        purpose: "Purpose",
-        retention: "Retention",
-        contact: "Contact",
+  const data: Record<string, unknown> = {
+    survey_id: "survey-1",
+    title: "Alumni Survey",
+    description: null,
+    questions: [question],
+    sections: [
+      {
+        id: "section-1",
+        title: "Feedback",
+        description: null,
+        order_index: 0,
+        questions: [question],
       },
+    ],
+    consent: {
+      version: "1",
+      notice: "Notice",
+      purpose: "Purpose",
+      retention: "Retention",
+      contact: "Contact",
     },
+  }
+
+  return {
+    data,
     message: "Survey loaded",
     errors: null,
     meta: {},
@@ -55,6 +57,29 @@ describe("parsePublicSurveyEnvelope", () => {
     expect(survey?.questions[0]).toEqual(expect.objectContaining({ options: null, config: null }))
     expect(survey?.sections[0]?.questions[0]).toEqual(
       expect.objectContaining({ options: null, config: null }),
+    )
+    expect(survey).toEqual(expect.objectContaining({ collection_state: "phase1", submission_phase: 1 }))
+
+    const legacyPayload = publicSurveyEnvelope()
+    legacyPayload.data.collection_state = null
+    legacyPayload.data.submission_phase = null
+    expect(parsePublicSurveyEnvelope(legacyPayload)).toEqual(
+      expect.objectContaining({ collection_state: "phase1", submission_phase: 1 }),
+    )
+  })
+
+  it("parses the actionable phase state and allows a null phase for terminal states", () => {
+    const phaseTwoPayload = publicSurveyEnvelope()
+    phaseTwoPayload.data.collection_state = "phase2"
+    phaseTwoPayload.data.submission_phase = 2
+    expect(parsePublicSurveyEnvelope(phaseTwoPayload)).toEqual(
+      expect.objectContaining({ collection_state: "phase2", submission_phase: 2 }),
+    )
+
+    phaseTwoPayload.data.collection_state = "completed"
+    phaseTwoPayload.data.submission_phase = null
+    expect(parsePublicSurveyEnvelope(phaseTwoPayload)).toEqual(
+      expect.objectContaining({ collection_state: "completed", submission_phase: null }),
     )
   })
 

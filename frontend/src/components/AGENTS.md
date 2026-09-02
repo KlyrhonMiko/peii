@@ -14,7 +14,7 @@ Follow `ui/AGENTS.md` when editing primitive building blocks under `src/componen
 - `ClientCohortTrendChart.tsx`, `ClientPEIIDimensionsChart.tsx`, and
   `ClientSentimentDivergenceChart.tsx` isolate client-only dynamic chart imports.
 - `ClientSurveyForm.tsx` renders the Google-authenticated identified survey intake with
-  section-per-page navigation.
+  section-per-page navigation, Phase 1 POST, and Phase 2 PATCH behavior.
 - `public-survey/WithdrawalForm.tsx` renders the public code-based response withdrawal flow.
 - `SurveyManagement.tsx` is the client-side shared-workspace survey management surface. It
   gates CRUD, retention settings, structure editing, aggregates, raw responses, CSV export, and

@@ -19,6 +19,9 @@ Phase 3 response behavior is kept in `response_service.py`,
 `response_retention_service.py`, `response_export_service.py`, and
 `survey_analytics_service.py`. The retention service is invoked by the external
 `scripts/purge_expired_responses.py` job; it is not run by an application timer.
+The generated Graduate Tracer questionnaire uses question `config.survey_phase`: Phase 1 creates
+one response row and Phase 2 locks and merges into that row. Surveys without phase metadata retain
+the single-submit path.
 
 ## List Query Rules
 - For paginated list endpoints, return both the page of rows and the filtered total.

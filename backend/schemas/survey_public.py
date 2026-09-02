@@ -1,4 +1,5 @@
 import json
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, field_validator
@@ -85,3 +86,5 @@ class PublicSurvey(BaseModel):
     questions: list[PublicSurveyQuestion] = []
     sections: list[PublicSurveySection] = []
     consent: PublicConsentContract
+    collection_state: Literal["phase1", "phase2", "completed", "withdrawn"] | None = None
+    submission_phase: Literal[1, 2] | None = None

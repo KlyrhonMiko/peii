@@ -8,6 +8,7 @@ import {
   PEII_SCALE_LABELS,
   createGraduateTracerStudySurveyPayload,
 } from "./constants"
+import { validateSurveyStructure } from "@/lib/survey-structure"
 
 describe("Graduate Tracer Study survey definition", () => {
   it("keeps the canonical title and exact survey description together", () => {
@@ -25,15 +26,10 @@ describe("Graduate Tracer Study survey definition", () => {
   })
 
   it("contains the exact intro, profile, PEII, and feedback questions", () => {
-    expect(GRADUATE_TRACER_STUDY_SURVEY.sections).toHaveLength(8)
+    expect(GRADUATE_TRACER_STUDY_SURVEY.sections).toHaveLength(14)
     expect(GRADUATE_TRACER_STUDY_SURVEY.sections[0]).toMatchObject({
       title: "Intro",
       questions: [
-        {
-          question_text: "Email: Record <email> as the email to be included with my response",
-          question_type: "text",
-          options: null,
-        },
         {
           question_text: "Consent Statement: I have read and understood the Data Privacy Statement and voluntarily agree to participate in this survey.",
           question_type: "single_choice",
@@ -66,13 +62,15 @@ describe("Graduate Tracer Study survey definition", () => {
       ],
     })
 
-    const peiiSections = GRADUATE_TRACER_STUDY_SURVEY.sections.slice(2, 7)
+    const phaseOneSections = GRADUATE_TRACER_STUDY_SURVEY.sections.slice(0, 8)
+    const phaseTwoSections = GRADUATE_TRACER_STUDY_SURVEY.sections.slice(8)
+    const peiiSections = phaseOneSections.slice(2, 7)
     expect(peiiSections.map(({ title }) => title)).toEqual([
-      "SECTION II - PEII Core Impact Measurement: A. Employability and Economic Mobility",
-      "SECTION II - PEII Core Impact Measurement: B. Family Upliftment and Financial Stability",
-      "SECTION II - PEII Core Impact Measurement: C. Personal Development and Life Quality",
-      "SECTION II - PEII Core Impact Measurement: D. Civic Engagement and Community Contribution",
-      "SECTION II - PEII Core Impact Measurement: E. Government Trust and LGU Support Valuation",
+      "SECTION II-A - PEII Core Impact Measurement: A. Employability and Economic Mobility",
+      "SECTION II-A - PEII Core Impact Measurement: B. Family Upliftment and Financial Stability",
+      "SECTION II-A - PEII Core Impact Measurement: C. Personal Development and Life Quality",
+      "SECTION II-A - PEII Core Impact Measurement: D. Civic Engagement and Community Contribution",
+      "SECTION II-A - PEII Core Impact Measurement: E. Government Trust and LGU Support Valuation",
     ])
     const expectedPeiiDescription =
       "Instruction: Rate each statement using the scale below based on your condition during two specific timeframes:\nYour situation specifically during your final year of residency as a student at PLP. This serves as your baseline for transformation\nNote: These responses are essential to compute your Individual-Level Improvement and the overall Pasig Education Impact Index (PEII).\nScale: 1 = Strongly Disagree | 2 = Disagree | 3 = Neutral | 4 = Agree | 5 = Strongly Agree"
@@ -126,31 +124,69 @@ describe("Graduate Tracer Study survey definition", () => {
       question_type === "scale" &&
       options?.join("|") === PEII_SCALE_LABELS.join("|") &&
       config?.min === 1 && config.max === 5 &&
+      config.survey_phase === 1 &&
       config.min_label === undefined && config.max_label === undefined,
     )).toBe(true)
 
-    expect(GRADUATE_TRACER_STUDY_SURVEY.sections[7]).toMatchObject({
-      title: "IV. Feedback and Reflection",
+    expect(phaseOneSections[7]).toMatchObject({
+      title: "IV-A. Feedback and Reflection",
       questions: [
         { question_text: "What specific technical or soft skills do you wish were given more focus at PLP?", question_type: "text", options: null },
         { question_text: "What improvements should PLP implement to better support students?", question_type: "text", options: null },
         { question_text: "What message would you like to share with Pasig City leaders regarding PLP?", question_type: "text", options: null },
       ],
     })
+
+    expect(phaseTwoSections.map(({ title }) => title)).toEqual([
+      "SECTION II-B - PEII Core Impact Measurement: A. Employability and Economic Mobility",
+      "SECTION II-B - PEII Core Impact Measurement: B. Family Upliftment and Financial Stability",
+      "SECTION II-B - PEII Core Impact Measurement: C. Personal Development and Life Quality",
+      "SECTION II-B - PEII Core Impact Measurement: D. Civic Engagement and Community Contribution",
+      "SECTION II-B - PEII Core Impact Measurement: E. Government Trust and LGU Support Valuation",
+      "IV-B. Feedback and Reflection",
+    ])
+    expect(phaseTwoSections.slice(0, 5).map(({ questions }) => questions.map(({ question_text }) => question_text))).toEqual(
+      peiiSections.map(({ questions }) => questions.map(({ question_text }) => question_text)),
+    )
+    expect(phaseTwoSections[5]?.questions.map(({ question_text }) => question_text)).toEqual(
+      phaseOneSections[7]?.questions.map(({ question_text }) => question_text),
+    )
+    expect(phaseOneSections.flatMap(({ questions }) => questions).every(({ config }) => config?.survey_phase === 1)).toBe(true)
+    expect(phaseTwoSections.flatMap(({ questions }) => questions).every(({ config }) => config?.survey_phase === 2)).toBe(true)
   })
 
-  it("builds an eight-section, 40-question payload with every question required", () => {
+  it("builds a fourteen-section, 67-question payload with 39 phase-one and 28 phase-two questions", () => {
     const payload = createGraduateTracerStudySurveyPayload(() => "client-id")
     const questions = payload.sections.flatMap(({ questions: sectionQuestions }) => sectionQuestions)
 
     expect(payload.title).toBe(GRADUATE_TRACER_STUDY_SURVEY_TITLE)
     expect(payload.description).toBe(GRADUATE_TRACER_STUDY_SURVEY_DESCRIPTION)
-    expect(payload.sections).toHaveLength(8)
-    expect(questions).toHaveLength(40)
+    expect(payload.sections).toHaveLength(14)
+    expect(questions).toHaveLength(67)
+    const phaseOneQuestions = payload.sections.slice(0, 8).flatMap(({ questions: sectionQuestions }) => sectionQuestions)
+    const phaseTwoQuestions = payload.sections.slice(8).flatMap(({ questions: sectionQuestions }) => sectionQuestions)
+    expect(phaseOneQuestions).toHaveLength(39)
+    expect(phaseTwoQuestions).toHaveLength(28)
     expect(questions.every(({ is_required }) => is_required)).toBe(true)
+    expect(phaseOneQuestions.every(({ config }) => config?.survey_phase === 1)).toBe(true)
+    expect(phaseTwoQuestions.every(({ config }) => config?.survey_phase === 2)).toBe(true)
     expect(questions.find(({ question_text }) => question_text === "Degree Program Category:")?.config).toEqual({
       presentation: "dropdown",
+      survey_phase: 1,
     })
     expect(payload.sections.every(({ client_id }) => client_id === "client-id")).toBe(true)
+  })
+
+  it("produces a structure that passes the pre-save survey validator", () => {
+    const payload = createGraduateTracerStudySurveyPayload(() => "client-id")
+    const structure = payload.sections.map((section) => ({
+      title: section.title,
+      questions: section.questions.map((question) => ({
+        type: question.question_type,
+        options: question.options,
+        config: question.config,
+      })),
+    }))
+    expect(validateSurveyStructure(structure)).toBeNull()
   })
 })

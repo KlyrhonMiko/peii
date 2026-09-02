@@ -38,7 +38,7 @@ class FakeGoogleClient:
     def __init__(
         self,
         *,
-        audience: str = "local-google-client-id",
+        audience: str = settings.GOOGLE_OAUTH_CLIENT_ID,
         subject: str = GOOGLE_SUBJECT,
         email: str = "Respondent@Example.com",
         invalid_tokens: set[str] | None = None,

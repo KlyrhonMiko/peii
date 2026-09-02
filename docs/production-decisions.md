@@ -159,8 +159,9 @@ is restricted to active Admins.
 ### Retention
 
 - New surveys default to `retention_enabled=true` and `retention_days=1825` (five years).
-- Each response receives an immutable `retention_expires_at` snapshot from server submission time
-  plus the survey's retention days. Updating a policy never changes existing response deadlines.
+- Each response receives a `retention_expires_at` snapshot from server submission time plus the
+  survey's retention days. The generated two-phase questionnaire resets that same row's deadline
+  from successful Phase 2 completion; updating the survey policy never changes it.
 - Retention settings may be changed only before any response row exists. After the first row,
   including a withdrawn or erased row, the policy is immutable.
 - When retention is disabled before a survey has responses, new responses receive a null
@@ -172,8 +173,9 @@ is restricted to active Admins.
 
 ### Withdrawal
 
-The browser generates a 32-byte (`256-bit`) random base64url withdrawal code, sends it with the
-submission, and shows it once after the minimal `{"accepted": true}` acknowledgement. The
+The browser generates a 32-byte (`256-bit`) random base64url withdrawal code, sends it with Phase 1,
+and shows it once after the minimal `{"accepted": true}` acknowledgement. Phase 2 updates the same
+response row and reuses that withdrawal ownership proof without sending or replacing the code. The
 backend stores only its HMAC-SHA-256 digest. Production must set the dedicated
 `WITHDRAWAL_CODE_HMAC_SECRET` to a random value of at least 32 bytes; it must not be reused as
 the rate-limit HMAC key. The code is never returned by the backend, persisted in plaintext,
@@ -184,6 +186,19 @@ The public API route is `POST /api/v1/survey/responses/withdraw`; the frontend p
 withdrawal clears answers and direct identity but retains the withdrawal digest needed to
 recognize a repeat and the survey-scoped pseudonymous dedupe digest that prevents another
 submission by the same account. Administrative erasure clears both digests.
+
+### Generated two-phase questionnaire
+
+The generated questionnaire contains 14 sections and 68 persisted questions. Phase 1 contains the
+Intro, profile, Section II-A, and IV-A questions (40 total); Phase 2 contains duplicated Section
+II-B and IV-B questions (28 total). Every question carries `config.survey_phase`, while surveys
+without that metadata remain single-phase.
+
+One Google respondent and one distribution link map to one response row. Authenticated GET exposes
+only the available phase. POST creates Phase 1; PATCH locks the same row and merges Phase 2 without
+changing Phase 1 answers, consent, identity, withdrawal ownership, or `created_at`. Completion and
+withdrawal return no form. Phase audit events record each submission, and `responses_count` remains
+one participant row rather than two submissions.
 
 ### Reads, aggregates, exports, and erasure
 

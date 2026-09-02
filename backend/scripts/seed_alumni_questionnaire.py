@@ -1,6 +1,6 @@
 """
-Seed the "GRADUATE TRACER STUDY SURVEY" — the canonical 8-section,
-40-question graduate tracer study definition.
+Seed the "GRADUATE TRACER STUDY SURVEY" — the canonical 14-section,
+68-question, two-phase graduate tracer study definition.
 
 Usage:
     cd backend
@@ -68,12 +68,16 @@ PEII_SCALE_LABELS = [
 ]
 
 
-def _text_question(text: str) -> dict:
+def _phase_config(phase: int, config: dict[str, object] | None = None) -> dict[str, object]:
+    return {**(config or {}), "survey_phase": phase}
+
+
+def _text_question(text: str, phase: int = 1) -> dict:
     return {
         "type": QuestionType.TEXT,
         "text": text,
         "options": None,
-        "config": None,
+        "config": _phase_config(phase),
         "is_required": True,
     }
 
@@ -82,22 +86,23 @@ def _single_choice_question(
     text: str,
     options: list[str],
     config: dict[str, object] | None = None,
+    phase: int = 1,
 ) -> dict:
     return {
         "type": QuestionType.SINGLE_CHOICE,
         "text": text,
         "options": options,
-        "config": config,
+        "config": _phase_config(phase, config),
         "is_required": True,
     }
 
 
-def _scale_question(text: str) -> dict:
+def _scale_question(text: str, phase: int = 1) -> dict:
     return {
         "type": QuestionType.SCALE,
         "text": text,
         "options": [*PEII_SCALE_LABELS],
-        "config": {"min": 1, "max": 5},
+        "config": _phase_config(phase, {"min": 1, "max": 5}),
         "is_required": True,
     }
 
@@ -116,7 +121,6 @@ SECTIONS: list[dict] = [
         "title": "Intro",
         "description": "",
         "questions": [
-            _text_question("Email: Record <email> as the email to be included with my response"),
             _single_choice_question(
                 "Consent Statement: I have read and understood the Data Privacy Statement and "
                 "voluntarily agree to participate in this survey.",
@@ -167,7 +171,7 @@ SECTIONS: list[dict] = [
         ],
     },
     {
-        "title": "SECTION II - PEII Core Impact Measurement: A. Employability and Economic "
+        "title": "SECTION II-A - PEII Core Impact Measurement: A. Employability and Economic "
         "Mobility",
         "description": PEII_COMMON_DESCRIPTION,
         "questions": [
@@ -179,7 +183,7 @@ SECTIONS: list[dict] = [
         ],
     },
     {
-        "title": "SECTION II - PEII Core Impact Measurement: B. Family Upliftment and Financial "
+        "title": "SECTION II-A - PEII Core Impact Measurement: B. Family Upliftment and Financial "
         "Stability",
         "description": PEII_COMMON_DESCRIPTION,
         "questions": [
@@ -195,7 +199,7 @@ SECTIONS: list[dict] = [
         ],
     },
     {
-        "title": "SECTION II - PEII Core Impact Measurement: C. Personal Development and Life "
+        "title": "SECTION II-A - PEII Core Impact Measurement: C. Personal Development and Life "
         "Quality",
         "description": PEII_COMMON_DESCRIPTION,
         "questions": [
@@ -209,7 +213,7 @@ SECTIONS: list[dict] = [
         ],
     },
     {
-        "title": "SECTION II - PEII Core Impact Measurement: D. Civic Engagement and Community "
+        "title": "SECTION II-A - PEII Core Impact Measurement: D. Civic Engagement and Community "
         "Contribution",
         "description": PEII_COMMON_DESCRIPTION,
         "questions": [
@@ -221,7 +225,7 @@ SECTIONS: list[dict] = [
         ],
     },
     {
-        "title": "SECTION II - PEII Core Impact Measurement: E. Government Trust and LGU Support "
+        "title": "SECTION II-A - PEII Core Impact Measurement: E. Government Trust and LGU Support "
         "Valuation",
         "description": PEII_COMMON_DESCRIPTION,
         "questions": [
@@ -239,7 +243,7 @@ SECTIONS: list[dict] = [
         ],
     },
     {
-        "title": "IV. Feedback and Reflection",
+        "title": "IV-A. Feedback and Reflection",
         "description": "",
         "questions": [
             _text_question(
@@ -252,6 +256,27 @@ SECTIONS: list[dict] = [
         ],
     },
 ]
+
+
+def _duplicate_follow_up_sections() -> list[dict]:
+    duplicated: list[dict] = []
+    for section in SECTIONS[2:8]:
+        title = section["title"].replace("II-A", "II-B").replace("IV-A", "IV-B")
+        questions = []
+        for question in section["questions"]:
+            config = {**question["config"], "survey_phase": 2}
+            questions.append({**question, "config": config})
+        duplicated.append(
+            {
+                "title": title,
+                "description": section["description"],
+                "questions": questions,
+            }
+        )
+    return duplicated
+
+
+SECTIONS.extend(_duplicate_follow_up_sections())
 
 GRADUATE_TRACER_STUDY_SURVEY = {
     "title": GRADUATE_TRACER_STUDY_SURVEY_TITLE,

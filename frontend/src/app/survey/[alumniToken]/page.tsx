@@ -8,6 +8,8 @@ import { Card, CardContent, CardDescription, CardHeader } from "@/components/ui/
 import {
   parsePublicSurveyEnvelope,
   parseRetryAfter,
+  type PublicSurveyCollectionState,
+  type PublicSurveySubmissionPhase,
   type PublicSurvey,
 } from "@/lib/public-survey"
 import { createSurveySupabaseServerClient } from "@/lib/supabase/survey-server"
@@ -20,11 +22,26 @@ export const metadata: Metadata = {
 }
 
 type SurveyLoadResult =
-  | { kind: "ready"; survey: PublicSurvey }
+  | { kind: "ready"; survey: ActionablePublicSurvey }
+  | { kind: "completed" }
+  | { kind: "withdrawn" }
   | { kind: "auth-required" }
   | { kind: "unavailable" }
   | { kind: "rate-limited"; retryAfter: number | null }
   | { kind: "temporarily-unavailable"; retryAfter: number | null }
+
+type ActionablePublicSurvey = PublicSurvey & {
+  collection_state: Extract<PublicSurveyCollectionState, "phase1" | "phase2">
+  submission_phase: PublicSurveySubmissionPhase
+}
+
+function isActionableSurvey(survey: PublicSurvey): survey is ActionablePublicSurvey {
+  return (
+    (survey.collection_state === "phase1" || survey.collection_state === "phase2") &&
+    survey.submission_phase !== null &&
+    survey.sections.some((section) => section.questions.length > 0)
+  )
+}
 
 async function getSurvey(token: string, accessToken: string): Promise<SurveyLoadResult> {
   try {
@@ -49,9 +66,10 @@ async function getSurvey(token: string, accessToken: string): Promise<SurveyLoad
     }
     if (!res.ok) return { kind: "unavailable" }
     const survey = parsePublicSurveyEnvelope(await res.json())
-    return survey && survey.sections.length > 0
-      ? { kind: "ready", survey }
-      : { kind: "unavailable" }
+    if (!survey) return { kind: "unavailable" }
+    if (survey.collection_state === "completed") return { kind: "completed" }
+    if (survey.collection_state === "withdrawn") return { kind: "withdrawn" }
+    return isActionableSurvey(survey) ? { kind: "ready", survey } : { kind: "unavailable" }
   } catch {
     return { kind: "temporarily-unavailable", retryAfter: null }
   }
@@ -82,6 +100,8 @@ export default async function SurveyPage({
 
   const result = await getSurvey(alumniToken, accessToken)
   if (result.kind === "auth-required") return <SurveyAuthInterstitial token={alumniToken} />
+  if (result.kind === "completed") return <SurveyStateMessage state="completed" />
+  if (result.kind === "withdrawn") return <SurveyStateMessage state="withdrawn" />
 
   if (result.kind !== "ready") {
     const retryAfter = "retryAfter" in result ? result.retryAfter : null
@@ -95,8 +115,27 @@ export default async function SurveyPage({
       description={result.survey.description}
       consent={result.survey.consent}
       sections={result.survey.sections}
+      submissionPhase={result.survey.submission_phase}
       token={alumniToken}
     />
+  )
+}
+
+function SurveyStateMessage({ state }: { state: "completed" | "withdrawn" }) {
+  const completed = state === "completed"
+  return (
+    <main className="flex min-h-screen items-center justify-center bg-background p-6">
+      <div className="max-w-md rounded-xl bg-card p-8 text-center shadow-sm ring-1 ring-foreground/10" role="status">
+        <h1 className="text-lg font-semibold text-foreground">
+          {completed ? "Survey complete" : "Response withdrawn"}
+        </h1>
+        <p className="mt-2 text-sm leading-6 text-muted-foreground">
+          {completed
+            ? "Thank you. Your response has already been recorded."
+            : "This response has been withdrawn and the survey is no longer available."}
+        </p>
+      </div>
+    </main>
   )
 }
 

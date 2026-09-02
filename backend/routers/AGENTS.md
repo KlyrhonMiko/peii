@@ -11,7 +11,7 @@ parsing, status codes, response models, and response assembly.
 - Routes return `APIResponse[...]` and declare `response_model=APIResponse[...]`.
 - Routes call service functions for data access and business behavior.
 - Response routes are split between `survey_public.py` (Google-authenticated survey loading,
-  submission, and direct code-only `POST /survey/responses/withdraw`), `survey_responses.py`
+  Phase 1 POST, Phase 2 PATCH, and direct code-only `POST /survey/responses/withdraw`), `survey_responses.py`
   (identity-aware protected response reads, raw listing, streamed export, and erasure), and
   `survey_analytics.py` (aggregates). They are registered through `routers/api.py`.
 

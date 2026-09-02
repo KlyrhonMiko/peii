@@ -15,10 +15,11 @@ from models.survey import Survey
 from models.survey_question import SurveyQuestion
 from models.survey_section import SurveySection
 from schemas.common import APIResponse
-from schemas.survey_public import PublicSurvey, PublicSurveySection
+from schemas.survey_public import PublicSurvey, PublicSurveyQuestion, PublicSurveySection
 from schemas.survey_question import SurveyQuestionRead
 from schemas.survey_response import (
     SurveyResponseAcknowledgement,
+    SurveyResponsePhase2Submit,
     SurveyResponseSubmit,
     SurveyResponseWithdrawalRequest,
     SurveyResponseWithdrawalResult,
@@ -54,8 +55,6 @@ async def get_public_survey(
     if not survey:
         raise AppError("Survey not found.", status_code=status.HTTP_404_NOT_FOUND)
 
-    from schemas.survey_public import PublicSurveyQuestion
-
     # Load sections with nested questions
     sections_result = await session.exec(
         select(SurveySection)
@@ -67,8 +66,8 @@ async def get_public_survey(
     )
     sections = list(sections_result.all())
 
-    public_sections = []
-    all_public_questions = []
+    section_questions_by_section = []
+    all_questions = {}
     for section in sections:
         questions_result = await session.exec(
             select(SurveyQuestion)
@@ -80,9 +79,25 @@ async def get_public_survey(
             .order_by(col(SurveyQuestion.order_index), col(SurveyQuestion.id))
         )
         section_questions = list(questions_result.all())
+        section_questions_by_section.append((section, section_questions))
+        all_questions.update({str(question.id): question for question in section_questions})
 
+    phase_state = await response_service.get_public_survey_phase_state(
+        session,
+        distribution.survey_id,
+        all_questions,
+        respondent,
+    )
+    public_sections = []
+    all_public_questions = []
+    for section, section_questions in section_questions_by_section:
         section_q_list = []
         for q in section_questions:
+            if phase_state.phase_aware and phase_state.visible_phase is not None:
+                if phase_state.question_phases.get(str(q.id)) != phase_state.visible_phase:
+                    continue
+            elif phase_state.phase_aware:
+                continue
             q_read = SurveyQuestionRead.model_validate(q)
             pq = PublicSurveyQuestion(
                 id=q_read.id,
@@ -96,15 +111,16 @@ async def get_public_survey(
             section_q_list.append(pq)
             all_public_questions.append(pq)
 
-        public_sections.append(
-            PublicSurveySection(
-                id=section.id,
-                title=section.title,
-                description=section.description,
-                order_index=section.order_index,
-                questions=section_q_list,
+        if not phase_state.phase_aware or section_q_list:
+            public_sections.append(
+                PublicSurveySection(
+                    id=section.id,
+                    title=section.title,
+                    description=section.description,
+                    order_index=section.order_index,
+                    questions=section_q_list,
+                )
             )
-        )
 
     public_survey = PublicSurvey(
         survey_id=survey.survey_id,
@@ -113,6 +129,8 @@ async def get_public_survey(
         questions=all_public_questions,
         sections=public_sections,
         consent=survey_consent.get_public_consent_policy(),
+        collection_state=phase_state.collection_state,
+        submission_phase=phase_state.submission_phase,
     )
     return success_response(public_survey)
 
@@ -167,6 +185,53 @@ async def submit_response(
     return success_response(
         SurveyResponseAcknowledgement(accepted=True),
         message="Response submitted.",
+    )
+
+
+@router.patch(
+    "/{token}/respond",
+    response_model=APIResponse[SurveyResponseAcknowledgement],
+    status_code=status.HTTP_200_OK,
+    summary="Submit Survey Follow-up Response",
+    description="Submit phase 2 answers for a survey identified by distribution token.",
+)
+async def submit_phase2_response(
+    token: str,
+    payload: SurveyResponsePhase2Submit,
+    session: AsyncDBSession,
+    respondent: CurrentGoogleSurveyRespondent,
+    idempotency_header: str | None = Header(default=None, alias="Idempotency-Key"),
+) -> APIResponse[SurveyResponseAcknowledgement]:
+    await enforce_authenticated_survey_rate_limit(
+        "public-submit",
+        respondent.auth_user_id,
+        respondent.session_id,
+        token,
+    )
+    if idempotency_header is None:
+        raise AppError(
+            "Idempotency-Key is required for response submissions.",
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+    try:
+        idempotency_key = UUID(idempotency_header)
+    except ValueError as exc:
+        raise AppError(
+            "Idempotency-Key must be a valid UUID.",
+            status_code=status.HTTP_400_BAD_REQUEST,
+        ) from exc
+
+    _response, replayed = await response_service.submit_phase2_response(
+        session,
+        token,
+        payload.answers,
+        idempotency_key=idempotency_key,
+        respondent=respondent,
+        actor_id=settings.SYSTEM_ACTOR_ID,
+    )
+    return success_response(
+        SurveyResponseAcknowledgement(accepted=True),
+        message="Follow-up response submitted." if not replayed else "Response submitted.",
     )
 
 

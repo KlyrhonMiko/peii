@@ -13,6 +13,17 @@ describe("normalizeQuestionStructure", () => {
     })
   })
 
+  it("preserves allowed configuration for optionless questions", () => {
+    expect(normalizeQuestionStructure("text", ["stale option"], { survey_phase: 2, min: 1 })).toEqual({
+      options: null,
+      config: { survey_phase: 2 },
+    })
+    expect(normalizeQuestionStructure("number", null, { survey_phase: 1, min: 0, max: 100, step: 1 })).toEqual({
+      options: null,
+      config: { survey_phase: 1, min: 0, max: 100, step: 1 },
+    })
+  })
+
   it("replaces blank or deleted choice options with valid defaults", () => {
     expect(normalizeQuestionStructure("single_choice", ["", "  "])).toEqual({
       options: ["Option 1", "Option 2"],
@@ -58,5 +69,31 @@ describe("validateSurveyStructure", () => {
         { type: "text", options: null, config: null },
       ],
     }])).toBeNull()
+  })
+
+  it("accepts optionless questions carrying only allowed configuration", () => {
+    expect(validateSurveyStructure([{
+      title: "Valid",
+      questions: [
+        { type: "text", options: null, config: { survey_phase: 1, max_length: 200 } },
+        { type: "number", options: null, config: { survey_phase: 2, min: 0, max: 100, integer: true, step: 1 } },
+        { type: "datetime", options: null, config: { survey_phase: 1 } },
+        { type: "boolean", options: null, config: { survey_phase: 2 } },
+      ],
+    }])).toBeNull()
+  })
+
+  it("rejects options on optionless questions", () => {
+    expect(validateSurveyStructure([{
+      title: "Bad",
+      questions: [{ type: "text", options: ["A"], config: null }],
+    }])).toContain("must not define options for text questions")
+  })
+
+  it("rejects unsupported configuration on optionless questions", () => {
+    expect(validateSurveyStructure([{
+      title: "Bad",
+      questions: [{ type: "text", options: null, config: { survey_phase: 1, presentation: "dropdown" } }],
+    }])).toContain("unsupported configuration for text questions")
   })
 })

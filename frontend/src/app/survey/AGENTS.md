@@ -4,7 +4,7 @@
 This guide covers `src/app/survey/` and dynamic alumni survey route segments.
 
 ## Current Responsibilities
-- `[alumniToken]/page.tsx` loads the identified survey server-side from FastAPI through
+- `[alumniToken]/page.tsx` loads the identified, respondent-specific survey phase server-side from FastAPI through
   `BACKEND_INTERNAL_URL` without caching after the dedicated Google OAuth respondent session is
   verified, handles unavailable/empty surveys, and passes the structure to `ClientSurveyForm`.
 - `[alumniToken]/loading.tsx` provides the accessible route loading state.
@@ -16,7 +16,7 @@ This guide covers `src/app/survey/` and dynamic alumni survey route segments.
 ## Survey Rules
 - Type tokenized route params explicitly and actually use them.
 - Prefix intentionally unused params with `_`; unused variables fail lint.
-- Keep survey pages focused on the survey flow: instructions, form fields, validation,
+- Keep survey pages focused on the survey flow: instructions, phase state, form fields, validation,
   consent notice, withdrawal-code handoff, and submission actions. Do not make unsupported
   confidentiality or anonymity claims.
 - Prefer accessible native controls or shared UI primitives before custom controls.
@@ -38,7 +38,8 @@ This guide covers `src/app/survey/` and dynamic alumni survey route segments.
   generation, and success/error states. `WithdrawalForm` posts a saved code to the public
   withdrawal endpoint and must not echo it into URLs or user-facing errors.
 - The server-rendered survey GET may use `BACKEND_INTERNAL_URL` directly after Google OAuth; the
-  browser submission uses the focused same-origin `/api/survey/[token]` BFF. Neither uses the
+  browser uses the focused same-origin `/api/survey/[token]` BFF for Phase 1 POST and Phase 2 PATCH.
+  Neither uses the
   authenticated portal `/api/backend` proxy or direct browser `NEXT_PUBLIC_API_URL` calls.
 - Public withdrawal posts directly to `${NEXT_PUBLIC_API_URL}/survey/responses/withdraw`; the
   backend stores only the HMAC digest and a lost code cannot be recovered. Withdrawal remains

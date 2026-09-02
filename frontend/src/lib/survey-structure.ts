@@ -18,6 +18,18 @@ const OPTION_TYPES = new Set(["single_choice", "multiple_choice", "ranking"])
 const OPTIONLESS_TYPES = new Set(["text", "number", "datetime", "boolean", "file"])
 const DEFAULT_MATRIX_COLUMNS = ["Poor", "Fair", "Good", "Excellent"]
 
+// Config keys optionless question types may carry. `survey_phase` is written by the
+// generated questionnaire and read by the backend two-phase response flow, so it must
+// be preserved. The remaining keys mirror backend/services/question_validation.py.
+const OPTIONLESS_CONFIG_KEYS: Readonly<Record<string, ReadonlySet<string>>> = {
+  text: new Set(["survey_phase", "max_length"]),
+  number: new Set(["survey_phase", "min", "max", "integer", "step"]),
+  datetime: new Set(["survey_phase"]),
+  boolean: new Set(["survey_phase"]),
+  file: new Set(["survey_phase"]),
+}
+const EMPTY_CONFIG_KEYS = new Set<string>()
+
 function nonBlankStrings(values: readonly string[] | null | undefined): string[] {
   const result: string[] = []
   for (const value of values ?? []) {
@@ -74,7 +86,18 @@ export function normalizeQuestionStructure(
     }
   }
 
-  if (OPTIONLESS_TYPES.has(type)) return { options: null, config: null }
+  if (OPTIONLESS_TYPES.has(type)) {
+    const allowedKeys = OPTIONLESS_CONFIG_KEYS[type] ?? EMPTY_CONFIG_KEYS
+    const keptConfig: Record<string, unknown> = {}
+    const source = config ?? {}
+    for (const key of Object.keys(source)) {
+      if (allowedKeys.has(key)) keptConfig[key] = source[key]
+    }
+    return {
+      options: null,
+      config: Object.keys(keptConfig).length > 0 ? keptConfig : null,
+    }
+  }
   return { options: null, config: null }
 }
 
@@ -121,8 +144,15 @@ export function validateSurveyStructure(
         }
       }
 
-      if (OPTIONLESS_TYPES.has(question.type) && (question.options != null || question.config != null)) {
-        return `${name} must not define options or configuration for ${question.type} questions.`
+      if (OPTIONLESS_TYPES.has(question.type)) {
+        if (question.options != null) {
+          return `${name} must not define options for ${question.type} questions.`
+        }
+        const allowedKeys = OPTIONLESS_CONFIG_KEYS[question.type] ?? EMPTY_CONFIG_KEYS
+        const invalidKey = Object.keys(question.config ?? {}).find((key) => !allowedKeys.has(key))
+        if (invalidKey !== undefined) {
+          return `${name} must not define unsupported configuration for ${question.type} questions ("${invalidKey}").`
+        }
       }
     }
   }

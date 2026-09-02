@@ -39,9 +39,14 @@ def test_alumni_questionnaire_matches_canonical_graduate_tracer_definition() -> 
     assert seed.PEII_COMMON_DESCRIPTION == expected_common_description
     assert seed.GRADUATE_TRACER_STUDY_TARGET_COHORT == "All Alumni"
     assert seed.GRADUATE_TRACER_STUDY_STATUS == "Active"
-    assert len(sections) == 8
-    assert len(questions) == 40
+    assert len(sections) == 14
+    assert len(questions) == 67
     assert all(question["is_required"] is True for question in questions)
+    assert all(
+        isinstance(question["config"], dict)
+        and question["config"].get("survey_phase") in {1, 2}
+        for question in questions
+    )
 
     expected_profile_options = [
         ["2023", "2024", "2025", "2026"],
@@ -70,12 +75,12 @@ def test_alumni_questionnaire_matches_canonical_graduate_tracer_definition() -> 
         expected_profile_options
     )
     assert [question["config"] for question in sections[1]["questions"][4:]] == [
-        None,
-        {"presentation": "dropdown"},
-        None,
-        None,
-        None,
-        None,
+        {"survey_phase": 1},
+        {"presentation": "dropdown", "survey_phase": 1},
+        {"survey_phase": 1},
+        {"survey_phase": 1},
+        {"survey_phase": 1},
+        {"survey_phase": 1},
     ]
 
     expected_peii_statements = [
@@ -119,6 +124,31 @@ def test_alumni_questionnaire_matches_canonical_graduate_tracer_definition() -> 
         statement for statements in expected_peii_statements for statement in statements
     }
     assert len(unique_peii_statements) == 25
+    assert [section["title"] for section in sections[:2]] == [
+        "Intro",
+        "SECTION I : RESPONDENT'S PROFILE",
+    ]
+    assert [section["title"] for section in sections[2:8]] == [
+        "SECTION II-A - PEII Core Impact Measurement: A. Employability and Economic Mobility",
+        "SECTION II-A - PEII Core Impact Measurement: B. Family Upliftment and Financial Stability",
+        "SECTION II-A - PEII Core Impact Measurement: C. Personal Development and Life Quality",
+        (
+            "SECTION II-A - PEII Core Impact Measurement: D. Civic Engagement and Community "
+            "Contribution"
+        ),
+        (
+            "SECTION II-A - PEII Core Impact Measurement: E. Government Trust and LGU Support "
+            "Valuation"
+        ),
+        "IV-A. Feedback and Reflection",
+    ]
+    assert [section["title"] for section in sections[8:]] == [
+        title.replace("II-A", "II-B").replace("IV-A", "IV-B")
+        for title in [section["title"] for section in sections[2:8]]
+    ]
+    assert [len(section["questions"]) for section in sections[:8]] == [1, 10, 5, 5, 5, 5, 5, 3]
+    assert [len(section["questions"]) for section in sections[8:]] == [5, 5, 5, 5, 5, 3]
+
     for section, statements in zip(sections[2:7], expected_peii_statements):
         assert section["description"] == seed.PEII_COMMON_DESCRIPTION
         assert [question["text"] for question in section["questions"]] == statements
@@ -127,7 +157,7 @@ def test_alumni_questionnaire_matches_canonical_graduate_tracer_definition() -> 
             for question in section["questions"]
         )
         assert all(
-            question["config"] == {"min": 1, "max": 5}
+            question["config"] == {"min": 1, "max": 5, "survey_phase": 1}
             for question in section["questions"]
         )
 
@@ -136,3 +166,26 @@ def test_alumni_questionnaire_matches_canonical_graduate_tracer_definition() -> 
         "What improvements should PLP implement to better support students?",
         "What message would you like to share with Pasig City leaders regarding PLP?",
     ]
+
+    for phase_1_section, phase_2_section in zip(sections[2:8], sections[8:]):
+        assert phase_2_section["description"] == phase_1_section["description"]
+        assert [question["text"] for question in phase_2_section["questions"]] == [
+            question["text"] for question in phase_1_section["questions"]
+        ]
+        assert [question["type"] for question in phase_2_section["questions"]] == [
+            question["type"] for question in phase_1_section["questions"]
+        ]
+        assert [question["options"] for question in phase_2_section["questions"]] == [
+            question["options"] for question in phase_1_section["questions"]
+        ]
+        assert all(
+            question["config"]["survey_phase"] == 2
+            for question in phase_2_section["questions"]
+        )
+        assert [
+            {key: value for key, value in question["config"].items() if key != "survey_phase"}
+            for question in phase_2_section["questions"]
+        ] == [
+            {key: value for key, value in question["config"].items() if key != "survey_phase"}
+            for question in phase_1_section["questions"]
+        ]

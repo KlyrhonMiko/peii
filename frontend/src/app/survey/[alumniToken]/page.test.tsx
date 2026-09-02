@@ -67,13 +67,29 @@ describe("SurveyPage", () => {
           survey_id: "survey-1",
           title: "Alumni Survey",
           description: null,
-          questions: [],
+          questions: [{
+            id: "question-1",
+            question_text: "What did you enjoy?",
+            question_type: "text",
+            options: null,
+            config: null,
+            order_index: 0,
+            is_required: false,
+          }],
           sections: [{
             id: "section-1",
             title: "Feedback",
             description: null,
             order_index: 0,
-            questions: [],
+            questions: [{
+              id: "question-1",
+              question_text: "What did you enjoy?",
+              question_type: "text",
+              options: null,
+              config: null,
+              order_index: 0,
+              is_required: false,
+            }],
           }],
           consent: {
             version: "1",
@@ -82,6 +98,8 @@ describe("SurveyPage", () => {
             retention: "Retention",
             contact: "Contact",
           },
+          collection_state: "phase1",
+          submission_phase: 1,
         },
         message: "Survey loaded",
         errors: null,
@@ -100,6 +118,42 @@ describe("SurveyPage", () => {
         headers: { Authorization: "Bearer survey-access-token" },
       }),
     )
+  })
+
+  it.each([
+    ["completed", "Survey complete", "already been recorded"],
+    ["withdrawn", "Response withdrawn", "withdrawn"],
+  ] as const)("does not render a form for a %s survey", async (state, heading, message) => {
+    authenticateSurvey()
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({
+        data: {
+          survey_id: "survey-1",
+          title: "Alumni Survey",
+          description: null,
+          questions: [],
+          sections: [],
+          consent: {
+            version: "1",
+            notice: "Notice",
+            purpose: "Purpose",
+            retention: "Retention",
+            contact: "Contact",
+          },
+          collection_state: state,
+          submission_phase: null,
+        },
+        message: "Survey loaded",
+        errors: null,
+        meta: {},
+      }), { status: 200 }),
+    ))
+
+    render(await SurveyPage({ params: Promise.resolve({ alumniToken: "valid-token" }) }))
+
+    expect(screen.getByRole("heading", { name: heading })).toBeInTheDocument()
+    expect(screen.getByRole("status")).toHaveTextContent(message)
+    expect(screen.queryByRole("form")).not.toBeInTheDocument()
   })
 
   it("renders a rate-limit retry state with numeric Retry-After without exposing the token", async () => {
@@ -184,6 +238,8 @@ describe("SurveyPage", () => {
             retention: "Retention",
             contact: "Contact",
           },
+          collection_state: "phase1",
+          submission_phase: 1,
         },
         message: "Survey loaded",
         errors: null,

@@ -120,7 +120,8 @@ async function proxy(
 
   const { token } = await context.params
   if (!validSurveyToken(token)) return jsonError("Not found.", 404)
-  if (request.method === "POST") {
+  const isSubmission = request.method === "POST" || request.method === "PATCH"
+  if (isSubmission) {
     let origin: string | null
     try {
       origin = applicationOrigin()
@@ -155,7 +156,7 @@ async function proxy(
     headers,
     cache: "no-store",
   }
-  if (request.method === "POST") {
+  if (isSubmission) {
     try {
       const body = await readBoundedBody(request)
       if (body !== undefined) init.body = body
@@ -173,7 +174,7 @@ async function proxy(
     SURVEY_HEADERS_TIMEOUT_MS,
   )
   const upstreamSignal = AbortSignal.any([request.signal, headerTimeoutController.signal])
-  const suffix = request.method === "POST" ? "/respond" : ""
+  const suffix = isSubmission ? "/respond" : ""
   let response: Response
   try {
     response = await fetch(
@@ -199,4 +200,4 @@ async function proxy(
   return new NextResponse(response.body, { status: response.status, headers: responseHeaders })
 }
 
-export { proxy as GET, proxy as POST }
+export { proxy as GET, proxy as POST, proxy as PATCH }

@@ -11,7 +11,7 @@ vi.mock("@/lib/supabase/survey-server", () => ({
   createSurveySupabaseServerClient: mocks.createSurveySupabaseServerClient,
 }))
 
-import { GET, POST } from "./route"
+import { GET, PATCH, POST } from "./route"
 
 const context = (token: string) => ({ params: Promise.resolve({ token }) })
 
@@ -96,6 +96,33 @@ describe("focused survey BFF", () => {
     expect(headers.get("cookie")).toBeNull()
     expect(headers.get("x-request-id")).toBeNull()
     expect(response.headers.get("cache-control")).toBe("no-store")
+
+    const patchResponse = await PATCH(
+      new NextRequest("http://localhost:3000/api/survey/token", {
+        method: "PATCH",
+        headers: {
+          origin: "http://localhost:3000",
+          authorization: "Bearer browser-token",
+          cookie: "secret=1",
+          "content-type": "application/json",
+          "idempotency-key": "phase-two-key",
+        },
+        body: JSON.stringify({ answers: { "question-1": "answer" } }),
+      }),
+      context("token"),
+    )
+
+    expect(patchResponse.status).toBe(201)
+    const patchCall = fetchMock.mock.calls[1]
+    expect(patchCall?.[0]).toBe("http://backend:8000/api/v1/survey/token/respond")
+    const patchHeaders = new Headers(patchCall?.[1]?.headers)
+    expect(patchHeaders.get("authorization")).toBe("Bearer survey-token")
+    expect(patchHeaders.get("content-type")).toBe("application/json")
+    expect(patchHeaders.get("idempotency-key")).toBe("phase-two-key")
+    expect(patchHeaders.get("cookie")).toBeNull()
+    expect(patchHeaders.get("x-request-id")).toBeNull()
+    expect(patchCall?.[1]?.cache).toBe("no-store")
+    expect(patchResponse.headers.get("cache-control")).toBe("no-store")
   })
 
   it("rejects a streamed body over 65536 bytes and aborts upstream headers at 15 seconds", async () => {

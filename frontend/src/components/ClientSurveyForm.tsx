@@ -31,6 +31,7 @@ import {
   type PublicAnswers,
   type PublicSurveyConsent,
   type PublicSurveySection,
+  type PublicSurveySubmission,
 } from "@/lib/public-survey"
 
 import { SurveyConsentCard } from "./public-survey/SurveyConsentCard"
@@ -41,6 +42,7 @@ interface ClientSurveyFormProps {
   description: string | null
   consent: PublicSurveyConsent
   sections: PublicSurveySection[]
+  submissionPhase?: 1 | 2
   token: string
 }
 
@@ -87,8 +89,10 @@ export function ClientSurveyForm({
   description,
   consent,
   sections,
+  submissionPhase = 1,
   token,
 }: ClientSurveyFormProps) {
+  const isPhase1 = submissionPhase === 1
   const [sectionIdx, setSectionIdx] = useState(0)
   const [answers, setAnswers] = useState<PublicAnswers>({})
   const [errors, setErrors] = useState<Record<string, string>>({})
@@ -102,7 +106,7 @@ export function ClientSurveyForm({
   const [retryAt, setRetryAt] = useState<number | null>(null)
   const [now, setNow] = useState(() => Date.now())
   const [submittedWithdrawalCode, setSubmittedWithdrawalCode] = useState<string | null>(null)
-  const idempotencyKey = useRef<string | null>(null)
+  const idempotencyKey = useRef<{ phase: 1 | 2; key: string } | null>(null)
   const withdrawalCode = useRef<string | null>(null)
   const [codeCopied, setCodeCopied] = useState(false)
   const submittingRef = useRef(false)
@@ -137,11 +141,15 @@ export function ClientSurveyForm({
           <div className="mx-auto mb-6 flex size-12 items-center justify-center rounded-full bg-zinc-100">
             <CheckCircle className="size-6 text-zinc-900" />
           </div>
-          <h2 className="text-2xl font-semibold tracking-tight text-zinc-900">Response Submitted</h2>
+          <h2 className="text-2xl font-semibold tracking-tight text-zinc-900">
+            {isPhase1 ? "Phase 1 submitted" : "Response Submitted"}
+          </h2>
           <p className="mt-3 text-[15px] leading-relaxed text-zinc-500">
-            Thank you for completing the survey. Your feedback has been recorded.
+            {isPhase1
+              ? "Your first set of answers has been recorded. Reload this page to continue with Phase 2."
+              : "Thank you for completing the survey. Your feedback has been recorded."}
           </p>
-          {code && (
+          {isPhase1 && code && (
             <section
               aria-labelledby="withdrawal-code-heading"
               className="mt-8 rounded-xl border-2 border-zinc-900 bg-zinc-50 p-5 text-left"
@@ -181,12 +189,14 @@ export function ClientSurveyForm({
               </div>
             </section>
           )}
-          <p className="mt-6 text-sm text-zinc-600">
-            Need to withdraw your response?{" "}
-            <Link href="/survey/withdraw" className="font-semibold text-zinc-900 underline underline-offset-4">
-              Withdraw a response
-            </Link>
-          </p>
+          {isPhase1 && (
+            <p className="mt-6 text-sm text-zinc-600">
+              Need to withdraw your response?{" "}
+              <Link href="/survey/withdraw" className="font-semibold text-zinc-900 underline underline-offset-4">
+                Withdraw a response
+              </Link>
+            </p>
+          )}
         </div>
       </div>
     )
@@ -272,16 +282,28 @@ export function ClientSurveyForm({
           }
         }
       }
-      idempotencyKey.current ??= crypto.randomUUID()
-      const code = withdrawalCode.current ?? generateWithdrawalCode()
-      withdrawalCode.current = code
+      let requestIdempotencyKey = idempotencyKey.current
+      if (requestIdempotencyKey === null || requestIdempotencyKey.phase !== submissionPhase) {
+        requestIdempotencyKey = { phase: submissionPhase, key: crypto.randomUUID() }
+        idempotencyKey.current = requestIdempotencyKey
+      }
+      let code: string | null = null
+      let body: PublicSurveySubmission | { answers: PublicAnswers }
+      if (isPhase1) {
+        code = withdrawalCode.current ?? generateWithdrawalCode()
+        withdrawalCode.current = code
+        body = createPublicSurveySubmission(submittedAnswers, consent.version, code)
+      } else {
+        body = { answers: submittedAnswers }
+      }
+      const method = isPhase1 ? "POST" : "PATCH"
       const response = await fetch(`/api/survey/${encodeURIComponent(token)}`, {
-        method: "POST",
+        method,
         headers: {
           "Content-Type": "application/json",
-          "Idempotency-Key": idempotencyKey.current,
+          "Idempotency-Key": requestIdempotencyKey.key,
         },
-        body: JSON.stringify(createPublicSurveySubmission(submittedAnswers, consent.version, code)),
+        body: JSON.stringify(body),
       })
       if (!response.ok) {
         let errorPayload: unknown = null
@@ -332,7 +354,7 @@ export function ClientSurveyForm({
       }
       setRetryAt(null)
       setSubmittedWithdrawalCode(code)
-      withdrawalCode.current = null
+      if (isPhase1) withdrawalCode.current = null
       setSubmitted(true)
     } catch {
       setSubmitError("We could not submit your response. Please try again.")
@@ -345,7 +367,7 @@ export function ClientSurveyForm({
   const onSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     if (submitting || staleConsent || retryBlocked) return
-    if (!consentAccepted) {
+    if (isPhase1 && !consentAccepted) {
       setConsentTouched(true)
       return
     }
@@ -413,18 +435,20 @@ export function ClientSurveyForm({
             </div>
 
             {/* Consent card */}
-            <div className="mt-6">
-              <SurveyConsentCard
-                consent={consent}
-                consentAccepted={consentAccepted}
-                consentTouched={consentTouched}
-                staleConsent={staleConsent}
-                onConsentChange={(accepted) => {
-                  setConsentAccepted(accepted)
-                  setConsentTouched(true)
-                }}
-              />
-            </div>
+            {isPhase1 && (
+              <div className="mt-6">
+                <SurveyConsentCard
+                  consent={consent}
+                  consentAccepted={consentAccepted}
+                  consentTouched={consentTouched}
+                  staleConsent={staleConsent}
+                  onConsentChange={(accepted) => {
+                    setConsentAccepted(accepted)
+                    setConsentTouched(true)
+                  }}
+                />
+              </div>
+            )}
 
             {submitError && (
               <div className="mt-6 flex items-center gap-2 text-[13.5px] font-medium text-red-500" role="alert" aria-live="assertive">
@@ -435,7 +459,9 @@ export function ClientSurveyForm({
 
             {/* Navigation */}
             <div className="mt-10 flex items-center justify-between border-t border-zinc-200 pt-6">
-              <div className="text-[12px] text-zinc-400">Consent version {consent.version}</div>
+              <div className="text-[12px] text-zinc-400">
+                {isPhase1 ? `Consent version ${consent.version}` : "Phase 2 of 2"}
+              </div>
               <div className="flex gap-3">
                 {!isFirst && (
                   <Button type="button" variant="outline" onClick={goPrev} className="h-10 gap-2 rounded-lg border-zinc-200 px-5 text-sm text-zinc-700 hover:bg-zinc-50">
@@ -451,7 +477,7 @@ export function ClientSurveyForm({
                 ) : (
                   <Button
                     type="submit"
-                    disabled={submitting || !consentAccepted || staleConsent || retryBlocked}
+                    disabled={submitting || (isPhase1 && !consentAccepted) || staleConsent || retryBlocked}
                     className="h-10 gap-2 rounded-lg bg-zinc-900 px-6 text-sm font-medium text-white shadow-sm transition-all hover:bg-zinc-800 disabled:opacity-50"
                   >
                     {submitting ? (
