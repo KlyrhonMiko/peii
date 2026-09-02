@@ -40,7 +40,17 @@ Database URLs depend on where the backend runs:
   every database path remain manual follow-up items with an explicitly recorded owner and deadline.
 
 Keep `SUPABASE_SECRET_KEY` server-only. `NEXT_PUBLIC_API_URL` is intentionally exposed to
-the browser for public survey and development sentiment requests.
+the browser for development sentiment requests. After isolated Google authentication, the
+server-rendered identified survey page may fetch its survey GET from FastAPI through
+`BACKEND_INTERNAL_URL`; browser submission uses the focused same-origin `/api/survey/[token]`
+BFF. Public withdrawal remains a direct, code-only API operation. `SURVEY_OAUTH_STATE_KEY` is
+server-only and must be a random value of
+at least 32 bytes. The backend uses `GOOGLE_OAUTH_CLIENT_ID`, a dedicated random-at-least-32-byte
+`SURVEY_RESPONDENT_HMAC_SECRET`, a Google session max age (default 300 seconds, production
+maximum 3,600), and Google attestation limits of 5 per 60 seconds. Configure the Google provider
+in Supabase Auth with minimum scopes `openid email profile`, add the exact
+`${APP_ORIGIN}/auth/survey/google/callback` to the Supabase Auth redirect allowlist, and set the
+Google OAuth client redirect URI to the Google/Supabase provider callback as appropriate.
 Compose uses explicit per-service environment allowlists: the frontend receives only browser and
 server-runtime settings, the backend receives its application settings, PostgreSQL receives only
 its database bootstrap settings, and Adminer receives only its default server. The root `.env` is
@@ -52,6 +62,13 @@ The approved deployment topology uses a managed Next.js host, managed Python web
 managed PostgreSQL, Supabase Auth, and managed Redis for distributed rate limiting. Run
 Alembic exactly once as a release job before promoting API replicas; do not let each API
 replica migrate independently. Docker deployment is out of scope.
+
+Survey GET and submit require a dedicated Google OAuth respondent session and backend proof. The
+server-rendered page may fetch GET through `BACKEND_INTERNAL_URL` after isolated auth, while
+browser submission uses the focused same-origin `/api/survey/[token]` BFF. The portal remains
+password/invite/recovery based and rejects OAuth sessions. Use consent version `2026-09-01` in
+local examples only; approved production consent and privacy values remain an explicit launch
+gate. Do not promise anonymity or confidentiality.
 
 Production API documentation is disabled when `DEBUG=false`; operational headers are owned by the
 application that serves the response: Next.js owns browser/document headers and FastAPI owns
@@ -76,8 +93,10 @@ See [production decisions](docs/production-decisions.md),
 [privacy and retention](docs/privacy-and-retention.md), and the
 [deployment roadmap](docs/deployment-roadmap.md) for the Phase 2 compatibility and Phase 3
 response-operations contracts, token migration, retention, withdrawal, privacy, recovery,
-release, and launch-gate policies. Real respondents remain blocked until the documented Redis,
-consent, trusted-ingress, purge, and provider logging/streaming checks are verified.
+release, and launch-gate policies. Real respondents remain blocked until the documented PostgreSQL
+migration, Redis, consent, trusted-ingress, Google provider/browser, purge, and provider
+logging/streaming checks are verified. Application tests alone are not proof of database or
+provider behavior.
 
 ## Local Development
 
@@ -113,9 +132,10 @@ Compose defines frontend (`127.0.0.1:3000`), backend (`127.0.0.1:8000`), Postgre
 (`127.0.0.1:5432`), and an opt-in Adminer tool (`127.0.0.1:8080`). Adminer is excluded from the
 default graph; start it explicitly with `docker compose --profile tools up adminer`. Compose does
 not apply Alembic migrations automatically; initialize a new database before relying on the
-application services. The current Alembic head is `d5a4f7c91e2b`, which enables RLS and removes
-effective public/anon/authenticated/service-role table and column access for the protected
-application tables. Its downgrade is intentionally fail-closed and irreversible.
+application services. The current Alembic head is `a8055c9859f5`, after `d5a4f7c91e2b`.
+`a8055c9859f5` adds short-lived Google survey auth proofs, nullable legacy-compatible response
+identity snapshots, survey-scoped dedupe uniqueness, `survey_responses.read_identity`, and
+proof-table ACL/RLS lockdown. Its downgrade is intentionally fail-closed and irreversible.
 
 ## Validation
 

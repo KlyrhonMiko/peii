@@ -1,5 +1,61 @@
 type BackendMethod = "DELETE" | "GET" | "PATCH" | "POST" | "PUT"
 
+const CONTROL_CHARACTERS = /[\u0000-\u001F\u007F-\u009F]/u
+const ENCODED_BYTE = /%[0-9a-f]{2}/iu
+
+function decodePathSegment(segment: string): string | undefined {
+  let decoded = segment
+
+  // Decode repeatedly so a value such as "%252f" cannot survive the policy as
+  // the literal "%2f" and be normalized again by the upstream router.
+  for (let attempt = 0; attempt <= segment.length; attempt += 1) {
+    // A decoded literal percent is valid and will be encoded again below. Only
+    // attempt another decode when the segment contains a complete escape.
+    if (!ENCODED_BYTE.test(decoded)) return decoded
+
+    let next: string
+    try {
+      next = decodeURIComponent(decoded)
+    } catch {
+      return undefined
+    }
+    if (next === decoded) return decoded
+    decoded = next
+  }
+
+  return undefined
+}
+
+export function canonicalizeBackendPath(path: string[]): string[] | undefined {
+  const canonicalPath: string[] = []
+
+  for (const segment of path) {
+    const decoded = decodePathSegment(segment)
+    if (
+      decoded === undefined ||
+      decoded.length === 0 ||
+      decoded === "." ||
+      decoded === ".." ||
+      decoded.includes("/") ||
+      decoded.includes("\\") ||
+      decoded.includes("?") ||
+      decoded.includes("#") ||
+      CONTROL_CHARACTERS.test(decoded)
+    ) {
+      return undefined
+    }
+
+    try {
+      encodeURIComponent(decoded)
+    } catch {
+      return undefined
+    }
+    canonicalPath.push(decoded)
+  }
+
+  return canonicalPath
+}
+
 function hasValue(value: string | undefined): value is string {
   return Boolean(value)
 }
@@ -25,6 +81,10 @@ function matchesUserResource(path: string[]): boolean {
 }
 
 export function isAllowedBackendRequest(method: string, path: string[]): boolean {
+  const canonicalPath = canonicalizeBackendPath(path)
+  if (!canonicalPath) return false
+  path = canonicalPath
+
   if (!(["DELETE", "GET", "PATCH", "POST", "PUT"] as string[]).includes(method)) return false
 
   const backendMethod = method as BackendMethod
@@ -39,7 +99,8 @@ export function isAllowedBackendRequest(method: string, path: string[]): boolean
         matchesSurveyChild(path, "distributions") ||
         matchesSurveyChild(path, "responses") ||
         matchesSurveyResponseAction(path, "aggregates") ||
-        matchesSurveyResponseAction(path, "export")
+        matchesSurveyResponseAction(path, "export") ||
+        matchesSurveyResponseAction(path, "identity")
       )
     case "POST":
       return (

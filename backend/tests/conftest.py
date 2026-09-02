@@ -1,4 +1,5 @@
 import asyncio
+import hashlib
 import os
 import socket
 import sys
@@ -11,6 +12,7 @@ import httpx
 import pytest
 import uvicorn
 from dotenv import load_dotenv
+from fastapi import Request
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel, create_engine
@@ -38,7 +40,12 @@ os.environ["PUBLIC_SURVEY_CONTACT"] = "privacy@example.gov.ph"
 
 from core.config import settings  # noqa: E402
 from core.database import get_async_session, get_session  # noqa: E402
-from core.deps import Principal, get_current_principal  # noqa: E402
+from core.deps import (  # noqa: E402
+    GoogleSurveyRespondent,
+    Principal,
+    get_current_principal,
+    get_google_survey_respondent,
+)
 from main import app  # noqa: E402
 from models.user import User  # noqa: E402
 from services import user_service  # noqa: E402
@@ -168,7 +175,26 @@ def authenticated_principal(request: pytest.FixtureRequest, principal: Principal
     async def override_current_principal() -> Principal:
         return principal
 
+    async def override_google_respondent(request: Request) -> GoogleSurveyRespondent:
+        idempotency_key = request.headers.get("Idempotency-Key") or request.url.path
+        auth_user_id = uuid5(
+            UUID("00000000-0000-0000-0000-000000000000"),
+            f"auth:{idempotency_key}",
+        )
+        return GoogleSurveyRespondent(
+            auth_user_id=auth_user_id,
+            session_id=uuid5(
+                UUID("00000000-0000-0000-0000-000000000000"),
+                f"session:{idempotency_key}",
+            ),
+            subject_digest=hashlib.sha256(idempotency_key.encode("utf-8")).hexdigest(),
+            email=f"{auth_user_id}@example.com",
+            display_name="Test Respondent",
+            email_verified=True,
+        )
+
     app.dependency_overrides[get_current_principal] = override_current_principal
+    app.dependency_overrides[get_google_survey_respondent] = override_google_respondent
     yield
 
 

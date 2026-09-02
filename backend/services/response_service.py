@@ -3,15 +3,19 @@ import hmac
 import json
 import math
 import secrets
+from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
+from typing import Literal
 from uuid import UUID
 
 from fastapi import status
-from sqlalchemy import func, update
+from sqlalchemy import func, or_, update
+from sqlalchemy.exc import IntegrityError
 from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from core.config import settings
+from core.deps import GoogleSurveyRespondent
 from core.exceptions import AppError
 from models.question_type import QuestionType
 from models.survey import Survey
@@ -42,6 +46,18 @@ _LOCAL_WITHDRAWAL_HMAC_SECRET = secrets.token_bytes(32)
 GENERIC_WITHDRAWAL_ERROR = "Response not found or already withdrawn."
 
 
+@dataclass(frozen=True, slots=True)
+class PublicSurveyPhaseState:
+    collection_state: Literal["phase1", "phase2", "completed", "withdrawn"] | None
+    submission_phase: Literal[1, 2] | None
+    visible_phase: int | None
+    question_phases: dict[str, int]
+
+    @property
+    def phase_aware(self) -> bool:
+        return bool(self.question_phases)
+
+
 def hash_withdrawal_code(withdrawal_code: str) -> str:
     """Return the server-side HMAC digest for a respondent-held code."""
     secret = settings.WITHDRAWAL_CODE_HMAC_SECRET
@@ -66,6 +82,44 @@ def response_idempotency_hash(
     ).hexdigest()
 
 
+def respondent_key_digest(survey_id: UUID, subject_digest: str) -> str:
+    """Derive a survey-scoped dedupe key without exposing either identity value."""
+    return hmac.new(
+        settings.SURVEY_RESPONDENT_HMAC_SECRET.encode("utf-8"),
+        f"survey:{survey_id}:subject:{subject_digest}".encode(),
+        hashlib.sha256,
+    ).hexdigest()
+
+
+def _response_identity_matches(
+    response: SurveyResponse,
+    respondent: GoogleSurveyRespondent,
+    expected_digest: str,
+) -> bool:
+    return (
+        response.provider == "google"
+        and response.auth_user_id == respondent.auth_user_id
+        and response.respondent_key_digest == expected_digest
+        and response.email == respondent.email
+        and response.display_name == respondent.display_name
+        and response.email_verified is respondent.email_verified
+    )
+
+
+def _is_respondent_key_integrity_error(error: IntegrityError) -> bool:
+    diagnostic = getattr(error.orig, "diag", None)
+    constraint = getattr(diagnostic, "constraint_name", None) or getattr(
+        error.orig, "constraint_name", None
+    )
+    if constraint == "uq_survey_responses_survey_respondent_key":
+        return True
+    message = str(error.orig).lower()
+    return "survey_responses.survey_id" in message and (
+        "survey_responses.respondent_key_digest" in message
+        or "respondent_key_digest" in message
+    )
+
+
 def _is_blank_answer(value: object) -> bool:
     return (
         value is None
@@ -82,6 +136,110 @@ def _load_json(value: str | None, name: str) -> object:
         return json.loads(value)
     except json.JSONDecodeError as exc:
         raise ValueError(f"stored {name} is invalid") from exc
+
+
+async def _load_active_questions(
+    session: AsyncSession,
+    survey_id: UUID,
+) -> dict[str, SurveyQuestion]:
+    questions_result = await session.exec(
+        select(SurveyQuestion)
+        .join(SurveySection, col(SurveySection.id) == SurveyQuestion.section_id)
+        .where(
+            col(SurveyQuestion.survey_id) == survey_id,
+            col(SurveySection.survey_id) == survey_id,
+            col(SurveySection.is_deleted).is_(False),
+            col(SurveyQuestion.is_deleted).is_(False),
+        )
+    )
+    return {str(question.id): question for question in questions_result.all()}
+
+
+def _get_question_phases(questions: dict[str, SurveyQuestion]) -> dict[str, int] | None:
+    if not questions:
+        return None
+    phases: dict[str, int] = {}
+    for question_id, question in questions.items():
+        try:
+            config = _load_json(question.config, "config")
+        except ValueError:
+            return None
+        phase = config.get("survey_phase") if isinstance(config, dict) else None
+        if type(phase) is not int or phase not in (1, 2):
+            return None
+        phases[question_id] = phase
+    if set(phases.values()) != {1, 2}:
+        return None
+    return phases
+
+
+async def get_public_survey_phase_state(
+    session: AsyncSession,
+    survey_id: UUID,
+    questions: dict[str, SurveyQuestion],
+    respondent: GoogleSurveyRespondent,
+) -> PublicSurveyPhaseState:
+    question_phases = _get_question_phases(questions)
+    if question_phases is None:
+        return PublicSurveyPhaseState(None, None, None, {})
+
+    respondent_digest = respondent_key_digest(survey_id, respondent.subject_digest)
+    response_result = await session.exec(
+        select(SurveyResponse).where(
+            col(SurveyResponse.survey_id) == survey_id,
+            col(SurveyResponse.respondent_key_digest) == respondent_digest,
+        )
+    )
+    response = response_result.first()
+    if response is None:
+        return PublicSurveyPhaseState("phase1", 1, 1, question_phases)
+    if response.is_deleted:
+        return PublicSurveyPhaseState("withdrawn", None, None, question_phases)
+
+    answer_ids = set(response.answers)
+    phase1_ids = {question_id for question_id, phase in question_phases.items() if phase == 1}
+    phase2_ids = {question_id for question_id, phase in question_phases.items() if phase == 2}
+    phase1_complete = phase1_ids.issubset(answer_ids)
+    phase2_complete = phase2_ids.issubset(answer_ids)
+    if phase1_complete and phase2_complete:
+        return PublicSurveyPhaseState("completed", None, None, question_phases)
+    if phase1_complete:
+        return PublicSurveyPhaseState("phase2", 2, 2, question_phases)
+    return PublicSurveyPhaseState("phase1", 1, 1, question_phases)
+
+
+def _validate_phase_answer_ids(
+    answers: dict[str, object],
+    questions: dict[str, SurveyQuestion],
+    expected_question_ids: set[str],
+) -> None:
+    validation_errors: list[dict[str, str]] = []
+    for question_id in sorted(set(answers) - expected_question_ids):
+        validation_errors.append(
+            {
+                "question_id": question_id,
+                "code": "wrong_phase" if question_id in questions else "unknown_question",
+                "message": (
+                    "Question belongs to a different survey phase."
+                    if question_id in questions
+                    else "Question does not belong to this survey."
+                ),
+            }
+        )
+    for question_id in sorted(expected_question_ids - set(answers)):
+        validation_errors.append(
+            {
+                "question_id": question_id,
+                "code": "required",
+                "message": "This question is required.",
+            }
+        )
+    if validation_errors:
+        raise AppError(
+            "Response answers are invalid.",
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            errors=validation_errors,
+        )
 
 
 def _validate_answer(question: SurveyQuestion, answer: object) -> None:
@@ -171,34 +329,43 @@ async def _validate_answers(
     session: AsyncSession,
     survey_id: UUID,
     answers: dict[str, object],
+    *,
+    questions: dict[str, SurveyQuestion] | None = None,
+    expected_question_ids: set[str] | None = None,
 ) -> None:
-    questions_result = await session.exec(
-        select(SurveyQuestion)
-        .join(SurveySection, col(SurveySection.id) == SurveyQuestion.section_id)
-        .where(
-            col(SurveyQuestion.survey_id) == survey_id,
-            col(SurveySection.survey_id) == survey_id,
-            col(SurveySection.is_deleted).is_(False),
-            col(SurveyQuestion.is_deleted).is_(False),
-        )
-    )
-    questions = {str(question.id): question for question in questions_result.all()}
+    active_questions = questions or await _load_active_questions(session, survey_id)
 
     validation_errors: list[dict[str, str]] = []
-    unknown_keys = sorted(set(answers) - set(questions))
-    validation_errors.extend(
-        {
-            "question_id": question_id,
-            "code": "unknown_question",
-            "message": "Question does not belong to this survey.",
-        }
-        for question_id in unknown_keys
-    )
+    allowed_question_ids = expected_question_ids or set(active_questions)
+    for question_id in sorted(set(answers) - allowed_question_ids):
+        validation_errors.append(
+            {
+                "question_id": question_id,
+                "code": "wrong_phase"
+                if expected_question_ids is not None and question_id in active_questions
+                else "unknown_question",
+                "message": (
+                    "Question belongs to a different survey phase."
+                    if expected_question_ids is not None and question_id in active_questions
+                    else "Question does not belong to this survey."
+                ),
+            }
+        )
 
-    for question_id, question in questions.items():
-        if question.is_required and (
-            question_id not in answers or _is_blank_answer(answers[question_id])
-        ):
+    for question_id, question in active_questions.items():
+        if expected_question_ids is not None and question_id not in expected_question_ids:
+            continue
+        if question_id not in answers:
+            if expected_question_ids is not None or question.is_required:
+                validation_errors.append(
+                    {
+                        "question_id": question_id,
+                        "code": "required",
+                        "message": "This question is required.",
+                    }
+                )
+            continue
+        if question.is_required and _is_blank_answer(answers[question_id]):
             validation_errors.append(
                 {
                     "question_id": question_id,
@@ -206,8 +373,6 @@ async def _validate_answers(
                     "message": "This question is required.",
                 }
             )
-            continue
-        if question_id not in answers:
             continue
         try:
             if _is_blank_answer(answers[question_id]) and not question.is_required:
@@ -239,6 +404,7 @@ async def submit_response(
     ip_address: str | None = None,
     consent_version: str | None = None,
     withdrawal_code: str | None = None,
+    respondent: GoogleSurveyRespondent | None = None,
 ) -> tuple[SurveyResponse, bool]:
     # Public HTTP callers must supply the current version.  A missing value is
     # defaulted only for existing internal service callers, preserving their
@@ -273,21 +439,62 @@ async def submit_response(
         for_update=True,
         shared_lock=False,
     )
+    questions = await _load_active_questions(session, distribution.survey_id)
+    question_phases = _get_question_phases(questions)
+    if question_phases is not None:
+        _validate_phase_answer_ids(
+            answers,
+            questions,
+            {question_id for question_id, phase in question_phases.items() if phase == 1},
+        )
 
+    respondent_digest = (
+        respondent_key_digest(distribution.survey_id, respondent.subject_digest)
+        if respondent is not None
+        else None
+    )
     answers_hash = None
+    candidates: list[SurveyResponse] = []
     if idempotency_key is not None:
         answers_hash = response_idempotency_hash(answers, consent_version, withdrawal_code)
         legacy_answers_hash = hashlib.sha256(
             json.dumps(answers, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()
         ).hexdigest()
-        existing_result = await session.exec(
-            select(SurveyResponse).where(
+        response_match_conditions = [
+            (
                 col(SurveyResponse.distribution_id) == distribution.id,
                 col(SurveyResponse.idempotency_key) == idempotency_key,
-            ).with_for_update()
+            )
+        ]
+        if respondent_digest is not None:
+            response_match_conditions.append(
+                (
+                    col(SurveyResponse.survey_id) == distribution.survey_id,
+                    col(SurveyResponse.respondent_key_digest) == respondent_digest,
+                )
+            )
+        existing_result = await session.exec(
+            select(SurveyResponse)
+            .where(or_(*(condition[0] & condition[1] for condition in response_match_conditions)))
+            .order_by(col(SurveyResponse.id))
+            .with_for_update()
         )
-        existing = existing_result.first()
+        candidates = list(existing_result.all())
+        existing = next(
+            (candidate for candidate in candidates if candidate.idempotency_key == idempotency_key),
+            None,
+        )
         if existing is not None:
+            if respondent is not None and not _response_identity_matches(
+                existing,
+                respondent,
+                respondent_key_digest(distribution.survey_id, respondent.subject_digest),
+            ):
+                raise AppError(
+                    "Idempotency-Key was already used by a different respondent.",
+                    status_code=status.HTTP_409_CONFLICT,
+                    errors={"code": "idempotency_conflict"},
+                )
             consent_fields = (
                 existing.consent_version,
                 existing.consented_at,
@@ -355,7 +562,44 @@ async def submit_response(
             "Survey not found or no longer active.", status_code=status.HTTP_404_NOT_FOUND
         )
 
-    await _validate_answers(session, distribution.survey_id, answers)
+    if idempotency_key is None and respondent_digest is not None:
+        duplicate_result = await session.exec(
+            select(SurveyResponse)
+            .where(
+                col(SurveyResponse.survey_id) == distribution.survey_id,
+                col(SurveyResponse.respondent_key_digest) == respondent_digest,
+            )
+            .order_by(col(SurveyResponse.id))
+            .with_for_update()
+        )
+        candidates = list(duplicate_result.all())
+    if respondent_digest is not None:
+        duplicate = next(
+            (
+                candidate
+                for candidate in candidates
+                if candidate.respondent_key_digest == respondent_digest
+            ),
+            None,
+        )
+        if duplicate is not None:
+            raise AppError(
+                "This respondent has already submitted a response.",
+                status_code=status.HTTP_409_CONFLICT,
+                errors={"code": "already_submitted"},
+            )
+
+    await _validate_answers(
+        session,
+        distribution.survey_id,
+        answers,
+        questions=questions,
+        expected_question_ids=(
+            {question_id for question_id, phase in question_phases.items() if phase == 1}
+            if question_phases is not None
+            else None
+        ),
+    )
 
     accepted_at = utc_now()
     response = SurveyResponse(
@@ -372,6 +616,13 @@ async def submit_response(
             else None
         ),
         withdrawal_credential_digest=hash_withdrawal_code(withdrawal_code),
+        provider="google" if respondent is not None else None,
+        auth_user_id=respondent.auth_user_id if respondent is not None else None,
+        respondent_key_digest=respondent_digest,
+        email=respondent.email if respondent is not None else None,
+        display_name=respondent.display_name if respondent is not None else None,
+        email_verified=respondent.email_verified if respondent is not None else None,
+        identity_captured_at=accepted_at if respondent is not None else None,
         answers=answers,
         performed_by=actor_id,
     )
@@ -386,29 +637,205 @@ async def submit_response(
         )
     )
 
+    phase_one_event = (
+        AuditEvent(
+            action="phase1_submitted",
+            resource_type="survey_response",
+            resource_id=str(response.id),
+            performed_by=actor_id,
+            changes={"phase": 1},
+            ip_address=None,
+        )
+        if question_phases is not None
+        else AuditEvent(
+            action="response_submitted",
+            resource_type="survey",
+            resource_id=survey.survey_id,
+            performed_by=actor_id,
+            changes={"response_id": str(response.id)},
+            ip_address=None,
+        )
+    )
+    try:
+        await commit_with_audit(
+            session,
+            [
+                AuditEvent(
+                    action="create",
+                    resource_type="survey_response",
+                    resource_id=str(response.id),
+                    performed_by=actor_id,
+                    changes={"distribution_id": str(distribution.id)},
+                    ip_address=None,
+                ),
+                phase_one_event,
+            ],
+        )
+    except IntegrityError as exc:
+        if _is_respondent_key_integrity_error(exc):
+            raise AppError(
+                "This respondent has already submitted a response.",
+                status_code=status.HTTP_409_CONFLICT,
+                errors={"code": "already_submitted"},
+            ) from exc
+        raise
+    await session.refresh(response)
+    return response, False
+
+
+def _phase2_idempotency_hash(answers: dict[str, object]) -> str:
+    return hashlib.sha256(
+        json.dumps(
+            {"phase": 2, "answers": answers},
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        ).encode()
+    ).hexdigest()
+
+
+async def submit_phase2_response(
+    session: AsyncSession,
+    token: str,
+    answers: dict[str, object],
+    actor_id: UUID,
+    idempotency_key: UUID,
+    respondent: GoogleSurveyRespondent,
+    ip_address: str | None = None,
+) -> tuple[SurveyResponse, bool]:
+    distribution, survey = await get_distribution_and_survey_by_token(
+        session,
+        token,
+        for_update=True,
+        shared_lock=False,
+    )
+    questions = await _load_active_questions(session, distribution.survey_id)
+    question_phases = _get_question_phases(questions)
+    if question_phases is None:
+        raise AppError(
+            "This survey does not have a follow-up phase.",
+            status_code=status.HTTP_409_CONFLICT,
+            errors={"code": "phase2_unavailable"},
+        )
+    phase2_ids = {question_id for question_id, phase in question_phases.items() if phase == 2}
+    _validate_phase_answer_ids(answers, questions, phase2_ids)
+
+    try:
+        answers_json = json.dumps(answers, allow_nan=False)
+    except (TypeError, ValueError) as exc:
+        raise AppError(
+            "Answers contain values that cannot be stored as JSON.",
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+        ) from exc
+    if len(answers_json) > 10000:
+        raise AppError(
+            "Answers payload exceeds the maximum allowed size.",
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+        )
+    answers_hash = _phase2_idempotency_hash(answers)
+    respondent_digest = respondent_key_digest(distribution.survey_id, respondent.subject_digest)
+
+    response_result = await session.exec(
+        select(SurveyResponse)
+        .where(
+            col(SurveyResponse.survey_id) == distribution.survey_id,
+            or_(
+                col(SurveyResponse.respondent_key_digest) == respondent_digest,
+                col(SurveyResponse.idempotency_key) == idempotency_key,
+            ),
+        )
+        .order_by(col(SurveyResponse.id))
+        .with_for_update()
+    )
+    candidates = list(response_result.all())
+    matching_response = next(
+        (
+            response
+            for response in candidates
+            if response.respondent_key_digest == respondent_digest
+        ),
+        None,
+    )
+    idempotency_response = next(
+        (response for response in candidates if response.idempotency_key == idempotency_key),
+        None,
+    )
+    if matching_response is not None and matching_response.is_deleted:
+        raise AppError(
+            "This response has been withdrawn.",
+            status_code=status.HTTP_409_CONFLICT,
+            errors={"code": "withdrawn"},
+        )
+    if idempotency_response is not None:
+        if idempotency_response is not matching_response:
+            raise AppError(
+                "Idempotency-Key was already used by a different response.",
+                status_code=status.HTTP_409_CONFLICT,
+                errors={"code": "idempotency_conflict"},
+            )
+        if idempotency_response.idempotency_hash == answers_hash:
+            return idempotency_response, True
+        raise AppError(
+            "Idempotency-Key was already used with different answers.",
+            status_code=status.HTTP_409_CONFLICT,
+            errors={"code": "idempotency_conflict"},
+        )
+
+    if matching_response is None:
+        raise AppError(
+            "Phase 1 must be submitted before the follow-up phase.",
+            status_code=status.HTTP_409_CONFLICT,
+            errors={"code": "phase1_required"},
+        )
+    stored_answers = matching_response.answers
+    phase1_ids = {question_id for question_id, phase in question_phases.items() if phase == 1}
+    if not phase1_ids.issubset(stored_answers):
+        raise AppError(
+            "Phase 1 must be submitted before the follow-up phase.",
+            status_code=status.HTTP_409_CONFLICT,
+            errors={"code": "phase1_required"},
+        )
+    if phase2_ids.issubset(stored_answers):
+        raise AppError(
+            "The follow-up phase has already been submitted.",
+            status_code=status.HTTP_409_CONFLICT,
+            errors={"code": "already_completed"},
+        )
+
+    await _validate_answers(
+        session,
+        distribution.survey_id,
+        answers,
+        questions=questions,
+        expected_question_ids=phase2_ids,
+    )
+    submitted_at = utc_now()
+    matching_response.answers = {**stored_answers, **answers}
+    matching_response.idempotency_key = idempotency_key
+    matching_response.idempotency_hash = answers_hash
+    matching_response.retention_expires_at = (
+        submitted_at + timedelta(days=survey.retention_days)
+        if survey.retention_enabled
+        else None
+    )
+    matching_response.updated_at = submitted_at
+    matching_response.performed_by = actor_id
+    session.add(matching_response)
     await commit_with_audit(
         session,
         [
             AuditEvent(
-                action="create",
+                action="phase2_submitted",
                 resource_type="survey_response",
-                resource_id=str(response.id),
+                resource_id=str(matching_response.id),
                 performed_by=actor_id,
-                changes={"distribution_id": str(distribution.id)},
-                ip_address=None,
-            ),
-            AuditEvent(
-                action="response_submitted",
-                resource_type="survey",
-                resource_id=survey.survey_id,
-                performed_by=actor_id,
-                changes={"response_id": str(response.id)},
-                ip_address=None,
-            ),
+                changes={"phase": 2, "submitted_at": submitted_at},
+                ip_address=ip_address,
+            )
         ],
     )
-    await session.refresh(response)
-    return response, False
+    await session.refresh(matching_response)
+    return matching_response, False
 
 
 async def list_responses(
@@ -507,8 +934,15 @@ async def tombstone_responses(
         response.consent_version = None
         response.consented_at = None
         response.consent_notice_snapshot = None
+        response.provider = None
+        response.auth_user_id = None
+        response.email = None
+        response.display_name = None
+        response.email_verified = None
+        response.identity_captured_at = None
         if not preserve_withdrawal_digest:
             response.withdrawal_credential_digest = None
+            response.respondent_key_digest = None
         response.is_deleted = True
         response.deleted_at = deleted_at
         response.updated_at = deleted_at

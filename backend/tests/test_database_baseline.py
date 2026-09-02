@@ -9,6 +9,7 @@ from sqlmodel import SQLModel
 
 from models import (  # noqa: F401
     AuditLog,
+    GoogleSurveyAuthProof,
     Permission,
     ResponseErasureReceipt,
     Role,
@@ -42,6 +43,7 @@ CANONICAL_TABLES = {
     "survey_responses",
     "response_erasure_receipts",
 }
+LIVE_METADATA_TABLES = CANONICAL_TABLES | {"google_survey_auth_proofs"}
 EXPECTED_ROLE_IDS = {
     "admin": "00000000-0000-0000-0000-000000000101",
     "researcher": "00000000-0000-0000-0000-000000000102",
@@ -49,8 +51,8 @@ EXPECTED_ROLE_IDS = {
 }
 
 
-def test_metadata_contains_only_canonical_tables():
-    assert set(SQLModel.metadata.tables) == CANONICAL_TABLES
+def test_metadata_contains_canonical_tables_and_current_forward_tables():
+    assert set(SQLModel.metadata.tables) == LIVE_METADATA_TABLES
 
 
 def test_baseline_is_single_root_revision_and_self_contained():

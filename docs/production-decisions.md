@@ -12,9 +12,10 @@ Phase 3 response-operations implementation. The forward migration chain is:
   -> fb1c93d15474 (retention and withdrawal)
   -> 2bf09a6bc738 (remove plaintext distribution tokens)
   -> d5a4f7c91e2b (Supabase Data API RLS/ACL lockdown)
+  -> a8055c9859f5 (Google survey respondent identity and auth proofs)
 ```
 
-`d5a4f7c91e2b` is the current Alembic head. Fresh environments and the production release job
+`a8055c9859f5` is the current Alembic head. Fresh environments and the production release job
 run `./.venv/bin/alembic upgrade head` once before API replicas are promoted. Phase 3 is **not**
 a rolling or independently deployable frontend/backend release: the request contract and
 retention writes change together. Block public submissions at ingress, drain and stop every old
@@ -36,6 +37,13 @@ defaults and defaults for other object creators are not mutated and require sepa
 provider/admin configuration. It creates no policies, validates the RLS/ACL postconditions, and
 has an intentionally fail-closed irreversible downgrade. The API remains the application access
 boundary; direct Supabase Data API access is not a substitute for its authorization checks.
+
+The `a8055c9859f5` release step adds short-lived Google survey auth proofs, nullable
+legacy-compatible response identity snapshots, survey-scoped dedupe uniqueness, and the
+`survey_responses.read_identity` capability. It also applies ACL/RLS lockdown to the proof table.
+The default `admin` and `researcher` roles have identity permission; `staff` does not. Existing
+raw, aggregate, and CSV contracts remain identity-free, and the identity endpoint requires both
+`survey_responses.read_raw` and `survey_responses.read_identity`.
 
 Under the current runtime contract, create and rotate persist only a token digest and prefix.
 List and revoke metadata are token-free, while create and rotate reveal a newly generated bearer
@@ -101,26 +109,59 @@ The canonical permission catalog is:
 | `survey_distributions.manage` | Create, list, rotate, and revoke distributions. |
 | `survey_responses.read_aggregates` | View aggregated survey responses. |
 | `survey_responses.read_raw` | View raw survey responses. |
+| `survey_responses.read_identity` | View authorized respondent identity snapshots. |
 | `survey_responses.export` | Export survey responses. |
 | `survey_responses.erase` | Erase survey responses. |
 
-Defaults remain: `admin` has all 21 capabilities; `researcher` has all except
-`survey_responses.erase`; and `staff` has `portal.access`, `ml.models.read`, `surveys.read`,
-and `survey_responses.read_aggregates`. Raw reads, exports, aggregates, distribution
-management, and erasure are separate capabilities. Authentication or survey ownership is not
-an implicit grant.
+Defaults remain: `admin` has all 22 capabilities; `researcher` has all except
+`survey_responses.erase` (including `survey_responses.read_identity`); and `staff` has
+`portal.access`, `ml.models.read`, `surveys.read`, and `survey_responses.read_aggregates` only.
+Raw reads, identity reads, exports, aggregates, distribution management, and erasure are
+separate capabilities. The identity endpoint requires both `survey_responses.read_raw` and
+`survey_responses.read_identity`; authentication or survey ownership is not an implicit grant.
 
 Role assignment is additionally constrained by the actor's effective permissions: an actor cannot
 grant a role with permissions exceeding their own. Assignment of the protected system Admin role
 is restricted to active Admins.
+
+## Google-authenticated identified survey flow
+
+- Survey GET and submit require a dedicated Google OAuth respondent session and a backend proof.
+  The server-rendered survey page may fetch GET from FastAPI through `BACKEND_INTERNAL_URL` after
+  isolated auth; browser submission uses the focused same-origin `/api/survey/[token]` BFF. The
+  portal remains password/invite/recovery based and rejects OAuth sessions. Withdrawal remains
+  direct and code-only.
+- Next.js uses isolated `peii-survey-auth-token` cookies, the fixed
+  `/auth/survey/google/callback`, and HMAC-signed flow-bound return state. The server-rendered
+  survey page may use `BACKEND_INTERNAL_URL` for its authenticated GET; browser submission uses
+  the focused same-origin `/api/survey/[token]` BFF. `SURVEY_OAUTH_STATE_KEY` is server-only and
+  must be a random value of at least 32 bytes; it must never be exposed as `NEXT_PUBLIC_*`.
+- Configure Google in Supabase Auth with minimum scopes `openid email profile`. The exact
+  application callback `${APP_ORIGIN}/auth/survey/google/callback` must be in the Supabase Auth
+  redirect allowlist, and the Google OAuth client must use the Google/Supabase provider callback
+  as appropriate.
+- Backend configuration uses `GOOGLE_OAUTH_CLIENT_ID`, the dedicated random-at-least-32-byte
+  `SURVEY_RESPONDENT_HMAC_SECRET`, `SURVEY_GOOGLE_SESSION_MAX_AGE_SECONDS` (default 300,
+  production maximum 3,600), `GOOGLE_SURVEY_ATTEST_RATE_LIMIT=5`, and
+  `GOOGLE_SURVEY_ATTEST_RATE_WINDOW_SECONDS=60`. Keep the respondent HMAC secret stable for
+  every survey lifetime that relies on dedupe: raw Google subject is not stored, so routine
+  rotation cannot preserve dedupe. An incident rotation requires explicit acceptance that prior
+  accounts may submit again or a controlled closure/reconciliation plan.
+- Before Google sign-in and again at consent, disclose that the verified Google email and display
+  name are stored with the response; authorized researchers can identify respondents; identity
+  enables one Google account per survey; direct identity and answers are removed on respondent
+  withdrawal, but a survey-scoped pseudonymous dedupe digest is retained so that account cannot
+  submit again; administrative erasure clears the digest; and short-lived proof PII is physically
+  deleted by the external purge after expiry. Do not promise anonymity or confidentiality.
 
 ## Phase 3 response and privacy decisions
 
 ### Retention
 
 - New surveys default to `retention_enabled=true` and `retention_days=1825` (five years).
-- Each response receives an immutable `retention_expires_at` snapshot from server submission time
-  plus the survey's retention days. Updating a policy never changes existing response deadlines.
+- Each response receives a `retention_expires_at` snapshot from server submission time plus the
+  survey's retention days. The generated two-phase questionnaire resets that same row's deadline
+  from successful Phase 2 completion; updating the survey policy never changes it.
 - Retention settings may be changed only before any response row exists. After the first row,
   including a withdrawn or erased row, the policy is immutable.
 - When retention is disabled before a survey has responses, new responses receive a null
@@ -132,8 +173,9 @@ is restricted to active Admins.
 
 ### Withdrawal
 
-The browser generates a 32-byte (`256-bit`) random base64url withdrawal code, sends it with the
-submission, and shows it once after the minimal `{"accepted": true}` acknowledgement. The
+The browser generates a 32-byte (`256-bit`) random base64url withdrawal code, sends it with Phase 1,
+and shows it once after the minimal `{"accepted": true}` acknowledgement. Phase 2 updates the same
+response row and reuses that withdrawal ownership proof without sending or replacing the code. The
 backend stores only its HMAC-SHA-256 digest. Production must set the dedicated
 `WITHDRAWAL_CODE_HMAC_SECRET` to a random value of at least 32 bytes; it must not be reused as
 the rate-limit HMAC key. The code is never returned by the backend, persisted in plaintext,
@@ -141,8 +183,22 @@ included in schemas/audits, or logged. A lost code cannot be recovered by PEII.
 
 The public API route is `POST /api/v1/survey/responses/withdraw`; the frontend page is
 `/survey/withdraw`. A valid request tombstones the response and is safe to repeat. User
-withdrawal retains only the digest needed to recognize a repeat; administrative erasure clears
-it.
+withdrawal clears answers and direct identity but retains the withdrawal digest needed to
+recognize a repeat and the survey-scoped pseudonymous dedupe digest that prevents another
+submission by the same account. Administrative erasure clears both digests.
+
+### Generated two-phase questionnaire
+
+The generated questionnaire contains 14 sections and 68 persisted questions. Phase 1 contains the
+Intro, profile, Section II-A, and IV-A questions (40 total); Phase 2 contains duplicated Section
+II-B and IV-B questions (28 total). Every question carries `config.survey_phase`, while surveys
+without that metadata remain single-phase.
+
+One Google respondent and one distribution link map to one response row. Authenticated GET exposes
+only the available phase. POST creates Phase 1; PATCH locks the same row and merges Phase 2 without
+changing Phase 1 answers, consent, identity, withdrawal ownership, or `created_at`. Completion and
+withdrawal return no form. Phase audit events record each submission, and `responses_count` remains
+one participant row rather than two submissions.
 
 ### Reads, aggregates, exports, and erasure
 
@@ -172,6 +228,12 @@ it.
 Production must set these values explicitly:
 
 ```text
+SURVEY_OAUTH_STATE_KEY=<server-only random HMAC key, at least 32 bytes>
+GOOGLE_OAUTH_CLIENT_ID=<Google OAuth client id>
+SURVEY_RESPONDENT_HMAC_SECRET=<dedicated random server-side secret, at least 32 bytes; stable for survey lifetimes>
+SURVEY_GOOGLE_SESSION_MAX_AGE_SECONDS=300
+GOOGLE_SURVEY_ATTEST_RATE_LIMIT=5
+GOOGLE_SURVEY_ATTEST_RATE_WINDOW_SECONDS=60
 RATE_LIMIT_ENABLED=true
 RATE_LIMIT_INCLUDE_CLIENT_IP=true
 # Use either a Redis-compatible URL or both Upstash REST settings:
@@ -186,16 +248,24 @@ RATE_LIMIT_KEY_HMAC_SECRET=<random server-side secret, at least 32 bytes>
 WITHDRAWAL_CODE_HMAC_SECRET=<dedicated random server-side secret, at least 32 bytes>
 PUBLIC_SURVEY_READ_LIMIT=60
 PUBLIC_SURVEY_READ_WINDOW_SECONDS=60
+PUBLIC_SURVEY_READ_GLOBAL_LIMIT=6000
+PUBLIC_SURVEY_READ_GLOBAL_WINDOW_SECONDS=60
 PUBLIC_SURVEY_SUBMIT_LIMIT=10
 PUBLIC_SURVEY_SUBMIT_WINDOW_SECONDS=60
+PUBLIC_SURVEY_SUBMIT_GLOBAL_LIMIT=1000
+PUBLIC_SURVEY_SUBMIT_GLOBAL_WINDOW_SECONDS=60
 PUBLIC_SURVEY_WITHDRAWAL_CLIENT_LIMIT=10
 PUBLIC_SURVEY_WITHDRAWAL_CLIENT_WINDOW_SECONDS=60
 PUBLIC_SURVEY_WITHDRAWAL_GLOBAL_LIMIT=1000
 PUBLIC_SURVEY_WITHDRAWAL_GLOBAL_WINDOW_SECONDS=60
 LOGIN_RATE_LIMIT=10
 LOGIN_RATE_WINDOW_SECONDS=60
+LOGIN_GLOBAL_LIMIT=1000
+LOGIN_GLOBAL_WINDOW_SECONDS=60
 PASSWORD_RECOVERY_RATE_LIMIT=5
 PASSWORD_RECOVERY_RATE_WINDOW_SECONDS=900
+PASSWORD_RECOVERY_GLOBAL_LIMIT=1000
+PASSWORD_RECOVERY_GLOBAL_WINDOW_SECONDS=900
 MAX_REQUEST_BODY_BYTES=65536
 TRUSTED_PROXY_HEADER=X-Forwarded-For
 TRUSTED_PROXY_CIDRS=<actual trusted ingress CIDRs>
@@ -211,11 +281,22 @@ SURVEY_DISTRIBUTION_MAX_EXPIRY_DAYS=30
 DATABASE_TLS_MODE=require
 ```
 
+The example and local Compose default use consent version `2026-09-01`; production must set the
+approved consent version, notice, purpose, retention statement, and contact explicitly. The
+Google respondent session max age must be no more than 3,600 seconds in production. The
+application callback `${APP_ORIGIN}/auth/survey/google/callback` must be allowlisted exactly in
+Supabase Auth, with the matching Google/Supabase provider callback configured at Google.
+
 Redis outages fail closed in production; do not silently fall back to process-local limits.
 Non-debug startup rejects disabled rate limiting or disabled client-IP buckets. Forwarded client
 IP headers are trusted only from `TRUSTED_PROXY_CIDRS` and are parsed with the configured hop
 and header-size limits. Withdrawal attempts use a strict per-client bucket before a separate
 high global circuit breaker, so one blocked client cannot consume the global allowance.
+Survey read/submit limits run only after Google respondent proof validation and use composite
+verified subject/session/token buckets, with separate materially higher global circuit breakers.
+Login and recovery use normalized identifier buckets and their separate higher global breakers;
+they intentionally do not use the shared Next.js BFF peer or browser forwarding headers as an
+end-user identity. The global breakers are availability safeguards, not per-user budgets.
 Requests larger than 64 KiB are rejected before application parsing.
 
 Local Compose uses `DATABASE_TLS_MODE=disable`; Supabase production requires
@@ -247,16 +328,17 @@ Execute this sequence without reordering:
 2. Enable the ingress maintenance/write-drain rule for public survey submissions and withdrawal,
    wait for in-flight writes to finish, and stop every old API replica. Keep submissions blocked
    until step 6; an old writer after the migration can create a null retention deadline.
-3. Run `./.venv/bin/alembic upgrade head` once. Confirm that `d5a4f7c91e2b` is applied after
-   `2bf09a6bc738`, verify distribution digests are populated and the plaintext token column is
-   absent, inspect the survey default backfill, verify response deadline backfill, and verify
-   the RLS/ACL lockdown postconditions. Reconcile any enabled-retention response with a null
-   deadline before continuing.
+3. Run `./.venv/bin/alembic upgrade head` once. Confirm that `a8055c9859f5` is applied after
+   `d5a4f7c91e2b` (which follows `2bf09a6bc738`), verify distribution digests are populated and
+   the plaintext token column is absent, inspect the survey default backfill, verify response
+   deadline backfill, verify the protected-table and proof-table RLS/ACL lockdown postconditions,
+   and reconcile any enabled-retention response with a null deadline before continuing.
 4. Deploy the compatible API and frontend together and invalidate stale public-form caches. Verify
    new distribution create/rotate responses reveal tokens once, list/revoke metadata stays
    token-free, expiry defaults and maximum validation work, and new submissions snapshot enabled and
    disabled policies correctly, withdrawal codes are one-time displayed/digest-only, and raw,
-   aggregate, export, and erase permission checks pass.
+   aggregate, identity, export, and erase permission checks pass, including the requirement for
+   both raw and identity capabilities on the identity endpoint.
 5. Only after steps 1–4 succeed, activate one external purge schedule. Start with
    `--dry-run`, compare the due count to expectations, then run the mutating command.
 6. Reconcile audit events, response counts, purge output, provider logs, no-store/streaming
@@ -266,8 +348,8 @@ Execute this sequence without reordering:
 
 Before `2bf09a6bc738`, application rollback during the Phase 2 compatibility window was allowed
 only while the plaintext distribution-token column remained available. At the current head,
-plaintext tokens cannot be reconstructed, and `d5a4f7c91e2b` cannot be downgraded because its
-lockdown is intentionally fail-closed. Do not downgrade the migration as an ad hoc rollback;
+plaintext tokens cannot be reconstructed, and `d5a4f7c91e2b` and `a8055c9859f5` cannot be
+downgraded because their lockdowns are intentionally fail-closed. Do not downgrade the migration as an ad hoc rollback;
 restore a validated backup/PITR copy in isolation or use a reviewed forward fix, run release
 validation including RLS/ACL checks, and then promote it.
 
@@ -283,11 +365,16 @@ Run from `backend/`:
 ```
 
 The script defaults to a batch size of 100, locks one survey before its response batches, and
-logically tombstones due responses. It has no built-in timer: schedule one instance daily (or
-more frequently if approved) through the managed provider's job/cron facility. Alert on failed
-or missed runs and review stdout fields `purged`, `surveys`, `batches`, `dry_run`, and `cutoff`.
-Use `retention_purge` audit events to reconcile job output, and investigate a growing due-row
-backlog or count mismatch. Dry runs do not mutate rows or create purge audits.
+logically tombstones due live responses. It also physically purges expired short-lived Google
+survey auth-proof rows. It has no built-in timer: schedule one instance daily (or more frequently
+if approved) through the managed provider's job/cron facility. Alert on failed or missed runs and
+review stdout fields `purged`, `proofs`, `surveys`, `batches`, `dry_run`, and `cutoff`. Use
+`retention_purge` audit events to reconcile response job output, and investigate a growing
+due-row backlog or count mismatch. Dry runs do not mutate rows or create purge audits.
+
+Withdrawal-cleared tombstones are already outside the live-response set and are not ordinary
+retention-purge work. Their survey-scoped dedupe digest remains until administrative erasure;
+this is intentional one-account-per-survey enforcement, not an accidental retention exception.
 
 Tombstoning is not immediate physical deletion. Minimal response tombstones, erasure receipts,
 and audit records remain. Database backups and PITR may retain pre-tombstone answers until the
@@ -295,8 +382,12 @@ provider's configured retention window expires; do not claim backups are immedia
 
 ## Provider and launch verification
 
-Before launch, configure provider redaction for tokenized URL paths, request bodies, auth/cookie
-headers, idempotency keys, withdrawal codes, and respondent identifiers. Keep the server-only
+Before launch, configure Google in Supabase Auth with minimum scopes `openid email profile`, the
+exact application callback allowlist, and the matching Google/Supabase provider callback. Verify
+the complete Google sign-in, survey GET, and submit flow in a real provider-backed browser; unit
+and application tests are not proof of provider behavior. Also configure provider redaction for
+tokenized URL paths, request bodies, auth/cookie headers, idempotency keys, withdrawal codes, and
+respondent identifiers. Keep the server-only
 `CSV_EXPORT_ENABLED` flag `false` for the initial deployment. Before a later release enables it,
 use a smoke request to verify the provider does not cache, index, persist, or unexpectedly buffer
 the streamed CSV; confirm `private, no-store` survives the CDN/edge path and that logs do not
@@ -308,8 +399,9 @@ Required provider actions remain manual and are not claimed as completed here: r
 credentials exposed during development; remove `public` from the Supabase Data API exposed
 schemas/tables; enable Supabase SSL enforcement only after the TLS client rollout; track eventual
 CA-backed `verify-full` for all database paths; and configure HSTS on both Vercel and
-Render. Render/provider log redaction and the actual trusted forwarding chain remain deployment
-verification tasks. Manually verify exact CORS, production docs-off behavior, application-owned
+Render. Render/provider log redaction, the actual trusted forwarding chain, and the Google
+provider/browser flow remain deployment verification tasks. Manually verify exact CORS,
+production docs-off behavior, application-owned
 headers through the real ingress, service-specific environment exposure, provider redaction and
 no-store behavior, backups/PITR, and purge scheduling before launch.
 
@@ -329,7 +421,9 @@ npm run build
 env DEBUG=false ./.venv/bin/pytest -q
 ```
 
-Also run the isolated PostgreSQL gate; a skipped integration suite is not a pass:
+Also run the isolated PostgreSQL gate; a skipped integration suite is not a pass. PostgreSQL
+migration execution and real provider browser verification are deployment gates; application
+tests alone are not proof:
 
 ```bash
 TEST_DATABASE_URL=postgresql+psycopg2://user:password@localhost:5432/peii_test \
@@ -342,7 +436,9 @@ exercise the public withdrawal and authenticated response operations, restore a 
 in isolation, and complete an end-to-end smoke test.
 
 Real respondents remain blocked until rate limiting and Redis fail-closed behavior, the dedicated
-withdrawal secret, approved consent/retention/contact values, retention/backups/PITR policy,
-trusted ingress, purge scheduling/monitoring, provider log redaction, and provider
-public-survey no-store behavior are all verified and recorded. Export streaming verification is
+withdrawal and respondent HMAC secrets (including the stable-dedupe rotation plan), approved
+consent/retention/contact values, retention/backups/PITR policy, trusted ingress, purge
+scheduling/monitoring, Google provider/browser verification, PostgreSQL migration execution,
+provider log redaction, and provider public-survey no-store behavior are all verified and
+recorded. Export streaming verification is
 required before any later release sets `CSV_EXPORT_ENABLED=true`.

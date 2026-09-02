@@ -1,6 +1,6 @@
 """
-Seed the "GRADUATE TRACER STUDY SURVEY" — the canonical 8-section,
-25-question graduate tracer study definition.
+Seed the "GRADUATE TRACER STUDY SURVEY" — the canonical 14-section,
+68-question, two-phase graduate tracer study definition.
 
 Usage:
     cd backend
@@ -68,12 +68,16 @@ PEII_SCALE_LABELS = [
 ]
 
 
-def _text_question(text: str) -> dict:
+def _phase_config(phase: int, config: dict[str, object] | None = None) -> dict[str, object]:
+    return {**(config or {}), "survey_phase": phase}
+
+
+def _text_question(text: str, phase: int = 1) -> dict:
     return {
         "type": QuestionType.TEXT,
         "text": text,
         "options": None,
-        "config": None,
+        "config": _phase_config(phase),
         "is_required": True,
     }
 
@@ -82,22 +86,23 @@ def _single_choice_question(
     text: str,
     options: list[str],
     config: dict[str, object] | None = None,
+    phase: int = 1,
 ) -> dict:
     return {
         "type": QuestionType.SINGLE_CHOICE,
         "text": text,
         "options": options,
-        "config": config,
+        "config": _phase_config(phase, config),
         "is_required": True,
     }
 
 
-def _scale_question(text: str) -> dict:
+def _scale_question(text: str, phase: int = 1) -> dict:
     return {
         "type": QuestionType.SCALE,
         "text": text,
         "options": [*PEII_SCALE_LABELS],
-        "config": {"min": 1, "max": 5},
+        "config": _phase_config(phase, {"min": 1, "max": 5}),
         "is_required": True,
     }
 
@@ -105,7 +110,7 @@ def _scale_question(text: str) -> dict:
 PEII_COMMON_DESCRIPTION = (
     "Instruction: Rate each statement using the scale below based on your condition during two "
     "specific timeframes:\nYour situation specifically during your final year of residency as a "
-    "student at PLP. This serves as your baseline for transformation.\nNote: These responses are "
+    "student at PLP. This serves as your baseline for transformation\nNote: These responses are "
     "essential to compute your Individual-Level Improvement and the overall Pasig Education Impact "
     "Index (PEII).\nScale: "
     "1 = Strongly Disagree | 2 = Disagree | 3 = Neutral | 4 = Agree | 5 = Strongly Agree"
@@ -116,7 +121,6 @@ SECTIONS: list[dict] = [
         "title": "Intro",
         "description": "",
         "questions": [
-            _text_question("Email: Record <email> as the email to be included with my response"),
             _single_choice_question(
                 "Consent Statement: I have read and understood the Data Privacy Statement and "
                 "voluntarily agree to participate in this survey.",
@@ -167,52 +171,79 @@ SECTIONS: list[dict] = [
         ],
     },
     {
-        "title": "SECTION II - PEII Core Impact Measurement: A. Employability and Economic "
+        "title": "SECTION II-A - PEII Core Impact Measurement: A. Employability and Economic "
         "Mobility",
         "description": PEII_COMMON_DESCRIPTION,
         "questions": [
             _scale_question("I have/had a stable source of income or employment."),
-            _scale_question("I have/had a stable source of income or employment."),
+            _scale_question("My job/business is/was aligned with my college degree or skills."),
+            _scale_question("I am/was able to obtain employment opportunities when needed."),
+            _scale_question("My income is/was sufficient to support my basic needs."),
+            _scale_question("I have/had opportunities for career growth and advancement."),
         ],
     },
     {
-        "title": "SECTION II - PEII Core Impact Measurement: B. Family Upliftment and Financial "
+        "title": "SECTION II-A - PEII Core Impact Measurement: B. Family Upliftment and Financial "
         "Stability",
         "description": PEII_COMMON_DESCRIPTION,
         "questions": [
             _scale_question("I contribute/contributed financially to my household expenses."),
-            _scale_question("I contribute/contributed financially to my household expenses."),
+            _scale_question(
+                "My financial situation helps/helped improve my family’s living condition."
+            ),
+            _scale_question("I am/was able to support the education of family members."),
+            _scale_question("I have/had savings or an emergency fund for financial security."),
+            _scale_question(
+                "My financial responsibilities are/were manageable without excessive burden."
+            ),
         ],
     },
     {
-        "title": "SECTION II - PEII Core Impact Measurement: C. Personal Development and Life "
+        "title": "SECTION II-A - PEII Core Impact Measurement: C. Personal Development and Life "
         "Quality",
         "description": PEII_COMMON_DESCRIPTION,
         "questions": [
             _scale_question("I feel/felt confident in my abilities and decisions."),
-            _scale_question("I feel/felt confident in my abilities and decisions."),
+            _scale_question("I demonstrate/demonstrated leadership skills when needed."),
+            _scale_question(
+                "I communicate/communicated effectively in personal and professional settings."
+            ),
+            _scale_question("I have/had clear career goals and direction."),
+            _scale_question("I am/was satisfied with my overall life situation."),
         ],
     },
     {
-        "title": "SECTION II - PEII Core Impact Measurement: D. Civic Engagement and Community "
+        "title": "SECTION II-A - PEII Core Impact Measurement: D. Civic Engagement and Community "
         "Contribution",
         "description": PEII_COMMON_DESCRIPTION,
         "questions": [
             _scale_question("I participate/participated in community or civic activities."),
-            _scale_question("I participate/participated in community or civic activities."),
+            _scale_question("I volunteer/volunteered my time or resources to help others."),
+            _scale_question("I mentor/mentored or guide/guided others in my community."),
+            _scale_question("I contribute/contributed my skills to community development."),
+            _scale_question("I feel/felt responsible for contributing to society."),
         ],
     },
     {
-        "title": "SECTION II - PEII Core Impact Measurement: E. Government Trust and LGU Support "
+        "title": "SECTION II-A - PEII Core Impact Measurement: E. Government Trust and LGU Support "
         "Valuation",
         "description": PEII_COMMON_DESCRIPTION,
         "questions": [
             _scale_question("I am/was aware of education programs provided by the Pasig LGU."),
-            _scale_question("I am/was aware of education programs provided by the Pasig LGU."),
+            _scale_question(
+                "I perceive/perceived that the local government supports education initiatives."
+            ),
+            _scale_question(
+                "I trust/trusted the local government in delivering education-related services."
+            ),
+            _scale_question(
+                "I believe/believed that public investment in education benefits society."
+            ),
+            _scale_question("I value/valued the educational opportunities provided by PLP."),
         ],
     },
     {
-        "title": "IV. Feedback and Reflection",
+        "title": "IV-A. Feedback and Reflection",
         "description": "",
         "questions": [
             _text_question(
@@ -225,6 +256,27 @@ SECTIONS: list[dict] = [
         ],
     },
 ]
+
+
+def _duplicate_follow_up_sections() -> list[dict]:
+    duplicated: list[dict] = []
+    for section in SECTIONS[2:8]:
+        title = section["title"].replace("II-A", "II-B").replace("IV-A", "IV-B")
+        questions = []
+        for question in section["questions"]:
+            config = {**question["config"], "survey_phase": 2}
+            questions.append({**question, "config": config})
+        duplicated.append(
+            {
+                "title": title,
+                "description": section["description"],
+                "questions": questions,
+            }
+        )
+    return duplicated
+
+
+SECTIONS.extend(_duplicate_follow_up_sections())
 
 GRADUATE_TRACER_STUDY_SURVEY = {
     "title": GRADUATE_TRACER_STUDY_SURVEY_TITLE,

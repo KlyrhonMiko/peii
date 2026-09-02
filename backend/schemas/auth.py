@@ -1,3 +1,4 @@
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -34,3 +35,13 @@ class PasswordRecoveryRequest(BaseModel):
 
 class PasswordChangeRequest(BaseModel):
     password: str = Field(min_length=12, max_length=256)
+
+
+class GoogleSurveyAttestationRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    provider_token: str = Field(min_length=1, max_length=4096)
+
+
+class GoogleSurveyAttestationAcknowledgement(BaseModel):
+    attested: Literal[True]

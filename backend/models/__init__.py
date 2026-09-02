@@ -1,4 +1,5 @@
 from models.audit_log import AuditLog
+from models.google_survey_auth_proof import GoogleSurveyAuthProof
 from models.rbac import Permission, Role, RolePermission, UserRole
 from models.survey import Survey
 from models.survey_distribution import SurveyDistribution
@@ -10,6 +11,7 @@ from models.user import User
 __all__ = [
     "User",
     "AuditLog",
+    "GoogleSurveyAuthProof",
     "Survey",
     "SurveyQuestion",
     "SurveyDistribution",

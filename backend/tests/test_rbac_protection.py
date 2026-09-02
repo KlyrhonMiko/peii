@@ -6,11 +6,14 @@ from sqlalchemy.pool import StaticPool
 from sqlmodel import SQLModel, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from core.database import get_async_session
+from core.deps import Principal, get_current_principal
 from core.exceptions import AppError
+from main import app
 from models.audit_log import AuditLog
 from models.rbac import Permission, Role, RolePermission, UserRole
 from models.user import User
-from schemas.rbac import RoleUpdate
+from schemas.rbac import RoleCreate, RoleUpdate
 from schemas.user import UserDelete, UserUpdate
 from services import rbac_service, user_service
 
@@ -95,6 +98,16 @@ async def assign_role(session: AsyncSession, user: User, role: Role) -> None:
 
 async def audit_count(session: AsyncSession) -> int:
     return len((await session.exec(select(AuditLog))).all())
+
+
+@asynccontextmanager
+async def api_rbac_session():
+    generator = app.dependency_overrides[get_async_session]()
+    session = await anext(generator)
+    try:
+        yield session
+    finally:
+        await generator.aclose()
 
 
 async def test_system_admin_permissions_cannot_be_replaced():
@@ -224,6 +237,242 @@ async def test_actor_cannot_escalate_themselves_with_superior_role():
         assignments = await session.exec(select(UserRole).where(UserRole.user_id == actor.id))
         assert [assignment.role_id for assignment in assignments.all()] == [actor_role.id]
         assert await audit_count(session) == initial_audits
+
+
+async def test_actor_cannot_escalate_their_own_role_with_role_permissions():
+    async with rbac_session() as session:
+        actor, _, _, _, _, _ = await create_rbac_state(session)
+        actor_role = await create_role(session, "self-manager", ["roles.manage"])
+        await assign_role(session, actor, actor_role)
+        await session.commit()
+
+        before_edges = list(
+            (
+                await session.exec(
+                    select(RolePermission).where(RolePermission.role_id == actor_role.id)
+                )
+            ).all()
+        )
+        before_permissions = await rbac_service.effective_permissions(session, actor.id)
+        initial_audits = await audit_count(session)
+        users_read = (
+            await session.exec(select(Permission).where(Permission.code == "users.read"))
+        ).one()
+
+        with pytest.raises(AppError, match="exceeding your own") as error:
+            await rbac_service.update_role(
+                session,
+                actor_role,
+                RoleUpdate(permission_ids=[users_read.id]),
+                actor.id,
+                None,
+            )
+
+        assert error.value.status_code == 403
+        after_edges = list(
+            (
+                await session.exec(
+                    select(RolePermission).where(RolePermission.role_id == actor_role.id)
+                )
+            ).all()
+        )
+        assert {(edge.role_id, edge.permission_id) for edge in after_edges} == {
+            (edge.role_id, edge.permission_id) for edge in before_edges
+        }
+        assert await rbac_service.effective_permissions(session, actor.id) == before_permissions
+        assert await audit_count(session) == initial_audits
+
+
+async def test_actor_cannot_escalate_an_assigned_role_with_role_permissions():
+    async with rbac_session() as session:
+        actor, _, _, _, _, _ = await create_rbac_state(session)
+        actor_role = await create_role(session, "role-manager", ["roles.manage"])
+        target_role = await create_role(session, "assigned-role", ["roles.manage"])
+        await assign_role(session, actor, actor_role)
+        await assign_role(session, actor, target_role)
+        await session.commit()
+
+        before_edges = list(
+            (
+                await session.exec(
+                    select(RolePermission).where(RolePermission.role_id == target_role.id)
+                )
+            ).all()
+        )
+        before_permissions = await rbac_service.effective_permissions(session, actor.id)
+        initial_audits = await audit_count(session)
+        users_read = (
+            await session.exec(select(Permission).where(Permission.code == "users.read"))
+        ).one()
+
+        with pytest.raises(AppError, match="exceeding your own") as error:
+            await rbac_service.update_role(
+                session,
+                target_role,
+                RoleUpdate(permission_ids=[users_read.id]),
+                actor.id,
+                None,
+            )
+
+        assert error.value.status_code == 403
+        after_edges = list(
+            (
+                await session.exec(
+                    select(RolePermission).where(RolePermission.role_id == target_role.id)
+                )
+            ).all()
+        )
+        assert {(edge.role_id, edge.permission_id) for edge in after_edges} == {
+            (edge.role_id, edge.permission_id) for edge in before_edges
+        }
+        assert await rbac_service.effective_permissions(session, actor.id) == before_permissions
+        assert await audit_count(session) == initial_audits
+
+
+async def test_actor_cannot_overgrant_a_non_admin_system_role():
+    async with rbac_session() as session:
+        actor, _, _, _, _, users_read = await create_rbac_state(session)
+        actor_role = await create_role(session, "system-role-manager", ["roles.manage"])
+        system_role = await create_role(session, "researcher", ["roles.manage"])
+        system_role.is_system = True
+        session.add(system_role)
+        await assign_role(session, actor, actor_role)
+        await session.commit()
+
+        before_edges = {
+            (edge.role_id, edge.permission_id)
+            for edge in (
+                await session.exec(
+                    select(RolePermission).where(RolePermission.role_id == system_role.id)
+                )
+            ).all()
+        }
+        before_permissions = await rbac_service.effective_permissions(session, actor.id)
+        initial_audits = await audit_count(session)
+
+        with pytest.raises(AppError, match="exceeding your own") as error:
+            await rbac_service.update_role(
+                session,
+                system_role,
+                RoleUpdate(permission_ids=[users_read.id]),
+                actor.id,
+                None,
+            )
+
+        assert error.value.status_code == 403
+        after_edges = {
+            (edge.role_id, edge.permission_id)
+            for edge in (
+                await session.exec(
+                    select(RolePermission).where(RolePermission.role_id == system_role.id)
+                )
+            ).all()
+        }
+        assert after_edges == before_edges
+        assert await rbac_service.effective_permissions(session, actor.id) == before_permissions
+        assert await audit_count(session) == initial_audits
+
+
+async def test_actor_cannot_create_a_role_with_role_permissions():
+    async with rbac_session() as session:
+        actor, _, _, _, _, _ = await create_rbac_state(session)
+        actor_role = await create_role(session, "creator", ["roles.manage"])
+        await assign_role(session, actor, actor_role)
+        await session.commit()
+
+        before_permissions = await rbac_service.effective_permissions(session, actor.id)
+        initial_audits = await audit_count(session)
+        users_read = (
+            await session.exec(select(Permission).where(Permission.code == "users.read"))
+        ).one()
+
+        with pytest.raises(AppError, match="exceeding your own") as error:
+            await rbac_service.create_role(
+                session,
+                RoleCreate(name="escalated", permission_ids=[users_read.id]),
+                actor.id,
+                None,
+            )
+
+        assert error.value.status_code == 403
+        assert (
+            await session.exec(select(Role).where(Role.name == "escalated"))
+        ).first() is None
+        assert await rbac_service.effective_permissions(session, actor.id) == before_permissions
+        assert await audit_count(session) == initial_audits
+
+
+@pytest.mark.parametrize("target_kind", ["self", "another", "new"])
+async def test_role_permission_escalation_is_rejected_at_the_api(client, target_kind):
+    async with api_rbac_session() as session:
+        actor, _, _, _, _, users_read = await create_rbac_state(session)
+        manager_role = await create_role(
+            session, f"api-{target_kind}-manager", ["roles.manage"]
+        )
+        await assign_role(session, actor, manager_role)
+
+        target_role = None
+        if target_kind == "self":
+            target_role = manager_role
+        elif target_kind == "another":
+            target_role = await create_role(session, "api-another-target", ["roles.manage"])
+            await assign_role(session, actor, target_role)
+        await session.commit()
+
+        actor_permissions = await rbac_service.effective_permissions(session, actor.id)
+        initial_audits = await audit_count(session)
+        before_edges = (
+            {
+                (edge.role_id, edge.permission_id)
+                for edge in (
+                    await session.exec(
+                        select(RolePermission).where(RolePermission.role_id == target_role.id)
+                    )
+                ).all()
+            }
+            if target_role is not None
+            else set()
+        )
+
+    async def override_current_principal() -> Principal:
+        return Principal(
+            user=actor,
+            permissions=frozenset({"roles.manage"}),
+            access_token="test",
+        )
+
+    app.dependency_overrides[get_current_principal] = override_current_principal
+    permission_id = str(users_read.id)
+    if target_role is None:
+        response = await client.post(
+            "/api/v1/rbac/roles",
+            json={"name": "api-escalated", "permission_ids": [permission_id]},
+        )
+    else:
+        response = await client.patch(
+            f"/api/v1/rbac/roles/{target_role.id}",
+            json={"permission_ids": [permission_id]},
+        )
+
+    assert response.status_code == 403
+
+    async with api_rbac_session() as session:
+        assert await rbac_service.effective_permissions(session, actor.id) == actor_permissions
+        assert await audit_count(session) == initial_audits
+        if target_role is None:
+            assert (
+                await session.exec(select(Role).where(Role.name == "api-escalated"))
+            ).first() is None
+        else:
+            after_edges = {
+                (edge.role_id, edge.permission_id)
+                for edge in (
+                    await session.exec(
+                        select(RolePermission).where(RolePermission.role_id == target_role.id)
+                    )
+                ).all()
+            }
+            assert after_edges == before_edges
 
 
 async def test_active_admin_can_assign_system_admin_role():

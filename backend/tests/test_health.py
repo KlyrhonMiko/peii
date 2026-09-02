@@ -51,7 +51,7 @@ async def test_cors_preflight_uses_exact_api_policy(client):
 
     assert response.status_code == 200
     assert response.headers["access-control-allow-origin"] == "http://localhost:3000"
-    assert response.headers["access-control-allow-methods"] == "GET, POST"
+    assert response.headers["access-control-allow-methods"] == "GET, POST, PATCH"
     assert response.headers["access-control-allow-headers"] == (
         "Accept, Accept-Language, Content-Language, Content-Type, Idempotency-Key, X-Request-ID"
     )

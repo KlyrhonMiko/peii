@@ -19,6 +19,7 @@ import {
   exportResponses,
   fetchResponseAggregates,
   fetchResponses,
+  fetchResponsesWithIdentity,
   mapSurvey,
   mapDistribution,
   rotateDistribution,
@@ -299,6 +300,32 @@ describe("response privacy API operations", () => {
       has_next: true,
       has_prev: true,
     })
+  })
+
+  it("keeps identity reads on a separate capability-gated endpoint and type", async () => {
+    mockApi.get.mockResolvedValue({
+      data: [{
+        id: "response-id",
+        survey_id: "survey-id",
+        distribution_id: null,
+        answers: {},
+        created_at: "2026-01-01T00:00:00Z",
+        provider: "google",
+        email: "alumni@example.test",
+        display_name: "Alumni Respondent",
+        email_verified: true,
+        identity_captured_at: "2026-01-01T00:00:00Z",
+      }],
+      meta: { pagination: { total: 1, count: 1, limit: 25, offset: 0, has_next: false, has_prev: false } },
+    })
+
+    const result = await fetchResponsesWithIdentity("survey-id")
+
+    expect(mockApi.get).toHaveBeenCalledWith("/surveys/survey-id/responses/identity")
+    expect(result.responses[0]).toMatchObject({ email: "alumni@example.test", displayName: "Alumni Respondent" })
+    expect(result.responses[0]).not.toHaveProperty("authUserId")
+    expect(result.responses[0]).not.toHaveProperty("respondentKeyDigest")
+    expect("email" in ({} as import("./surveys").SurveyResponse)).toBe(false)
   })
 
   it("starts a native download through the same-origin proxy", async () => {

@@ -153,6 +153,66 @@ describe("backend BFF", () => {
     expect(fetchMock).not.toHaveBeenCalled()
   })
 
+  it.each([
+    "",
+    "/",
+    "\\",
+    "?",
+    "#",
+    ".",
+    "..",
+    "\u0000",
+    "\u001f",
+    "\u007f",
+    "\u0085",
+    "%2f",
+    "%2F",
+    "%5c",
+    "%5C",
+    "%2e",
+    "%2E%2E",
+    "%3f",
+    "%3F",
+    "%23",
+    "%252f",
+    "%255C",
+    "%252e",
+    "%253F",
+    "%2523",
+  ])("rejects a non-canonical path segment %j before auth or fetch", async (segment) => {
+    vi.stubEnv("BACKEND_INTERNAL_URL", "http://backend:8000/api/v1")
+    const fetchMock = vi.fn(async () => new Response('{"data":[]}'))
+    vi.stubGlobal("fetch", fetchMock)
+
+    const response = await GET(
+      new NextRequest(`http://localhost:3000/api/backend/surveys/${encodeURIComponent(segment)}`),
+      context(["surveys", segment]),
+    )
+
+    expect(response.status).toBe(404)
+    expect(response.headers.get("cache-control")).toBe("no-store")
+    expect(mocks.createSupabaseServerClient).not.toHaveBeenCalled()
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it("re-encodes accepted path segments before forwarding them", async () => {
+    vi.stubEnv("BACKEND_INTERNAL_URL", "http://backend:8000/api/v1")
+    mocks.getClaims.mockResolvedValue({ data: { claims: null } })
+    mocks.getSession.mockResolvedValue({ data: { session: null } })
+    const fetchMock = vi.fn(async () => new Response('{"data":[]}'))
+    vi.stubGlobal("fetch", fetchMock)
+
+    await GET(
+      new NextRequest("http://localhost:3000/api/backend/surveys/survey%20id/responses"),
+      context(["surveys", "survey id", "responses"]),
+    )
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://backend:8000/api/v1/surveys/survey%20id/responses/",
+      expect.objectContaining({ method: "GET" }),
+    )
+  })
+
   it("returns a no-store 503 when the backend is not configured", async () => {
     const response = await GET(
       new NextRequest("http://localhost:3000/api/backend/surveys"),

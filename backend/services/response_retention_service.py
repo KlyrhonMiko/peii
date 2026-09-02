@@ -7,6 +7,7 @@ from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from core.config import settings
+from models.google_survey_auth_proof import GoogleSurveyAuthProof
 from models.survey import Survey
 from models.survey_response import SurveyResponse
 from services.audit_service import AuditEvent, commit_with_audit
@@ -21,6 +22,7 @@ DEFAULT_RETENTION_BATCH_SIZE = 100
 class RetentionPurgeResult:
     cutoff: datetime
     purged_count: int
+    proof_purged_count: int
     survey_count: int
     batch_count: int
     dry_run: bool
@@ -71,6 +73,67 @@ async def _due_count(session: AsyncSession, survey_id: UUID, cutoff: datetime) -
         )
     )
     return result.one()
+
+
+async def _purge_expired_google_auth_proofs(
+    session: AsyncSession,
+    cutoff: datetime,
+    *,
+    batch_size: int,
+    dry_run: bool,
+) -> int:
+    """Delete expired session proofs in bounded, audited retention transactions."""
+    if dry_run:
+        result = await session.exec(
+            select(func.count())
+            .select_from(GoogleSurveyAuthProof)
+            .where(col(GoogleSurveyAuthProof.expires_at) <= cutoff)
+        )
+        count = result.one()
+        await session.rollback()
+        return count
+
+    purged_count = 0
+    while True:
+        statement = (
+            select(GoogleSurveyAuthProof)
+            .where(col(GoogleSurveyAuthProof.expires_at) <= cutoff)
+            .order_by(col(GoogleSurveyAuthProof.session_id))
+            .limit(batch_size)
+        )
+        bind = session.get_bind()
+        dialect_name = getattr(getattr(bind, "dialect", None), "name", "")
+        if dialect_name == "postgresql":
+            statement = statement.with_for_update(skip_locked=True)
+        else:
+            statement = statement.with_for_update()
+        proofs = list((await session.exec(statement)).all())
+        if not proofs:
+            await session.rollback()
+            break
+
+        for proof in proofs:
+            await session.delete(proof)
+        try:
+            await commit_with_audit(
+                session,
+                [
+                    AuditEvent(
+                        action="retention_purge",
+                        resource_type="google_survey_auth_proof_retention",
+                        resource_id="google-survey-auth-proofs",
+                        performed_by=settings.SYSTEM_ACTOR_ID,
+                        changes={"purged_count": len(proofs), "cutoff": cutoff},
+                        ip_address=None,
+                    )
+                ],
+            )
+        except Exception:
+            await session.rollback()
+            raise
+        purged_count += len(proofs)
+
+    return purged_count
 
 
 async def purge_expired_responses(
@@ -167,6 +230,13 @@ async def purge_expired_responses(
             purged_count += count
             batch_count += 1
 
+    proof_purged_count = await _purge_expired_google_auth_proofs(
+        session,
+        normalized_cutoff,
+        batch_size=batch_size,
+        dry_run=dry_run,
+    )
+
     # Also close the discovery transaction when every survey was dry-run or
     # when the due-row set was empty.
     await session.rollback()
@@ -174,6 +244,7 @@ async def purge_expired_responses(
     return RetentionPurgeResult(
         cutoff=normalized_cutoff,
         purged_count=purged_count,
+        proof_purged_count=proof_purged_count,
         survey_count=len(survey_ids),
         batch_count=batch_count,
         dry_run=dry_run,

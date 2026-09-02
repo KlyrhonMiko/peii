@@ -20,6 +20,7 @@ load_dotenv(ROOT_DIR / ".env", override=False)
 from core.config import settings  # noqa: E402
 from models import (  # noqa: F401,E402
     AuditLog,
+    GoogleSurveyAuthProof,
     Permission,
     ResponseErasureReceipt,
     Role,

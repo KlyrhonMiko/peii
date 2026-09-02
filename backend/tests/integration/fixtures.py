@@ -71,6 +71,28 @@ def migrate_to(url: URL, revision: str, schema: str) -> None:
         raise RuntimeError(message)
 
 
+def attempt_downgrade(url: URL, revision: str, schema: str) -> str:
+    environment = os.environ.copy()
+    environment["DB_MODE"] = "local"
+    environment["LOCAL_DATABASE_URL"] = url.render_as_string(hide_password=False)
+    environment["PGOPTIONS"] = f"-c search_path={schema}"
+    environment["ALEMBIC_EXPECTED_SCHEMA"] = schema
+    result = subprocess.run(
+        [sys.executable, "-m", "alembic", "downgrade", revision],
+        cwd=BACKEND_DIR,
+        env=environment,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    diagnostics = _sanitize_diagnostics(
+        "\n".join(part for part in (result.stdout, result.stderr) if part), url
+    ).strip()
+    if result.returncode == 0:
+        raise RuntimeError("Alembic downgrade unexpectedly succeeded.")
+    return diagnostics
+
+
 def assert_current_schema(connection: Connection, expected_schema: str) -> None:
     actual_schema = connection.execute(text("SELECT current_schema()")).scalar_one_or_none()
     assert actual_schema == expected_schema, (

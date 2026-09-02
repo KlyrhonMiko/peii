@@ -31,6 +31,7 @@ export interface SurveyCapabilities {
   distributionManage: boolean
   readAggregates: boolean
   readRaw: boolean
+  readIdentity?: boolean
   export: boolean
   erase: boolean
 }

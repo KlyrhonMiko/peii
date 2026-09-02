@@ -31,6 +31,7 @@ PERMISSIONS: dict[str, str] = {
     "survey_distributions.manage": "Create, list, rotate, and revoke survey distributions.",
     "survey_responses.read_aggregates": "View aggregated survey responses.",
     "survey_responses.read_raw": "View raw survey responses.",
+    "survey_responses.read_identity": "View verified respondent identity snapshots.",
     "survey_responses.export": "Export survey responses.",
     "survey_responses.erase": "Erase survey responses.",
 }
@@ -52,6 +53,7 @@ DEFAULT_ROLES: dict[str, set[str]] = {
         "ml.models.read",
         "ml.sentiment.run",
         *SHARED_SURVEY_CAPABILITIES - {"survey_responses.erase"},
+        "survey_responses.read_identity",
     },
     "staff": {
         "portal.access",
@@ -202,6 +204,124 @@ async def get_role_permissions(session: AsyncSession, role: Role) -> list[Permis
     return list(result.all())
 
 
+async def _lock_role(session: AsyncSession, role_id: UUID) -> Role:
+    result = await session.exec(
+        select(Role)
+        .where(col(Role.id) == role_id, col(Role.is_deleted).is_(False))
+        .with_for_update()
+    )
+    role = result.first()
+    if role is None:
+        raise AppError("Role not found.", status_code=status.HTTP_404_NOT_FOUND)
+    return role
+
+
+async def _lock_actor_permission_scope(
+    session: AsyncSession, actor_id: UUID
+) -> set[str]:
+    """Lock the rows that define the actor's current effective permissions."""
+    assignment_result = await session.exec(
+        select(UserRole)
+        .where(col(UserRole.user_id) == actor_id)
+        .order_by(col(UserRole.role_id), col(UserRole.id))
+        .with_for_update()
+    )
+    assignments = list(assignment_result.all())
+    role_ids = {assignment.role_id for assignment in assignments}
+    if role_ids:
+        role_result = await session.exec(
+            select(Role)
+            .where(col(Role.id).in_(role_ids))
+            .order_by(col(Role.id))
+            .with_for_update()
+        )
+        locked_role_ids = {role.id for role in role_result.all()}
+        role_permission_result = await session.exec(
+            select(RolePermission)
+            .where(col(RolePermission.role_id).in_(locked_role_ids))
+            .order_by(
+                col(RolePermission.role_id),
+                col(RolePermission.permission_id),
+                col(RolePermission.id),
+            )
+            .with_for_update()
+        )
+        role_permission_result.all()
+    return await effective_permissions(session, actor_id)
+
+
+async def _lock_role_and_actor_permission_scope(
+    session: AsyncSession, role_id: UUID, actor_id: UUID
+) -> tuple[Role, set[str]]:
+    """Lock a target role and the actor's permission graph in a stable order."""
+    assignment_result = await session.exec(
+        select(UserRole)
+        .where(col(UserRole.user_id) == actor_id)
+        .order_by(col(UserRole.role_id), col(UserRole.id))
+        .with_for_update()
+    )
+    assignments = list(assignment_result.all())
+    actor_role_ids = {assignment.role_id for assignment in assignments}
+    role_ids = actor_role_ids | {role_id}
+
+    role_result = await session.exec(
+        select(Role)
+        .where(col(Role.id).in_(role_ids), col(Role.is_deleted).is_(False))
+        .order_by(col(Role.id))
+        .with_for_update()
+    )
+    roles = list(role_result.all())
+    role = next((item for item in roles if item.id == role_id), None)
+    if role is None:
+        raise AppError("Role not found.", status_code=status.HTTP_404_NOT_FOUND)
+
+    role_permission_result = await session.exec(
+        select(RolePermission)
+        .where(col(RolePermission.role_id).in_(role_ids))
+        .order_by(
+            col(RolePermission.role_id),
+            col(RolePermission.permission_id),
+            col(RolePermission.id),
+        )
+        .with_for_update()
+    )
+    role_permission_result.all()
+    return role, await effective_permissions(session, actor_id)
+
+
+async def _validated_permission_ids(
+    session: AsyncSession, permission_ids: Iterable[UUID]
+) -> tuple[set[UUID], set[str]]:
+    wanted = set(permission_ids)
+    if not wanted:
+        return set(), set()
+
+    result = await session.exec(
+        select(Permission).where(
+            col(Permission.id).in_(wanted),
+            col(Permission.is_deleted).is_(False),
+        )
+    )
+    permissions = list(result.all())
+    valid_ids = {permission.id for permission in permissions}
+    if wanted != valid_ids:
+        raise AppError(
+            "One or more permissions do not exist.",
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+        )
+    return wanted, {permission.code for permission in permissions}
+
+
+def _assert_permission_scope(
+    permission_codes: set[str], actor_permissions: set[str]
+) -> None:
+    if not permission_codes.issubset(actor_permissions):
+        raise AppError(
+            "You cannot assign permissions exceeding your own.",
+            status_code=status.HTTP_403_FORBIDDEN,
+        )
+
+
 async def create_role(
     session: AsyncSession, payload: RoleCreate, actor_id: UUID, ip_address: str | None
 ) -> Role:
@@ -210,10 +330,13 @@ async def create_role(
         raise AppError(
             "A role with this name already exists.", status_code=status.HTTP_409_CONFLICT
         )
+    wanted, permission_codes = await _validated_permission_ids(session, payload.permission_ids)
+    actor_permissions = await _lock_actor_permission_scope(session, actor_id)
+    _assert_permission_scope(permission_codes, actor_permissions)
     role = Role(name=payload.name, description=payload.description, performed_by=actor_id)
     session.add(role)
     await session.flush()
-    await _replace_role_permissions(session, role, payload.permission_ids, actor_id)
+    await _replace_role_permissions(session, role, wanted, actor_id)
     await commit_with_audit(
         session, [AuditEvent("create", "role", role.name, actor_id, ip_address=ip_address)]
     )
@@ -224,6 +347,14 @@ async def create_role(
 async def update_role(
     session: AsyncSession, role: Role, payload: RoleUpdate, actor_id: UUID, ip_address: str | None
 ) -> Role:
+    wanted: set[UUID] | None = None
+    if payload.permission_ids is not None:
+        role, actor_permissions = await _lock_role_and_actor_permission_scope(
+            session, role.id, actor_id
+        )
+    else:
+        role = await _lock_role(session, role.id)
+
     if role.is_system and payload.is_active is False:
         raise AppError("System roles cannot be deactivated.", status_code=status.HTTP_409_CONFLICT)
     if role.name == ADMIN_ROLE_NAME and role.is_system and payload.permission_ids is not None:
@@ -231,13 +362,16 @@ async def update_role(
             "System Admin role permissions cannot be changed.",
             status_code=status.HTTP_409_CONFLICT,
         )
+    if payload.permission_ids is not None:
+        wanted, permission_codes = await _validated_permission_ids(session, payload.permission_ids)
+        _assert_permission_scope(permission_codes, actor_permissions)
     if payload.description is not None:
         role.description = payload.description
     if payload.is_active is not None:
         role.is_active = payload.is_active
     role.performed_by = actor_id
-    if payload.permission_ids is not None:
-        await _replace_role_permissions(session, role, payload.permission_ids, actor_id)
+    if wanted is not None:
+        await _replace_role_permissions(session, role, wanted, actor_id)
     session.add(role)
     await commit_with_audit(
         session, [AuditEvent("update", "role", role.name, actor_id, ip_address=ip_address)]
@@ -250,28 +384,14 @@ async def _replace_role_permissions(
     session: AsyncSession, role: Role, permission_ids: Iterable[UUID], actor_id: UUID
 ) -> None:
     wanted = set(permission_ids)
-    valid = (
-        set(
-            (
-                await session.exec(
-                    select(Permission.id).where(
-                        col(Permission.id).in_(wanted),
-                        col(Permission.is_deleted).is_(False),
-                    )
-                )
-            ).all()
-        )
-        if wanted
-        else set()
-    )
-    if wanted != valid:
-        raise AppError(
-            "One or more permissions do not exist.",
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-        )
     current = list(
         (
-            await session.exec(select(RolePermission).where(col(RolePermission.role_id) == role.id))
+            await session.exec(
+                select(RolePermission)
+                .where(col(RolePermission.role_id) == role.id)
+                .order_by(col(RolePermission.id))
+                .with_for_update()
+            )
         ).all()
     )
     for assignment in current:

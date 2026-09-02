@@ -1,26 +1,29 @@
 from datetime import UTC, datetime
+from typing import Annotated
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Depends, Request
 
+from core.auth import AuthClaims, verify_bearer_token
 from core.client_ip import resolve_client_ip
 from core.config import settings
 from core.deps import AsyncDBSession, CurrentPrincipal
 from core.rate_limit import (
-    enforce_rate_limit,
+    check_google_survey_attestation,
+    enforce_identifier_rate_limit,
     normalize_rate_limit_identifier,
-    rate_limit_identifiers,
-    rate_limit_policy,
 )
 from core.responses import success_response
 from schemas.auth import (
     AuthSession,
     CurrentUser,
+    GoogleSurveyAttestationAcknowledgement,
+    GoogleSurveyAttestationRequest,
     LoginRequest,
     PasswordChangeRequest,
     PasswordRecoveryRequest,
 )
 from schemas.common import APIResponse
-from services import auth_service
+from services import auth_service, google_survey_auth_service
 from services.audit_service import AuditEvent, commit_with_audit
 from services.supabase_auth_service import (
     logout_user_session,
@@ -36,6 +39,35 @@ def _ip_address(request: Request) -> str | None:
 
 
 @router.post(
+    "/survey/google/attest",
+    response_model=APIResponse[GoogleSurveyAttestationAcknowledgement],
+    summary="Attest Google survey access",
+    description="Verify a Google access token against the authenticated Supabase session.",
+)
+async def attest_google_survey_access(
+    payload: GoogleSurveyAttestationRequest,
+    session: AsyncDBSession,
+    request: Request,
+    claims: Annotated[AuthClaims, Depends(verify_bearer_token)],
+) -> APIResponse[GoogleSurveyAttestationAcknowledgement]:
+    await check_google_survey_attestation(
+        request,
+        subject=claims.subject,
+        session_id=claims.session_id,
+    )
+    await google_survey_auth_service.attest_google_survey_session(
+        session,
+        claims,
+        payload.provider_token,
+        ip_address=_ip_address(request),
+    )
+    return success_response(
+        GoogleSurveyAttestationAcknowledgement(attested=True),
+        message="Google survey access attested.",
+    )
+
+
+@router.post(
     "/login",
     response_model=APIResponse[AuthSession],
     summary="Log in",
@@ -45,10 +77,7 @@ async def login(
     payload: LoginRequest, session: AsyncDBSession, request: Request
 ) -> APIResponse[AuthSession]:
     identifier = normalize_rate_limit_identifier(payload.identifier)
-    await enforce_rate_limit(
-        rate_limit_policy("login"),
-        rate_limit_identifiers(f"identifier:{identifier}", request),
-    )
+    await enforce_identifier_rate_limit("login", f"identifier:{identifier}")
     user, session_data = await auth_service.authenticate(
         session, payload.identifier, payload.password
     )
@@ -109,13 +138,10 @@ async def logout(
     description="Request a recovery email without revealing account existence.",
 )
 async def recover_password(
-    payload: PasswordRecoveryRequest, request: Request
+    payload: PasswordRecoveryRequest,
 ) -> APIResponse[None]:
     email = normalize_rate_limit_identifier(payload.email)
-    await enforce_rate_limit(
-        rate_limit_policy("password-recovery"),
-        rate_limit_identifiers(f"email:{email}", request),
-    )
+    await enforce_identifier_rate_limit("password-recovery", f"email:{email}")
     redirect_to = f"{settings.APP_ORIGIN}/auth/confirm?next=/reset-password"
     await send_recovery_email(email, redirect_to)
     return success_response(None, message="If the account exists, a recovery email has been sent.")

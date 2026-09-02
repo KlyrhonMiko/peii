@@ -82,8 +82,9 @@ Create a new migration after model changes:
 The fresh-database baseline is `20260825_v1`. The current forward chain is
 `f77a807cf2f9` (distribution security) -> `d1f9bad768ad` (distribution expiry compatibility)
 -> `fb1c93d15474` (Phase 3 retention and withdrawal) -> `2bf09a6bc738` (remove plaintext
-distribution tokens) -> `d5a4f7c91e2b` (Supabase Data API RLS/ACL lockdown).
-`d5a4f7c91e2b` is the current Alembic head. For production, run
+distribution tokens) -> `d5a4f7c91e2b` (Supabase Data API RLS/ACL lockdown) ->
+`a8055c9859f5` (Google survey respondent identity and auth proofs).
+`a8055c9859f5` is the current Alembic head. For production, run
 `./.venv/bin/alembic upgrade head` once as the managed-service release job before API replicas
 are promoted. Do not run migrations independently in every replica. Review the Phase 3
 survey-policy and response-deadline backfill before activating the external purge job.
@@ -114,6 +115,13 @@ accessible to a `BYPASSRLS` migration role) and to grant that identity effective
 its postconditions and its downgrade intentionally raises instead of attempting an unsafe reversal.
 Treat it as an irreversible, fail-closed release step.
 
+The `a8055c9859f5` migration adds short-lived Google survey auth proofs, nullable
+legacy-compatible response identity snapshots, survey-scoped dedupe uniqueness, and the
+`survey_responses.read_identity` capability. It applies the proof-table ACL/RLS lockdown.
+Default `admin` and `researcher` roles receive identity permission; `staff` does not. Raw,
+aggregate, and CSV response contracts remain identity-free, and the identity endpoint requires
+both `survey_responses.read_raw` and `survey_responses.read_identity`.
+
 For production Supabase connections, `DATABASE_TLS_MODE=require` gives psycopg2/Alembic
 `sslmode=require`, which provides encryption only and does not verify the server certificate or
 hostname. Asyncpg uses `ssl="require"` so the Supavisor pooler connection follows the same
@@ -132,23 +140,28 @@ capability requirement.
 - Survey access is global RBAC, not unrestricted authentication. A permitted principal can act
   on any survey in the shared workspace, but every
   operation still requires its explicit capability.
-- The seven survey capabilities are `surveys.read`, `surveys.manage`,
+- The eight survey capabilities are `surveys.read`, `surveys.manage`,
   `survey_distributions.manage`, `survey_responses.read_aggregates`,
-  `survey_responses.read_raw`, `survey_responses.export`, and `survey_responses.erase`.
-  Admin has all seven; researcher has all except erase; staff has `surveys.read` and
-  `survey_responses.read_aggregates`. Existing portal and ML capabilities remain in each
-  default role. Raw and CSV export are separately permissioned; erase is admin-default.
+  `survey_responses.read_raw`, `survey_responses.read_identity`,
+  `survey_responses.export`, and `survey_responses.erase`. Admin has all eight; the default
+  researcher has all except erase (including identity); staff has `surveys.read` and
+  `survey_responses.read_aggregates` only. Existing portal and ML capabilities remain in each
+  default role. Raw, identity, CSV export, aggregates, and erase are separately permissioned;
+  the identity endpoint requires both raw and identity permission.
 - Distribution metadata listings never return tokens; a newly issued or rotated token is
   returned only once, and revoke responses also return metadata without a token. New create and
   rotate requests use the configured default expiry when omitted (currently 30 days); supplied
   expiry must be in the future and within the configured maximum (currently 30 days). Historical
   null expiry values remain non-expiring. Archiving a survey revokes unrevoked distributions.
   Restoring it leaves it inactive, so activation and a new link are explicit follow-up actions.
-- Public distribution links are shared bearer links and do not guarantee respondent uniqueness;
-  idempotency protects retries for one distribution/key pair only. Consent is a global,
-  versioned contract, and accepted responses retain an immutable notice snapshot. The public
-  acknowledgement is minimal (`{"accepted": true}`), and successful respondent IP addresses
-  are not stored in response audits. Do not promise confidentiality or respondent anonymity.
+- Survey GET and submit require a dedicated Google OAuth respondent session and a backend proof.
+  The portal remains password/invite/recovery based and rejects OAuth sessions. Next.js uses
+  isolated `peii-survey-auth-token` cookies, the fixed
+  `/auth/survey/google/callback`, HMAC-signed flow-bound return state, and the focused same-origin
+  `/api/survey/[token]` BFF. Google provider scopes are limited to `openid email profile`.
+  Public withdrawal remains direct and code-only. Consent is a global, versioned contract, and
+  accepted responses retain an immutable notice snapshot. Do not promise confidentiality or
+  respondent anonymity.
 - Production requires managed Redis, configured either with a Redis-compatible `REDIS_URL`
   or both `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN`, with
   `RATE_LIMIT_ENABLED=true` and
@@ -159,17 +172,27 @@ capability requirement.
   that the app-owned resolver receives the expected trusted proxy peer and headers. Withdrawal
   uses a configurable strict client limit (10/minute by default) before a separate high global
   circuit breaker (1,000/minute by default).
+- Google-authenticated survey reads and submits are limited after respondent proof validation by
+  a composite verified subject/session/token bucket (60 reads/minute and 10 submits/minute by
+  default), with separate higher global breakers (6,000 reads/minute and 1,000 submits/minute).
+  Portal login and recovery use normalized identifier buckets only (10/minute and 5/15 minutes
+  by default), with separate 1,000-request global breakers; the shared Next.js BFF peer is not an
+  end-user bucket.
 - New surveys default to retention enabled for 1,825 days (five years). Each response receives
-  an immutable submission-time `retention_expires_at`; disabled retention gives new responses a
-  null deadline and does not rewrite existing snapshots. Retention settings cannot change after
-  any response row exists, including a tombstone.
+  a submission-time `retention_expires_at`; the generated two-phase questionnaire resets the same
+  row's deadline when Phase 2 completes. Disabled retention gives new responses a null deadline
+  and does not rewrite existing snapshots. Retention settings cannot change after any response
+  row exists, including a tombstone.
 - Raw responses, aggregates, and exports exclude logically deleted and read-time expired rows,
   but authorized access remains available for archived surveys. Aggregates are available for
   every survey status, accept no filters, and return exact totals and cells even for one to four
   responses. Live results can change as responses arrive, and small-group aggregates are not
   anonymous or privacy-preserving. Raw listing is paginated (default 50, maximum 100) and
   supports only submission-time range and distribution filters.
-- The browser generates a private 256-bit withdrawal code and shows it once after submission.
+- The browser generates a private 256-bit withdrawal code and shows it once after Phase 1.
+  Generated two-phase surveys use POST to create one response row, then authenticated PATCH to
+  merge Phase 2 into that row; the same code withdraws the whole response and `responses_count`
+  remains one participant row.
   The backend stores only its HMAC-SHA-256 digest under `WITHDRAWAL_CODE_HMAC_SECRET`; a lost
   code cannot be recovered. The public withdrawal API is
   `POST /api/v1/survey/responses/withdraw`, with the frontend page at `/survey/withdraw`.
@@ -180,7 +203,9 @@ capability requirement.
   deferred stream runs. Its correlated start, success, and aborted audits distinguish the
   accepted count from the actual records traversed. Selected erasure or all-response erasure
   writes minimal tombstones and is idempotent; all-scope erasure requires an archived survey.
-  Retention purge is a bounded external command, not an in-process timer:
+  Retention purge is a bounded external command, not an in-process timer. It purges due live
+  responses and expired short-lived Google proof rows and prints `proofs` alongside its response
+  counts:
   `./.venv/bin/python scripts/purge_expired_responses.py [--dry-run]`.
 
 See [production decisions](../docs/production-decisions.md),
@@ -231,7 +256,8 @@ All published development ports bind to `127.0.0.1`. Compose passes explicit per
 environment allowlists rather than the root `.env`: only backend settings go to the backend,
 only `POSTGRES_DB`, `POSTGRES_USER`, and `POSTGRES_PASSWORD` go to PostgreSQL, and Adminer gets
 only `ADMINER_DEFAULT_SERVER`. The frontend receives only the URLs, public Supabase key, app
-origin, telemetry, and export flag it uses. Never treat a container environment as a production
+origin, telemetry, survey OAuth state key, and export flag it uses. Never treat a container
+environment as a production
 secret boundary; provider credentials still require rotation before launch.
 
 Services:
@@ -250,13 +276,15 @@ Routes are mounted below `API_V1_PREFIX` (normally `/api/v1`):
 - `/users` and `/audit-logs`: administration and audit history.
 - `/surveys`: surveys plus nested sections, questions, distributions, and
   responses, aggregates, streamed export, and erasure.
-- `/survey/{token}`: public survey loading and idempotent response submission.
+- `/survey/{token}`: Google-authenticated survey loading and idempotent response submission;
+  the tokenized URL alone is not sufficient.
 - `/survey/responses/withdraw`: public withdrawal by respondent-held code.
 - `/ml`: model catalog and sentiment inference. Model weights load lazily and may require
   substantial network, disk, memory, and CPU resources on first use.
 
 Protected routes accept a Supabase bearer token and resolve it through JWKS verification,
-the local user record, and effective role/permission dependencies.
+the local user record, and effective role/permission dependencies. Survey respondent routes use
+the dedicated Google session/proof boundary instead of the portal bearer-token boundary.
 
 ## Structure
 

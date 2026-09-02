@@ -25,10 +25,24 @@ class Principal:
     access_token: str
 
 
+@dataclass(frozen=True)
+class GoogleSurveyRespondent:
+    """Identity proven by Google, Supabase, and a short-lived attestation proof."""
+
+    auth_user_id: UUID
+    session_id: UUID
+    subject_digest: str
+    email: str
+    display_name: str | None = None
+    email_verified: bool = True
+
+
 async def get_current_principal(
     session: AsyncDBSession,
     claims: Annotated[AuthClaims, Depends(verify_bearer_token)],
 ) -> Principal:
+    if claims.has_oauth_amr:
+        raise AppError("Authentication is not available for this account.", status_code=401)
     user = await auth_service.get_user_by_auth_subject(session, claims.subject)
     permissions = await auth_service.rbac_service.effective_permissions(session, user.id)
     return Principal(
@@ -37,6 +51,28 @@ async def get_current_principal(
 
 
 CurrentPrincipal = Annotated[Principal, Depends(get_current_principal)]
+
+
+async def get_google_survey_respondent(
+    session: AsyncDBSession,
+    claims: Annotated[AuthClaims, Depends(verify_bearer_token)],
+) -> GoogleSurveyRespondent:
+    from services import google_survey_auth_service
+
+    proof = await google_survey_auth_service.load_valid_google_proof(session, claims)
+    return GoogleSurveyRespondent(
+        auth_user_id=proof.auth_user_id,
+        session_id=proof.session_id,
+        subject_digest=proof.google_subject_digest,
+        email=proof.verified_email,
+        display_name=proof.display_name,
+        email_verified=proof.email_verified,
+    )
+
+
+CurrentGoogleSurveyRespondent = Annotated[
+    GoogleSurveyRespondent, Depends(get_google_survey_respondent)
+]
 
 
 def require_permissions(*required: str):

@@ -33,13 +33,14 @@ const sections: PublicSurveySection[] = [
   },
 ]
 
-function renderSurvey() {
+function renderSurvey(submissionPhase: 1 | 2 = 1) {
   return render(
     <ClientSurveyForm
       title="Alumni outcomes"
       description="Tell us about your experience."
       consent={consent}
       sections={sections}
+      submissionPhase={submissionPhase}
       token="visible-token-must-not-render"
     />,
   )
@@ -88,7 +89,7 @@ describe("ClientSurveyForm", () => {
     fireEvent.click(screen.getByRole("checkbox", { name: /consent/i }))
     fireEvent.click(screen.getByRole("button", { name: /submit/i }))
 
-    await waitFor(() => expect(screen.getByText("Response Submitted")).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByText("Phase 1 submitted")).toBeInTheDocument())
     const request = fetchMock.mock.calls[0]
     expect(request).toBeDefined()
     expect(request?.[1]).toMatchObject({
@@ -101,7 +102,7 @@ describe("ClientSurveyForm", () => {
       consent: { accepted: true, version: consent.version },
       withdrawal_code: expect.stringMatching(/^[A-Za-z0-9_-]{43}$/),
     })
-    expect(screen.getByRole("heading", { name: "Response Submitted" })).toBeInTheDocument()
+    expect(screen.getByRole("heading", { name: "Phase 1 submitted" })).toBeInTheDocument()
     expect(screen.getByText(/required to withdraw your response later/i)).toBeInTheDocument()
     expect(screen.getByRole("link", { name: /withdraw a response/i })).toHaveAttribute(
       "href",
@@ -124,7 +125,7 @@ describe("ClientSurveyForm", () => {
     fireEvent.click(screen.getByRole("button", { name: /submit/i }))
     expect(await screen.findByRole("alert")).toHaveTextContent(/try again/i)
     fireEvent.click(screen.getByRole("button", { name: /submit/i }))
-    await waitFor(() => expect(screen.getByText("Response Submitted")).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByText("Phase 1 submitted")).toBeInTheDocument())
 
     expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({
       headers: expect.objectContaining({ "Idempotency-Key": expect.any(String) }),
@@ -151,13 +152,13 @@ describe("ClientSurveyForm", () => {
     fireEvent.click(screen.getByRole("checkbox", { name: /consent/i }))
     fireEvent.click(screen.getByRole("button", { name: /submit/i }))
 
-    await screen.findByRole("heading", { name: "Response Submitted" })
+    await screen.findByRole("heading", { name: "Phase 1 submitted" })
     const code = screen.getByLabelText("Private withdrawal code").textContent
     expect(code).toMatch(/^[A-Za-z0-9_-]{43}$/)
     expect(screen.getAllByText(code ?? "")).toHaveLength(1)
     fireEvent.click(screen.getByRole("button", { name: /copy withdrawal code/i }))
     expect(writeText).toHaveBeenCalledWith(code)
-    expect(fetchMock.mock.calls[0]?.[0]).toContain("/survey/visible-token-must-not-render/respond")
+    expect(fetchMock.mock.calls[0]?.[0]).toBe("/api/survey/visible-token-must-not-render")
     expect(fetchMock.mock.calls[0]?.[0]).not.toContain(code ?? "")
     expect(window.location.href).not.toContain(code)
   })
@@ -235,6 +236,30 @@ describe("ClientSurveyForm", () => {
     expect(screen.queryByText(/out of date|reload and review/i)).not.toBeInTheDocument()
   })
 
+  it("shows a useful message when the response was already submitted", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          data: null,
+          message: "already submitted",
+          errors: { code: "already_submitted" },
+          meta: {},
+        }),
+        { status: 409 },
+      ),
+    )
+    renderSurvey()
+    fireEvent.change(screen.getByLabelText("What did you enjoy?"), {
+      target: { value: "The mentoring program" },
+    })
+    fireEvent.click(screen.getByRole("checkbox", { name: /consent/i }))
+    fireEvent.click(screen.getByRole("button", { name: /submit/i }))
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      /already been submitted.*withdraw.*private withdrawal code/i,
+    )
+  })
+
   it("marks touched invalid controls and describes their validation errors", async () => {
     renderSurvey()
     fireEvent.click(screen.getByRole("checkbox", { name: /consent/i }))
@@ -244,5 +269,28 @@ describe("ClientSurveyForm", () => {
     await waitFor(() => expect(answer).toHaveAttribute("aria-invalid", "true"))
     expect(answer).toHaveAttribute("aria-describedby", "question-1-error")
     expect(screen.getByText("This question is required")).toBeInTheDocument()
+  })
+
+  it("submits phase two answers with PATCH and does not create a withdrawal code", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(successResponse())
+    renderSurvey(2)
+
+    fireEvent.change(screen.getByLabelText("What did you enjoy?"), {
+      target: { value: "The mentoring program" },
+    })
+    expect(screen.getByRole("button", { name: /submit/i })).toBeEnabled()
+    fireEvent.click(screen.getByRole("button", { name: /submit/i }))
+
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Response Submitted" })).toBeInTheDocument())
+    const request = fetchMock.mock.calls[0]
+    expect(request).toBeDefined()
+    expect(request?.[1]).toMatchObject({
+      method: "PATCH",
+      headers: expect.objectContaining({ "Idempotency-Key": expect.any(String) }),
+    })
+    const body = JSON.parse((request?.[1] as RequestInit).body as string) as Record<string, unknown>
+    expect(body).toEqual({ answers: { "question-1": "The mentoring program" } })
+    expect(screen.queryByLabelText("Private withdrawal code")).not.toBeInTheDocument()
+    expect(screen.queryByRole("link", { name: /withdraw a response/i })).not.toBeInTheDocument()
   })
 })

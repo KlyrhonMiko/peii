@@ -9,13 +9,17 @@ from starlette.requests import Request
 from core import rate_limit
 from core.client_ip import resolve_client_ip
 from core.config import Settings, settings
+from core.deps import get_google_survey_respondent
 from core.exceptions import RateLimitExceeded, RedisUnavailableError
 from core.rate_limit import (
     FixedWindowRateLimiter,
     UpstashRedisRestClient,
     build_rate_limit_key,
     rate_limit_identifiers,
+    rate_limit_policy,
 )
+from main import app
+from routers import auth as auth_router
 
 
 def _scope(peer: str, forwarded_for: str | None = None) -> dict:
@@ -72,6 +76,30 @@ def test_rate_limit_secret_requires_32_bytes_when_limiting_enabled() -> None:
         Settings.model_validate(values)
 
 
+def test_google_attestation_rate_limit_has_a_dedicated_conservative_policy() -> None:
+    policy = rate_limit_policy("google-survey-attest")
+
+    assert policy.name == "google-survey-attest"
+    assert policy.limit == settings.GOOGLE_SURVEY_ATTEST_RATE_LIMIT
+    assert policy.window_seconds == settings.GOOGLE_SURVEY_ATTEST_RATE_WINDOW_SECONDS
+    assert policy.read_only is False
+
+
+@pytest.mark.parametrize(
+    ("normal", "global_policy"),
+    [
+        ("public-read", "public-read-global"),
+        ("public-submit", "public-submit-global"),
+        ("login", "login-global"),
+        ("password-recovery", "password-recovery-global"),
+    ],
+)
+def test_global_circuit_breakers_are_materially_higher(
+    normal: str, global_policy: str
+) -> None:
+    assert rate_limit_policy(global_policy).limit >= rate_limit_policy(normal).limit * 10
+
+
 def test_short_rate_limit_secret_is_allowed_when_limiting_disabled() -> None:
     values = settings.model_dump()
     values.update(RATE_LIMIT_ENABLED=False, RATE_LIMIT_KEY_HMAC_SECRET="short")
@@ -106,6 +134,8 @@ def test_withdrawal_rate_limiting_requires_client_ip_in_production() -> None:
         RATE_LIMIT_INCLUDE_CLIENT_IP=False,
         RATE_LIMIT_KEY_HMAC_SECRET="x" * 32,
         WITHDRAWAL_CODE_HMAC_SECRET="x" * 32,
+        GOOGLE_OAUTH_CLIENT_ID="production-google-client-id",
+        SURVEY_RESPONDENT_HMAC_SECRET="s" * 32,
         REDIS_URL="rediss://redis.example.com:6379/0",
         TRUSTED_PROXY_CIDRS=["198.51.100.0/24"],
         DATABASE_TLS_MODE="require",
@@ -143,6 +173,8 @@ def test_production_supabase_rejects_insecure_traffic_settings(
         RATE_LIMIT_INCLUDE_CLIENT_IP=True,
         RATE_LIMIT_KEY_HMAC_SECRET="x" * 32,
         WITHDRAWAL_CODE_HMAC_SECRET="x" * 32,
+        GOOGLE_OAUTH_CLIENT_ID="production-google-client-id",
+        SURVEY_RESPONDENT_HMAC_SECRET="s" * 32,
         REDIS_URL="rediss://redis.example.com:6379/0",
         TRUSTED_PROXY_CIDRS=["198.51.100.0/24"],
         APP_ORIGIN="https://app.example.com",
@@ -166,6 +198,8 @@ def test_production_supabase_accepts_rediss_without_upstash() -> None:
         RATE_LIMIT_INCLUDE_CLIENT_IP=True,
         RATE_LIMIT_KEY_HMAC_SECRET="x" * 32,
         WITHDRAWAL_CODE_HMAC_SECRET="x" * 32,
+        GOOGLE_OAUTH_CLIENT_ID="production-google-client-id",
+        SURVEY_RESPONDENT_HMAC_SECRET="s" * 32,
         REDIS_URL="rediss://redis.example.com:6379/0",
         TRUSTED_PROXY_CIDRS=["198.51.100.0/24"],
         UPSTASH_REDIS_REST_URL=None,
@@ -197,6 +231,8 @@ def test_production_supabase_rejects_invalid_upstash_configuration(
         RATE_LIMIT_INCLUDE_CLIENT_IP=True,
         RATE_LIMIT_KEY_HMAC_SECRET="x" * 32,
         WITHDRAWAL_CODE_HMAC_SECRET="x" * 32,
+        GOOGLE_OAUTH_CLIENT_ID="production-google-client-id",
+        SURVEY_RESPONDENT_HMAC_SECRET="s" * 32,
         REDIS_URL="rediss://redis.example.com:6379/0",
         TRUSTED_PROXY_CIDRS=["198.51.100.0/24"],
         UPSTASH_REDIS_REST_URL=url,
@@ -219,6 +255,8 @@ def test_production_supabase_accepts_complete_https_upstash_configuration() -> N
         RATE_LIMIT_INCLUDE_CLIENT_IP=True,
         RATE_LIMIT_KEY_HMAC_SECRET="x" * 32,
         WITHDRAWAL_CODE_HMAC_SECRET="x" * 32,
+        GOOGLE_OAUTH_CLIENT_ID="production-google-client-id",
+        SURVEY_RESPONDENT_HMAC_SECRET="s" * 32,
         REDIS_URL="redis://redis:6379/0",
         TRUSTED_PROXY_CIDRS=["198.51.100.0/24"],
         UPSTASH_REDIS_REST_URL="https://example.upstash.io",
@@ -497,6 +535,306 @@ async def test_public_buckets_include_resolved_ip_when_enabled(monkeypatch) -> N
         ("public-read", ["ip:203.0.113.20", f"token:{token}"]),
         ("public-submit", ["ip:203.0.113.20", f"token:{token}"]),
     ]
+
+
+@pytest.mark.anyio
+async def test_authenticated_survey_limit_uses_one_subject_session_token_bucket(
+    monkeypatch,
+) -> None:
+    calls: list[tuple[str, list[str]]] = []
+
+    async def fake_enforce(policy, identifiers, **_kwargs) -> None:
+        calls.append((policy.name, list(identifiers)))
+
+    monkeypatch.setattr(rate_limit, "enforce_rate_limit", fake_enforce)
+
+    await rate_limit.enforce_authenticated_survey_rate_limit(
+        "public-read",
+        auth_user_id="subject-a",
+        session_id="session-a",
+        token="survey-token",
+    )
+
+    assert calls == [
+        (
+            "public-read",
+            ["subject:subject-a:session:session-a:token:survey-token"],
+        ),
+        ("public-read-global", ["public-read-global"]),
+    ]
+
+
+@pytest.mark.anyio
+async def test_authenticated_survey_budgets_are_distinct_by_subject_and_session(
+    monkeypatch,
+) -> None:
+    class CountingRedis:
+        def __init__(self) -> None:
+            self.counts: dict[str, int] = {}
+
+        async def eval(self, *_args: object) -> list[int]:
+            key = str(_args[2])
+            limit = int(str(_args[4]))
+            count = self.counts.get(key, 0) + 1
+            self.counts[key] = count
+            return [int(count <= limit), count, 60]
+
+    monkeypatch.setattr(rate_limit.settings, "RATE_LIMIT_ENABLED", True)
+    monkeypatch.setattr(rate_limit.settings, "PUBLIC_SURVEY_READ_LIMIT", 2)
+    monkeypatch.setattr(rate_limit.settings, "PUBLIC_SURVEY_READ_GLOBAL_LIMIT", 100)
+    limiter = FixedWindowRateLimiter(
+        CountingRedis(),
+        secret="x" * 32,
+        settings_obj=rate_limit.settings,
+    )
+    monkeypatch.setattr(rate_limit, "get_rate_limiter", lambda: limiter)
+
+    for _ in range(2):
+        await rate_limit.enforce_authenticated_survey_rate_limit(
+            "public-read",
+            auth_user_id="subject-a",
+            session_id="session-a",
+            token="survey-token",
+        )
+
+    with pytest.raises(RateLimitExceeded):
+        await rate_limit.enforce_authenticated_survey_rate_limit(
+            "public-read",
+            auth_user_id="subject-a",
+            session_id="session-a",
+            token="survey-token",
+        )
+
+    await rate_limit.enforce_authenticated_survey_rate_limit(
+        "public-read",
+        auth_user_id="subject-a",
+        session_id="session-b",
+        token="survey-token",
+    )
+    await rate_limit.enforce_authenticated_survey_rate_limit(
+        "public-read",
+        auth_user_id="subject-b",
+        session_id="session-b",
+        token="survey-token",
+    )
+
+
+@pytest.mark.anyio
+async def test_normalized_identifier_limits_do_not_use_shared_peer_and_have_global_breaker(
+    monkeypatch,
+) -> None:
+    calls: list[tuple[str, list[str]]] = []
+
+    async def fake_enforce(policy, identifiers, **_kwargs) -> None:
+        calls.append((policy.name, list(identifiers)))
+
+    monkeypatch.setattr(rate_limit, "enforce_rate_limit", fake_enforce)
+
+    await rate_limit.enforce_identifier_rate_limit("login", "identifier:alice@example.com")
+
+    assert calls == [
+        ("login", ["identifier:alice@example.com"]),
+        ("login-global", ["login-global"]),
+    ]
+
+
+@pytest.mark.anyio
+async def test_new_rate_limit_buckets_fail_closed_when_redis_is_unavailable(monkeypatch) -> None:
+    monkeypatch.setattr(rate_limit.settings, "RATE_LIMIT_ENABLED", True)
+    limiter = FixedWindowRateLimiter(
+        FakeRedis(ConnectionError("redis unavailable")),
+        secret="x" * 32,
+        settings_obj=rate_limit.settings,
+    )
+    monkeypatch.setattr(rate_limit, "get_rate_limiter", lambda: limiter)
+
+    with pytest.raises(RedisUnavailableError):
+        await rate_limit.enforce_authenticated_survey_rate_limit(
+            "public-submit",
+            auth_user_id="subject-a",
+            session_id="session-a",
+            token="survey-token",
+        )
+
+    with pytest.raises(RedisUnavailableError):
+        await rate_limit.enforce_identifier_rate_limit(
+            "password-recovery", "email:alice@example.com"
+        )
+
+
+@pytest.mark.anyio
+async def test_unauthenticated_survey_failure_does_not_consume_authenticated_capacity(
+    client, monkeypatch
+) -> None:
+    async def reject_respondent() -> None:
+        from core.exceptions import AppError
+
+        raise AppError("Authentication required.", status_code=401)
+
+    app.dependency_overrides[get_google_survey_respondent] = reject_respondent
+    monkeypatch.setattr(rate_limit.settings, "RATE_LIMIT_ENABLED", True)
+    redis = FakeRedis([1, 1, 1])
+    limiter = FixedWindowRateLimiter(
+        redis,
+        secret="x" * 32,
+        settings_obj=rate_limit.settings,
+    )
+    monkeypatch.setattr(rate_limit, "get_rate_limiter", lambda: limiter)
+
+    response = await client.get(
+        "/api/v1/survey/known-token",
+        headers={"X-Forwarded-For": "203.0.113.20"},
+    )
+    submit_response = await client.post(
+        "/api/v1/survey/known-token/respond",
+        json={
+            "answers": {},
+            "consent": {"accepted": True, "version": "test"},
+            "withdrawal_code": "A" * 43,
+        },
+        headers={
+            "X-Forwarded-For": "203.0.113.20",
+            "Idempotency-Key": "00000000-0000-0000-0000-000000000401",
+        },
+    )
+
+    assert response.status_code == 401
+    assert submit_response.status_code == 401
+    assert redis.calls == []
+
+
+@pytest.mark.anyio
+async def test_login_and_recovery_use_normalized_identity_without_shared_peer_bucket(
+    client, monkeypatch
+) -> None:
+    calls: list[tuple[str, str]] = []
+
+    async def capture(policy_name: str, identifier: str) -> None:
+        calls.append((policy_name, identifier))
+
+    monkeypatch.setattr(auth_router, "enforce_identifier_rate_limit", capture)
+
+    async def no_audit(*_args, **_kwargs) -> None:
+        return None
+
+    monkeypatch.setattr(auth_router, "commit_with_audit", no_audit)
+
+    async def fake_authenticate(*_args) -> tuple[object, dict[str, object]]:
+        from models.user import User
+
+        return (
+            User(
+                id="00000000-0000-0000-0000-000000000301",
+                user_id="USER-RATE-LIMIT",
+                auth_user_id="00000000-0000-0000-0000-000000000302",
+                email="alice@example.com",
+                username="alice",
+                first_name="Alice",
+                last_name="Example",
+            ),
+            {
+                "access_token": "access",
+                "refresh_token": "refresh",
+                "expires_in": 3600,
+                "token_type": "bearer",
+            },
+        )
+
+    monkeypatch.setattr(auth_router.auth_service, "authenticate", fake_authenticate)
+
+    async def fake_recovery(*_args) -> None:
+        return None
+
+    monkeypatch.setattr(auth_router, "send_recovery_email", fake_recovery)
+    peer_headers = {"X-Forwarded-For": "203.0.113.20"}
+
+    login_response = await client.post(
+        "/api/v1/auth/login",
+        json={"identifier": " Alice@Example.com ", "password": "password"},
+        headers=peer_headers,
+    )
+    recovery_response = await client.post(
+        "/api/v1/auth/password/recover",
+        json={"email": " Bob@Example.com "},
+        headers=peer_headers,
+    )
+
+    assert login_response.status_code == 200
+    assert recovery_response.status_code == 200
+    assert calls == [
+        ("login", "identifier:alice@example.com"),
+        ("password-recovery", "email:bob@example.com"),
+    ]
+
+
+@pytest.mark.anyio
+async def test_google_attestation_bucket_uses_only_verified_subject_and_session(
+    monkeypatch,
+) -> None:
+    calls: list[tuple[str, list[str]]] = []
+
+    async def fake_enforce(policy, identifiers, **_kwargs) -> None:
+        calls.append((policy.name, list(identifiers)))
+
+    monkeypatch.setattr(rate_limit, "enforce_rate_limit", fake_enforce)
+    monkeypatch.setattr(rate_limit.settings, "RATE_LIMIT_INCLUDE_CLIENT_IP", True)
+    monkeypatch.setattr(rate_limit.settings, "TRUSTED_PROXY_CIDRS", ["10.0.0.0/8"])
+    request = Request(_scope("10.0.0.3", "203.0.113.20, 10.0.0.2"))
+
+    await rate_limit.check_google_survey_attestation(
+        request,
+        subject="00000000-0000-0000-0000-000000000101",
+        session_id="00000000-0000-0000-0000-000000000102",
+    )
+
+    assert calls == [
+        (
+            "google-survey-attest",
+            [
+                "subject:00000000-0000-0000-0000-000000000101",
+                "session:00000000-0000-0000-0000-000000000102",
+            ],
+        )
+    ]
+
+
+@pytest.mark.anyio
+async def test_repeated_google_attestation_identity_is_limited_by_policy(monkeypatch) -> None:
+    class CountingRedis:
+        def __init__(self) -> None:
+            self.counts: dict[str, int] = {}
+
+        async def eval(self, *_args: object) -> list[int]:
+            key = str(_args[2])
+            limit = int(str(_args[4]))
+            count = self.counts.get(key, 0) + 1
+            self.counts[key] = count
+            return [int(count <= limit), count, 60]
+
+    monkeypatch.setattr(rate_limit.settings, "RATE_LIMIT_ENABLED", True)
+    monkeypatch.setattr(rate_limit.settings, "RATE_LIMIT_INCLUDE_CLIENT_IP", True)
+    monkeypatch.setattr(rate_limit.settings, "GOOGLE_SURVEY_ATTEST_RATE_LIMIT", 2)
+    limiter = FixedWindowRateLimiter(
+        CountingRedis(),
+        secret="x" * 32,
+        settings_obj=rate_limit.settings,
+    )
+    monkeypatch.setattr(rate_limit, "get_rate_limiter", lambda: limiter)
+    request = Request(_scope("10.0.0.3", "203.0.113.20, 10.0.0.2"))
+
+    for _ in range(2):
+        await rate_limit.check_google_survey_attestation(
+            request,
+            subject="00000000-0000-0000-0000-000000000101",
+            session_id="00000000-0000-0000-0000-000000000102",
+        )
+
+    with pytest.raises(RateLimitExceeded):
+        await rate_limit.check_google_survey_attestation(
+            request,
+            subject="00000000-0000-0000-0000-000000000101",
+            session_id="00000000-0000-0000-0000-000000000102",
+        )
 
 
 @pytest.mark.anyio

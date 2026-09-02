@@ -9,6 +9,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from core.config import settings
 from models import (  # noqa: F401
     AuditLog,
+    GoogleSurveyAuthProof,
     Permission,
     ResponseErasureReceipt,
     Role,

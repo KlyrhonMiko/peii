@@ -1,7 +1,7 @@
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import JSON, Column, ForeignKeyConstraint, UniqueConstraint
+from sqlalchemy import JSON, CheckConstraint, Column, ForeignKeyConstraint, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlmodel import Field
 
@@ -29,6 +29,24 @@ class SurveyResponse(BaseModel, table=True):
             "withdrawal_credential_digest",
             name="uq_survey_responses_survey_withdrawal_digest",
         ),
+        UniqueConstraint(
+            "survey_id",
+            "respondent_key_digest",
+            name="uq_survey_responses_survey_respondent_key",
+        ),
+        CheckConstraint(
+            "(respondent_key_digest IS NULL AND provider IS NULL AND auth_user_id IS NULL "
+            "AND email IS NULL AND display_name IS NULL AND email_verified IS NULL "
+            "AND identity_captured_at IS NULL) "
+            "OR (respondent_key_digest IS NOT NULL AND provider = 'google' "
+            "AND auth_user_id IS NOT NULL AND email IS NOT NULL AND email_verified IS TRUE "
+            "AND identity_captured_at IS NOT NULL) "
+            "OR (is_deleted IS TRUE AND respondent_key_digest IS NOT NULL "
+            "AND provider IS NULL AND auth_user_id IS NULL AND email IS NULL "
+            "AND display_name IS NULL AND email_verified IS NULL "
+            "AND identity_captured_at IS NULL)",
+            name="ck_survey_responses_identity_snapshot_coherent",
+        ),
     )
 
     survey_id: UUID = Field(foreign_key="surveys.id", index=True, nullable=False)
@@ -48,6 +66,18 @@ class SurveyResponse(BaseModel, table=True):
         index=True,
         nullable=True,
     )
+    provider: str | None = Field(default=None, max_length=32, nullable=True)
+    auth_user_id: UUID | None = Field(default=None, index=True, nullable=True)
+    respondent_key_digest: str | None = Field(
+        default=None,
+        max_length=64,
+        index=True,
+        nullable=True,
+    )
+    email: str | None = Field(default=None, max_length=320, nullable=True)
+    display_name: str | None = Field(default=None, max_length=255, nullable=True)
+    email_verified: bool | None = Field(default=None, nullable=True)
+    identity_captured_at: datetime | None = Field(default=None, nullable=True)
     consent_notice_snapshot: dict[str, object] | None = Field(
         default=None,
         sa_column=Column(JSON().with_variant(JSONB, "postgresql"), nullable=True),

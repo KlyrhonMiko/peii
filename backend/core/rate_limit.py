@@ -238,10 +238,21 @@ def rate_limit_policy(name: str) -> RateLimitPolicy:
             settings.PUBLIC_SURVEY_READ_WINDOW_SECONDS,
             True,
         ),
+        "public-read-global": RateLimitPolicy(
+            name,
+            settings.PUBLIC_SURVEY_READ_GLOBAL_LIMIT,
+            settings.PUBLIC_SURVEY_READ_GLOBAL_WINDOW_SECONDS,
+            True,
+        ),
         "public-submit": RateLimitPolicy(
             name,
             settings.PUBLIC_SURVEY_SUBMIT_LIMIT,
             settings.PUBLIC_SURVEY_SUBMIT_WINDOW_SECONDS,
+        ),
+        "public-submit-global": RateLimitPolicy(
+            name,
+            settings.PUBLIC_SURVEY_SUBMIT_GLOBAL_LIMIT,
+            settings.PUBLIC_SURVEY_SUBMIT_GLOBAL_WINDOW_SECONDS,
         ),
         "public-withdrawal-client": RateLimitPolicy(
             name,
@@ -256,10 +267,23 @@ def rate_limit_policy(name: str) -> RateLimitPolicy:
         "login": RateLimitPolicy(
             name, settings.LOGIN_RATE_LIMIT, settings.LOGIN_RATE_WINDOW_SECONDS
         ),
+        "login-global": RateLimitPolicy(
+            name, settings.LOGIN_GLOBAL_LIMIT, settings.LOGIN_GLOBAL_WINDOW_SECONDS
+        ),
         "password-recovery": RateLimitPolicy(
             name,
             settings.PASSWORD_RECOVERY_RATE_LIMIT,
             settings.PASSWORD_RECOVERY_RATE_WINDOW_SECONDS,
+        ),
+        "password-recovery-global": RateLimitPolicy(
+            name,
+            settings.PASSWORD_RECOVERY_GLOBAL_LIMIT,
+            settings.PASSWORD_RECOVERY_GLOBAL_WINDOW_SECONDS,
+        ),
+        "google-survey-attest": RateLimitPolicy(
+            name,
+            settings.GOOGLE_SURVEY_ATTEST_RATE_LIMIT,
+            settings.GOOGLE_SURVEY_ATTEST_RATE_WINDOW_SECONDS,
         ),
     }
     try:
@@ -298,6 +322,48 @@ async def enforce_rate_limit(
         window_seconds=policy.window_seconds,
         read_only=policy.read_only,
         read_failure_policy=read_failure_policy,
+    )
+
+
+async def enforce_identifier_rate_limit(policy_name: str, identifier: str) -> None:
+    """Apply an identity bucket and a separate, materially higher global breaker."""
+    await enforce_rate_limit(rate_limit_policy(policy_name), [identifier])
+    await enforce_rate_limit(
+        rate_limit_policy(f"{policy_name}-global"), [f"{policy_name}-global"]
+    )
+
+
+async def enforce_authenticated_survey_rate_limit(
+    policy_name: str,
+    auth_user_id: object,
+    session_id: object,
+    token: str,
+) -> None:
+    """Apply a verified respondent/session/token bucket and a global breaker."""
+    identifier = f"subject:{auth_user_id}:session:{session_id}:token:{token}"
+    await enforce_rate_limit(
+        rate_limit_policy(policy_name),
+        [identifier],
+    )
+    await enforce_rate_limit(
+        rate_limit_policy(f"{policy_name}-global"), [f"{policy_name}-global"]
+    )
+
+
+async def check_google_survey_attestation(
+    request: Request,
+    *,
+    subject: object,
+    session_id: object | None,
+) -> None:
+    """Rate-limit an attestation by verified Supabase subject and session only."""
+    identifiers = [
+        f"subject:{subject}",
+        f"session:{session_id or 'missing'}",
+    ]
+    await enforce_rate_limit(
+        rate_limit_policy("google-survey-attest"),
+        identifiers,
     )
 
 

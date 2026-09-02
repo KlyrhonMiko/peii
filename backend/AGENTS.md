@@ -37,7 +37,8 @@ Read this file first, then the guide closest to the files you are changing.
 - `core/config.py` loads the repo-root `.env` with Pydantic settings. Core application settings
   fail fast when missing; traffic-security and public-policy settings have local-safe defaults,
   but production must explicitly set the required Redis, rate-limit, trusted-proxy, request-size,
-  and approved consent values documented in `docs/production-decisions.md`.
+  Google survey respondent-auth, and approved consent values documented in
+  `docs/production-decisions.md`.
 - Keep `.env.example` aligned whenever backend config keys, modes, or expected formats change.
 - Database selection is environment-driven:
   - `DB_MODE=local` uses `LOCAL_DATABASE_URL`.
@@ -55,6 +56,10 @@ Read this file first, then the guide closest to the files you are changing.
   `RATE_LIMIT_READ_FAILURE_POLICY=fail_closed`, a nonempty list of valid `TRUSTED_PROXY_CIDRS`,
   and either a secure HTTPS Upstash REST URL/token pair or a `rediss://` Redis URL. The CIDRs
   must be the verified immediate proxy networks; broad RFC1918 ranges are not production-ready.
+- Google respondent authentication uses `GOOGLE_OAUTH_CLIENT_ID`, the dedicated
+  `SURVEY_RESPONDENT_HMAC_SECRET` (random, at least 32 bytes, stable for survey lifetimes),
+  `SURVEY_GOOGLE_SESSION_MAX_AGE_SECONDS` (default 300, production maximum 3,600), and
+  `GOOGLE_SURVEY_ATTEST_RATE_LIMIT=5` with `GOOGLE_SURVEY_ATTEST_RATE_WINDOW_SECONDS=60`.
 - `CSV_EXPORT_ENABLED` is a server-side release flag. Keep it false for the initial online
   deployment; enabling export also requires the existing `survey_responses.export` capability.
 - `BACKEND_CORS_ORIGINS` is parsed as a list by settings. Keep examples valid for Pydantic.
@@ -129,8 +134,11 @@ Read this file first, then the guide closest to the files you are changing.
 - `core.deps.CurrentPrincipal` resolves the local user and effective roles/permissions.
 - Use `require_permissions(...)` for capability-gated routes. Survey access is global RBAC:
   authentication alone is not authorization. Survey authorization is global RBAC. Keep
-  `surveys.read`, `surveys.manage`, distribution management, aggregate reads, raw
-  reads, export, and erase as separate capabilities.
+  `surveys.read`, `surveys.manage`, distribution management, aggregate reads, raw reads,
+  identity reads, export, and erase as separate capabilities. The Google-authenticated survey
+  GET and submit flow requires a dedicated respondent session and backend proof; the portal
+  remains password/invite/recovery based and rejects OAuth sessions. Public withdrawal remains
+  direct and code-only.
 - Phase 3 response routes live in `routers/survey_public.py`, `routers/survey_responses.py`, and
   `routers/survey_analytics.py`; retention and export behavior belongs to the corresponding
   services. `scripts/purge_expired_responses.py` is an externally scheduled operational command,
@@ -149,7 +157,7 @@ Read this file first, then the guide closest to the files you are changing.
 - Add a new revision for new schema work. Do not rewrite older shared or applied revisions.
 - The database uses the canonical first-release baseline `20260825_v1`, followed by
   `f77a807cf2f9_expand_distribution_security`, `d1f9bad768ad`, the Phase 3 `fb1c93d15474`
-  revision, `2bf09a6bc738`, and `d5a4f7c91e2b`. `d5a4f7c91e2b` is the current migration head. Fresh environments
+  revision, `2bf09a6bc738`, `d5a4f7c91e2b`, and `a8055c9859f5`. `a8055c9859f5` is the current migration head. Fresh environments
   must run `./.venv/bin/alembic upgrade head`; production runs it once as the protected release
   job before API replicas are promoted.
 - Historically, the `f77a807cf2f9` compatibility revision added SHA-256 token digests and
@@ -169,6 +177,11 @@ Read this file first, then the guide closest to the files you are changing.
   identities retain owner-or-BYPASSRLS access plus effective CRUD privileges. It is policy-free,
   validates its ACL/RLS postconditions, and has a fail-closed irreversible downgrade. Production
   must verify this lockdown during the one-time release migration.
+- The `a8055c9859f5` revision adds short-lived Google survey auth proofs, nullable
+  legacy-compatible response identity snapshots, survey-scoped dedupe uniqueness, and
+  `survey_responses.read_identity`, with proof-table ACL/RLS lockdown. Admin and the default
+  researcher receive identity permission; staff does not. Raw, aggregate, and CSV contracts
+  remain identity-free, and the identity endpoint requires both raw and identity permission.
 - Keep model, schema, service/router contract, tests, and migration files in sync when one feature touches all of them.
 
 ## Testing Standards
