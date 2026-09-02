@@ -19,8 +19,6 @@ export function SurveyEditorModal({ store }: SurveyEditorModalProps) {
     saving,
     saveError,
     surveyTitle,
-    targetCohort,
-    cohortOpen,
     surveyStatus,
     statusOpen,
     surveyDescription,
@@ -36,8 +34,6 @@ export function SurveyEditorModal({ store }: SurveyEditorModalProps) {
     handleCloseModal,
     handleSaveSurvey,
     setSurveyTitle,
-    setTargetCohort,
-    setCohortOpen,
     setSurveyStatus,
     setStatusOpen,
     setSurveyDescription,
@@ -81,10 +77,6 @@ export function SurveyEditorModal({ store }: SurveyEditorModalProps) {
           <SurveyEditorSidebar
             surveyTitle={surveyTitle}
             setSurveyTitle={setSurveyTitle}
-            targetCohort={targetCohort}
-            setTargetCohort={setTargetCohort}
-            cohortOpen={cohortOpen}
-            setCohortOpen={setCohortOpen}
             surveyStatus={surveyStatus}
             setSurveyStatus={setSurveyStatus}
             statusOpen={statusOpen}

@@ -57,13 +57,7 @@ async def _create_active_survey_with_questions(client):
     )
     assert status_response.status_code == 200
 
-    dist_resp = await client.post(
-        f"/api/v1/surveys/{survey_uuid}/distributions/",
-        json={"expires_at": EXPIRY},
-    )
-    token = dist_resp.json()["data"]["token"]
-
-    return survey_uuid, token, question_response.json()["data"]["id"]
+    return survey_uuid, resp.json()["data"]["survey_id"], question_response.json()["data"]["id"]
 
 
 async def _create_survey_with_question_specs(client, question_specs):
@@ -87,11 +81,7 @@ async def _create_survey_with_question_specs(client, question_specs):
         f"/api/v1/surveys/{survey['survey_id']}", json={"status": "Active"}
     )
     assert activated.status_code == 200
-    distribution = await client.post(
-        f"/api/v1/surveys/{survey['id']}/distributions/", json={"expires_at": EXPIRY}
-    )
-    assert distribution.status_code == 201
-    return survey, question_ids, distribution.json()["data"]["token"]
+    return survey, question_ids, survey["survey_id"]
 
 
 def _override_permissions(*permissions: str) -> None:
@@ -359,13 +349,8 @@ async def test_required_whitespace_answer_is_rejected(client):
             json={"status": "Active"},
         )
     ).status_code == 200
-    distribution = await client.post(
-        f"/api/v1/surveys/{survey_uuid}/distributions/",
-        json={"expires_at": EXPIRY},
-    )
-
     response = await client.post(
-        f"/api/v1/survey/{distribution.json()['data']['token']}/respond",
+        f"/api/v1/survey/{survey_response.json()['data']['survey_id']}/respond",
         json={
             "answers": {question_id: "   "},
             "consent": _consent(),
@@ -376,82 +361,13 @@ async def test_required_whitespace_answer_is_rejected(client):
     assert response.status_code == 422
 
 
-async def test_invalid_token_returns_404(client):
-    resp = await client.get("/api/v1/survey/invalid-token-123")
+async def test_invalid_business_id_returns_404(client):
+    resp = await client.get("/api/v1/survey/SURV-INVALID123")
     assert resp.status_code == 404
     body = resp.json()
     assert body["data"] is None
     assert "request_id" in body["meta"]
 
-
-async def test_revoked_token_rejects_read_and_submit(client):
-    survey_uuid, token, question_id = await _create_active_survey_with_questions(client)
-    distribution = await client.get(f"/api/v1/surveys/{survey_uuid}/distributions/")
-    distribution_id = distribution.json()["data"][0]["id"]
-    await client.request("DELETE", f"/api/v1/surveys/{survey_uuid}/distributions/{distribution_id}")
-
-    get_response = await client.get(f"/api/v1/survey/{token}")
-    post_response = await client.post(
-        f"/api/v1/survey/{token}/respond",
-        json={
-            "answers": {question_id: "Full-Time"},
-            "consent": _consent(),
-            "withdrawal_code": WITHDRAWAL_CODE,
-        },
-        headers={"Idempotency-Key": IDEMPOTENCY_KEY},
-    )
-    assert get_response.status_code == 404
-    assert post_response.status_code == 404
-    assert post_response.json()["data"] is None
-
-
-async def test_expired_token_rejects_public_access(client, monkeypatch):
-    survey_response = await client.post(
-        "/api/v1/surveys/",
-        json={"title": "Expired Survey"},
-    )
-    survey_uuid = survey_response.json()["data"]["id"]
-    section_response = await client.post(
-        f"/api/v1/surveys/{survey_uuid}/sections/", json={"title": "Main"}
-    )
-    question_response = await client.post(
-        f"/api/v1/surveys/{survey_uuid}/questions/",
-        json={
-            "question_text": "Status",
-            "question_type": "text",
-            "section_id": section_response.json()["data"]["id"],
-        },
-    )
-    assert (
-        await client.patch(
-            f"/api/v1/surveys/{survey_response.json()['data']['survey_id']}",
-            json={"status": "Active"},
-        )
-    ).status_code == 200
-    distribution_response = await client.post(
-        f"/api/v1/surveys/{survey_uuid}/distributions/",
-        json={"expires_at": EXPIRY},
-    )
-    token = distribution_response.json()["data"]["token"]
-
-    from datetime import datetime
-
-    from services import distribution_service
-
-    monkeypatch.setattr(distribution_service, "utc_now", lambda: datetime(2100, 1, 1))
-
-    response = await client.get(f"/api/v1/survey/{token}")
-    assert response.status_code == 404
-    submit = await client.post(
-        f"/api/v1/survey/{token}/respond",
-        json={
-            "answers": {question_response.json()["data"]["id"]: "answer"},
-            "consent": _consent(),
-            "withdrawal_code": WITHDRAWAL_CODE,
-        },
-        headers={"Idempotency-Key": IDEMPOTENCY_KEY},
-    )
-    assert submit.status_code == 404
 
 
 async def test_response_routes_require_separate_permissions(client, csv_export_enabled):

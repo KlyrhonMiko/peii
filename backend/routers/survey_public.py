@@ -24,19 +24,19 @@ from schemas.survey_response import (
     SurveyResponseWithdrawalRequest,
     SurveyResponseWithdrawalResult,
 )
-from services import distribution_service, response_service, survey_consent
+from services import response_service, survey_consent
 
 router = APIRouter()
 
 
 @router.get(
-    "/{token}",
+    "/{survey_id}",
     response_model=APIResponse[PublicSurvey],
     summary="Get Public Survey",
-    description="Retrieve a survey by its distribution token for alumni to fill out.",
+    description="Retrieve a survey by its ID for alumni to fill out.",
 )
 async def get_public_survey(
-    token: str,
+    survey_id: str,
     session: AsyncDBSession,
     respondent: CurrentGoogleSurveyRespondent,
 ) -> APIResponse[PublicSurvey]:
@@ -44,27 +44,27 @@ async def get_public_survey(
         "public-read",
         respondent.auth_user_id,
         respondent.session_id,
-        token,
+        str(survey_id),
     )
-    distribution = await distribution_service.get_distribution_by_token(session, token)
-
     survey_result = await session.exec(
-        select(Survey).where(col(Survey.id) == distribution.survey_id)
+        select(Survey).where(col(Survey.survey_id) == survey_id, col(Survey.is_deleted).is_(False))
     )
     survey = survey_result.first()
-    if not survey:
-        raise AppError("Survey not found.", status_code=status.HTTP_404_NOT_FOUND)
+    if not survey or survey.status != "Active":
+        raise AppError("Survey not found or no longer active.", status_code=status.HTTP_404_NOT_FOUND)
 
     # Load sections with nested questions
     sections_result = await session.exec(
         select(SurveySection)
         .where(
-            col(SurveySection.survey_id) == distribution.survey_id,
+            col(SurveySection.survey_id) == survey.id,
             col(SurveySection.is_deleted).is_(False),
         )
         .order_by(col(SurveySection.order_index), col(SurveySection.id))
     )
     sections = list(sections_result.all())
+    if not sections:
+        raise AppError("Survey is not properly configured.", status_code=status.HTTP_404_NOT_FOUND)
 
     section_questions_by_section = []
     all_questions = {}
@@ -73,7 +73,7 @@ async def get_public_survey(
             select(SurveyQuestion)
             .where(
                 col(SurveyQuestion.section_id) == section.id,
-                col(SurveyQuestion.survey_id) == distribution.survey_id,
+                col(SurveyQuestion.survey_id) == survey.id,
                 col(SurveyQuestion.is_deleted).is_(False),
             )
             .order_by(col(SurveyQuestion.order_index), col(SurveyQuestion.id))
@@ -84,7 +84,7 @@ async def get_public_survey(
 
     phase_state = await response_service.get_public_survey_phase_state(
         session,
-        distribution.survey_id,
+        survey.id,
         all_questions,
         respondent,
     )
@@ -136,14 +136,14 @@ async def get_public_survey(
 
 
 @router.post(
-    "/{token}/respond",
+    "/{survey_id}/respond",
     response_model=APIResponse[SurveyResponseAcknowledgement],
     status_code=status.HTTP_201_CREATED,
     summary="Submit Survey Response",
-    description="Submit answers for a survey identified by distribution token.",
+    description="Submit answers for a survey identified by survey ID.",
 )
 async def submit_response(
-    token: str,
+    survey_id: str,
     payload: SurveyResponseSubmit,
     session: AsyncDBSession,
     http_response: Response,
@@ -154,7 +154,7 @@ async def submit_response(
         "public-submit",
         respondent.auth_user_id,
         respondent.session_id,
-        token,
+        str(survey_id),
     )
     idempotency_key = None
     if idempotency_header is None:
@@ -172,7 +172,7 @@ async def submit_response(
 
     _response, replayed = await response_service.submit_response(
         session,
-        token,
+        str(survey_id),
         payload.answers,
         idempotency_key=idempotency_key,
         respondent=respondent,
@@ -189,14 +189,14 @@ async def submit_response(
 
 
 @router.patch(
-    "/{token}/respond",
+    "/{survey_id}/respond",
     response_model=APIResponse[SurveyResponseAcknowledgement],
     status_code=status.HTTP_200_OK,
     summary="Submit Survey Follow-up Response",
-    description="Submit phase 2 answers for a survey identified by distribution token.",
+    description="Submit phase 2 answers for a survey identified by survey ID.",
 )
 async def submit_phase2_response(
-    token: str,
+    survey_id: str,
     payload: SurveyResponsePhase2Submit,
     session: AsyncDBSession,
     respondent: CurrentGoogleSurveyRespondent,
@@ -206,7 +206,7 @@ async def submit_phase2_response(
         "public-submit",
         respondent.auth_user_id,
         respondent.session_id,
-        token,
+        str(survey_id),
     )
     if idempotency_header is None:
         raise AppError(
@@ -223,7 +223,7 @@ async def submit_phase2_response(
 
     _response, replayed = await response_service.submit_phase2_response(
         session,
-        token,
+        str(survey_id),
         payload.answers,
         idempotency_key=idempotency_key,
         respondent=respondent,

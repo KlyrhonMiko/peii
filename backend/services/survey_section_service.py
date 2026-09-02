@@ -12,7 +12,6 @@ from models.survey_section import SurveySection
 from schemas.survey_section import SurveySectionCreate, SurveySectionUpdate
 from services.audit_service import AuditEvent, commit_with_audit
 from services.base_service import apply_updates, utc_now
-from services.distribution_service import revoke_for_structure_change
 from services.survey_service import get_survey_for_structure_edit
 
 
@@ -96,9 +95,9 @@ async def create_section(
         performed_by=actor_id,
     )
     session.add(section)
-    events = await revoke_for_structure_change(
-        session, survey, performed_by=actor_id, ip_address=ip_address
-    )
+    survey.updated_at = utc_now()
+    session.add(survey)
+
     await commit_with_audit(
         session,
         [
@@ -109,7 +108,6 @@ async def create_section(
                 performed_by=actor_id,
                 ip_address=ip_address,
             ),
-            *events,
         ],
     )
     await session.refresh(section)
@@ -148,9 +146,9 @@ async def update_section(
     apply_updates(section, updates)
     section.performed_by = actor_id
     session.add(section)
-    revoke_events = await revoke_for_structure_change(
-        session, survey, performed_by=actor_id, ip_address=ip_address
-    )
+    survey.updated_at = utc_now()
+    session.add(survey)
+
     await commit_with_audit(
         session,
         [
@@ -162,7 +160,6 @@ async def update_section(
                 changes=changes,
                 ip_address=ip_address,
             ),
-            *revoke_events,
         ],
     )
     await session.refresh(section)
@@ -234,11 +231,8 @@ async def delete_section(
                 ip_address=ip_address,
             )
         )
-    events.extend(
-        await revoke_for_structure_change(
-            session, survey, performed_by=actor_id, ip_address=ip_address
-        )
-    )
+    survey.updated_at = now
+    session.add(survey)
     await commit_with_audit(session, events)
     await session.refresh(section)
     return section
@@ -296,12 +290,11 @@ async def reorder_sections(
         section.order_index = index
         if str(section.id) in changed_section_ids:
             section.performed_by = actor_id
-        session.add(section)
+            session.add(section)
 
-    revoke_events = await revoke_for_structure_change(
-        session, survey, performed_by=actor_id, ip_address=ip_address
-    )
-    await commit_with_audit(session, [*changes, *revoke_events])
+    survey.updated_at = utc_now()
+    session.add(survey)
+    await commit_with_audit(session, changes)
     for section in sections:
         await session.refresh(section)
     return sections

@@ -18,8 +18,11 @@ export interface SurveyGeneratePreviewModalProps {
 
 export function SurveyGeneratePreviewModal({ store }: SurveyGeneratePreviewModalProps) {
   const { state, actions } = store
-  const { showGeneratePreview, generating, interactionLocked } = state
+  const { showGeneratePreview, previewSurvey, generating, interactionLocked } = state
   const { setShowGeneratePreview, handleConfirmGenerate } = actions
+
+  const title = previewSurvey?.title || GRADUATE_TRACER_STUDY_SURVEY_TITLE
+  const sections = previewSurvey?.sections || GRADUATE_TRACER_STUDY_SURVEY.sections
 
   return (
     <Dialog
@@ -35,7 +38,7 @@ export function SurveyGeneratePreviewModal({ store }: SurveyGeneratePreviewModal
             </div>
             <div className="flex-1 min-w-0">
               <h2 className="text-xl font-medium tracking-tight text-slate-900 flex items-center gap-3">
-                {GRADUATE_TRACER_STUDY_SURVEY_TITLE}
+                {title}
                 <span className="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-0.5 text-[10px] font-bold text-slate-600 uppercase tracking-widest">Preview</span>
               </h2>
               <p className="text-sm text-slate-500 mt-1 max-w-xl leading-relaxed">
@@ -57,7 +60,7 @@ export function SurveyGeneratePreviewModal({ store }: SurveyGeneratePreviewModal
         {/* Body */}
         <div className="flex-1 overflow-y-auto px-10 py-8 bg-slate-50/30">
           <div className="grid gap-12 max-w-2xl mx-auto pb-12">
-            {GRADUATE_TRACER_STUDY_SURVEY.sections.map((sec, secIdx) => (
+            {sections.map((sec, secIdx) => (
               <div key={secIdx} className="space-y-6">
                 <div className="border-b border-slate-200 pb-4">
                   <h3 className="text-base font-semibold text-slate-900 tracking-tight flex items-center gap-3">
@@ -79,7 +82,7 @@ export function SurveyGeneratePreviewModal({ store }: SurveyGeneratePreviewModal
                        </span>
                        <div className="min-w-0 flex-1">
                          <p className="text-sm font-medium text-slate-800 leading-snug">
-                           {q.question_text}
+                           {'text' in q ? q.text : (q as unknown as ApiQuestion).question_text}
                          </p>
                          {q.config?.presentation === "dropdown" ? (
                            <Button
@@ -91,22 +94,22 @@ export function SurveyGeneratePreviewModal({ store }: SurveyGeneratePreviewModal
                              Select a degree program…
                              <ChevronDown className="size-4 text-slate-400" />
                            </Button>
-                         ) : q.question_type !== "scale" && q.options && q.options.length > 0 && (
+                         ) : ('type' in q ? q.type : (q as unknown as ApiQuestion).question_type) !== "scale" && q.options && q.options.length > 0 && (
                            <div className="mt-4 flex flex-col gap-3">
                              {q.options.map((opt, optIdx) => (
                                <label key={optIdx} className="flex items-center gap-3 cursor-pointer">
-                                 <div className={cn("size-4 border border-slate-300 bg-white shadow-sm", q.question_type === "multiple_choice" ? "rounded-[4px]" : "rounded-full")} />
+                                 <div className={cn("size-4 border border-slate-300 bg-white shadow-sm", ('type' in q ? q.type : (q as unknown as ApiQuestion).question_type) === "multiple_choice" ? "rounded-[4px]" : "rounded-full")} />
                                  <span className="text-sm text-slate-600">{opt}</span>
                                </label>
                              ))}
                            </div>
                          )}
-                         {q.question_type === "text" && (
+                         {('type' in q ? q.type : (q as unknown as ApiQuestion).question_type) === "text" && (
                            <div className="mt-4 h-10 w-full max-w-lg rounded-none border-b border-slate-300 bg-transparent flex items-center text-slate-400 text-sm">
                              Your answer...
                            </div>
                          )}
-                         {q.question_type === "scale" && (
+                         {('type' in q ? q.type : (q as unknown as ApiQuestion).question_type) === "scale" && (
                            <div className="mt-5 flex flex-wrap gap-x-8 gap-y-4">
                              {Array.from({ length: (q.config?.max || 5) - (q.config?.min || 1) + 1 }, (_, i) => {
                                const rating = (q.config?.min || 1) + i;
@@ -137,9 +140,9 @@ export function SurveyGeneratePreviewModal({ store }: SurveyGeneratePreviewModal
         {/* Footer */}
         <div className="flex shrink-0 items-center justify-between border-t border-slate-100 bg-white px-10 py-5">
           <div className="flex items-center gap-3 text-sm text-slate-500 font-medium">
-            <span className="flex items-center gap-2"><ClipboardList className="size-4 text-slate-400" /> {GRADUATE_TRACER_STUDY_SURVEY.sections.length} Sections</span>
+            <span className="flex items-center gap-2"><ClipboardList className="size-4 text-slate-400" /> {sections.length} Sections</span>
             <span className="text-slate-300">&bull;</span>
-            <span className="flex items-center gap-2"><ListChecks className="size-4 text-slate-400" /> {GRADUATE_TRACER_STUDY_SURVEY.sections.reduce((acc, s) => acc + s.questions.length, 0)} Questions</span>
+            <span className="flex items-center gap-2"><ListChecks className="size-4 text-slate-400" /> {sections.reduce((acc, s) => acc + s.questions.length, 0)} Questions</span>
           </div>
           <div className="flex gap-3">
             <Button

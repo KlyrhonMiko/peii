@@ -16,7 +16,6 @@ from schemas.survey_structure import (
 )
 from services.audit_service import AuditEvent, commit_with_audit
 from services.base_service import utc_now
-from services.distribution_service import revoke_for_structure_change
 from services.question_validation import validate_question_definition
 from services.survey_service import get_survey_for_structure_edit, structure_edit_conflict_error
 
@@ -372,17 +371,12 @@ async def replace_structure(
             session.add(question)
 
     if not changed:
+        survey_business_id = survey.survey_id
         await session.rollback()
+        survey.survey_id = survey_business_id
         return survey
 
-    events.extend(
-        await revoke_for_structure_change(
-            session,
-            survey,
-            performed_by=performed_by,
-            ip_address=ip_address,
-        )
-    )
+
     events.append(
         AuditEvent(
             action="update",
@@ -393,6 +387,8 @@ async def replace_structure(
             ip_address=ip_address,
         )
     )
+    survey.updated_at = utc_now()
+    session.add(survey)
     await commit_with_audit(session, events)
     await session.refresh(survey)
     return survey

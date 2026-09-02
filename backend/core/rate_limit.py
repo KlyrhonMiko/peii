@@ -337,10 +337,10 @@ async def enforce_authenticated_survey_rate_limit(
     policy_name: str,
     auth_user_id: object,
     session_id: object,
-    token: str,
+    survey_id: str,
 ) -> None:
-    """Apply a verified respondent/session/token bucket and a global breaker."""
-    identifier = f"subject:{auth_user_id}:session:{session_id}:token:{token}"
+    """Apply a verified respondent/session/survey bucket and a global breaker."""
+    identifier = f"subject:{auth_user_id}:session:{session_id}:survey:{survey_id}"
     await enforce_rate_limit(
         rate_limit_policy(policy_name),
         [identifier],
@@ -367,19 +367,19 @@ async def check_google_survey_attestation(
     )
 
 
-def _public_survey_identifiers(request: Any, token: str) -> list[str]:
-    return rate_limit_identifiers(f"token:{token}", request)
+def _public_survey_identifiers(request: Any, survey_id: str) -> list[str]:
+    return rate_limit_identifiers(f"survey:{survey_id}", request)
 
 
-async def check_public_survey_read(request: Request, token: str) -> None:
+async def check_public_survey_read(request: Request, survey_id: str) -> None:
     await enforce_rate_limit(
-        rate_limit_policy("public-read"), _public_survey_identifiers(request, token)
+        rate_limit_policy("public-read"), _public_survey_identifiers(request, survey_id)
     )
 
 
-async def check_public_survey_submit(request: Request, token: str) -> None:
+async def check_public_survey_submit(request: Request, survey_id: str) -> None:
     await enforce_rate_limit(
-        rate_limit_policy("public-submit"), _public_survey_identifiers(request, token)
+        rate_limit_policy("public-submit"), _public_survey_identifiers(request, survey_id)
     )
 
 

@@ -37,6 +37,7 @@ async def test_create_and_list_surveys(client):
         "status": None,
         "target_cohort": None,
         "search": None,
+        "is_template": None,
     }
 
 

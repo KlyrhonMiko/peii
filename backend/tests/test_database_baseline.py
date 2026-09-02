@@ -15,7 +15,6 @@ from models import (  # noqa: F401
     Role,
     RolePermission,
     Survey,
-    SurveyDistribution,
     SurveyQuestion,
     SurveyResponse,
     SurveySection,
@@ -39,7 +38,6 @@ CANONICAL_TABLES = {
     "surveys",
     "survey_sections",
     "survey_questions",
-    "survey_distributions",
     "survey_responses",
     "response_erasure_receipts",
 }

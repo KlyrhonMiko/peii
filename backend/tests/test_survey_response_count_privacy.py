@@ -54,15 +54,10 @@ async def _create_counted_survey(client, response_count: int) -> dict[str, str]:
         f"/api/v1/surveys/{survey['survey_id']}", json={"status": "Active"}
     )
     assert activated.status_code == 200
-    distribution_response = await client.post(
-        f"/api/v1/surveys/{survey['id']}/distributions/",
-        json={"expires_at": EXPIRY},
-    )
-    token = distribution_response.json()["data"]["token"]
     question_id = question_response.json()["data"]["id"]
     for _ in range(response_count):
         submitted = await client.post(
-            f"/api/v1/survey/{token}/respond",
+            f"/api/v1/survey/{survey['survey_id']}/respond",
             json={
                 "answers": {question_id: "answer"},
                 "consent": CONSENT,
@@ -145,7 +140,7 @@ async def test_create_update_archive_restore_and_structured_reads_are_projected(
     assert structured.status_code == 201
     assert structured.json()["data"]["responses_count"] is None
 
-    _override_permissions("surveys.manage", "survey_distributions.manage")
+    _override_permissions("surveys.manage")
     survey = await _create_counted_survey(client, 0)
     _override_permissions("surveys.manage")
     updated = await client.patch(

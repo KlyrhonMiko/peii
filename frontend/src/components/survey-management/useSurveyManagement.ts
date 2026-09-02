@@ -23,6 +23,7 @@ import type {
   SurveyResponseAggregate,
   SurveyResponseIdentity,
 } from "@/lib/surveys"
+import { toast } from "sonner"
 import { validateSurveyStructure } from "@/lib/survey-structure"
 
 import { createGraduateTracerStudySurveyPayload } from "./constants"
@@ -75,7 +76,6 @@ export function useSurveyManagement({ permissions, csvExportEnabled }: UseSurvey
   const [cohortOptions, setCohortOptions] = useState<string[]>([])
   const [pendingAction, setPendingAction] = useState<Exclude<PendingAction, null> | null>(null)
   const pendingActionRef = useRef<Exclude<PendingAction, null> | null>(null)
-  const [requestError, setRequestError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
   const [generating, setGenerating] = useState(false)
@@ -98,6 +98,7 @@ export function useSurveyManagement({ permissions, csvExportEnabled }: UseSurvey
     () => getSurveyRetentionState().retentionDays,
   )
   const [showGeneratePreview, setShowGeneratePreview] = useState(false)
+  const [previewSurvey, setPreviewSurvey] = useState<Survey | null>(null)
   const [distributeSurveyId, setDistributeSurveyId] = useState<string | null>(null)
   const [surveyResponses, setSurveyResponses] = useState<SurveyResponse[]>([])
   const [surveyResponseIdentities, setSurveyResponseIdentities] = useState<SurveyResponseIdentity[]>([])
@@ -116,13 +117,15 @@ export function useSurveyManagement({ permissions, csvExportEnabled }: UseSurvey
   const [selectedResponseIds, setSelectedResponseIdsState] = useState<string[]>([])
   const [responseAction, setResponseAction] = useState<"export" | "erase" | null>(null)
   const responseRequestRef = useRef(0)
+  const editingSurveyRef = useRef<Survey | null>(null)
+  const cachedTemplateRef = useRef<Survey | null>(null)
   const [dragItem, setDragItem] = useState<DragItem | null>(null)
   const deferredSearch = useDeferredValue(search)
 
   const editedSurvey = modalState?.type === "edit"
     ? surveys.find((survey) => survey.id === modalState.id)
     : undefined
-  const structureEditable = modalState?.type !== "edit" || editedSurvey?.status === "Inactive"
+  const structureEditable = modalState?.type !== "edit" || (modalState.type === "edit" && modalState.isTemplate) || editedSurvey?.status === "Inactive"
 
   const interactionLocked = loading || pendingAction !== null
   const pendingLabel = pendingAction?.type === "view"
@@ -133,10 +136,12 @@ export function useSurveyManagement({ permissions, csvExportEnabled }: UseSurvey
           ? "Generating questionnaire..."
           : pendingAction?.type === "save"
             ? "Saving survey..."
-                : pendingAction?.type === "delete"
-                  ? "Archiving survey..."
-                  : pendingAction?.type === "restore"
-                    ? "Restoring survey..."
+            : pendingAction?.type === "delete"
+              ? "Archiving survey..."
+              : pendingAction?.type === "restore"
+                ? "Restoring survey..."
+                : pendingAction?.type === "preview"
+                  ? "Loading preview..."
       : pendingAction?.type === "distribute"
         ? "Loading distribution..."
         : pendingAction?.type === "responses"
@@ -172,6 +177,7 @@ export function useSurveyManagement({ permissions, csvExportEnabled }: UseSurvey
           sortOrder,
           limit: 20,
           offset,
+          isTemplate: false,
         })
         if (!cancelled) {
           setSurveys(result.surveys)
@@ -182,7 +188,7 @@ export function useSurveyManagement({ permissions, csvExportEnabled }: UseSurvey
           ])).sort())
         }
       } catch (error) {
-        if (!cancelled) setRequestError(error instanceof Error ? error.message : "We could not load surveys.")
+        if (!cancelled) toast.error(error instanceof Error ? error.message : "We could not load surveys.")
       } finally {
         if (!cancelled) {
           setLoading(false)
@@ -207,14 +213,13 @@ export function useSurveyManagement({ permissions, csvExportEnabled }: UseSurvey
 
   const handleDelete = async (surveyId: string) => {
     if (!canManage) return
-    setRequestError(null)
     await runExclusive({ type: "delete", surveyId }, async () => {
       try {
         await deleteSurvey(surveyId)
         setSurveys((prev) => prev.filter((s) => s.surveyId !== surveyId))
         refreshListAfterCountChange(Math.max(0, totalSurveys - 1))
       } catch (error) {
-        setRequestError(error instanceof Error ? error.message : "We could not archive the survey.")
+        toast.error(error instanceof Error ? error.message : "We could not archive the survey.")
         throw error
       }
     })
@@ -222,7 +227,6 @@ export function useSurveyManagement({ permissions, csvExportEnabled }: UseSurvey
 
   const handleRestore = async (survey: Survey) => {
     if (!canManage) return
-    setRequestError(null)
     await runExclusive({ type: "restore", surveyId: survey.id }, async () => {
       try {
         const restored = await restoreSurvey(survey.surveyId)
@@ -234,7 +238,7 @@ export function useSurveyManagement({ permissions, csvExportEnabled }: UseSurvey
           setListRevision((revision) => revision + 1)
         }
       } catch (error) {
-        setRequestError(error instanceof Error ? error.message : "We could not restore the survey.")
+        toast.error(error instanceof Error ? error.message : "We could not restore the survey.")
       }
     })
   }
@@ -277,31 +281,69 @@ export function useSurveyManagement({ permissions, csvExportEnabled }: UseSurvey
     setTargetCohort("Class of 2024")
     setSurveyStatus("Inactive")
     setViewTab("questions")
+    editingSurveyRef.current = null
+    setPreviewSurvey(null)
   }
 
-  const handleOpenCreate = () => {
+  const getTemplateSurvey = async (): Promise<Survey | null> => {
+    if (cachedTemplateRef.current) return cachedTemplateRef.current
+    const templateSurveys = await fetchSurveys({ limit: 1, isTemplate: true })
+    const templateSurvey = templateSurveys.surveys[0]
+    if (!templateSurvey) return null
+    const fullTemplate = await fetchSurvey(templateSurvey.surveyId)
+    cachedTemplateRef.current = fullTemplate
+    return fullTemplate
+  }
+
+  const handleOpenTemplateEdit = async () => {
     if (!canManage || interactionLocked) return
-    setSurveyTitle("")
-    setSurveyDescription("")
-    const retention = getSurveyRetentionState()
-    setRetentionEnabled(retention.retentionEnabled)
-    setRetentionDays(retention.retentionDays)
-    setTargetCohort("Class of 2024")
-    setSurveyStatus("Inactive")
-    setSections([{
-      id: createClientId(),
-      title: "",
-      description: "",
-      orderIndex: 0,
-      questions: [],
-    }])
-    setModalState({ type: "create" })
+
+    await runExclusive({ type: "edit", surveyId: "template" }, async () => {
+      try {
+        let full = await getTemplateSurvey()
+
+        if (full && full.title === "Master Survey Template") {
+          const payload = createGraduateTracerStudySurveyPayload(createClientId)
+          await replaceSurveyStructure(full.id, {
+            sections: payload.sections,
+            cascade_section_ids: [],
+            expected_updated_at: full.updatedAt,
+          })
+          await updateSurvey(full.surveyId, {
+            title: payload.title,
+            description: payload.description,
+          })
+          full = await fetchSurvey(full.surveyId)
+          cachedTemplateRef.current = full
+        } else if (!full) {
+          full = await createSurveyWithStructure({
+            ...createGraduateTracerStudySurveyPayload(createClientId),
+            is_template: true,
+          })
+          cachedTemplateRef.current = full
+        }
+        
+        setSurveyTitle(full.title)
+        setSurveyDescription(full.description ?? "")
+        const retention = getSurveyRetentionState(full)
+        setRetentionEnabled(retention.retentionEnabled)
+        setRetentionDays(retention.retentionDays)
+        setTargetCohort(full.targetCohort ?? "Class of 2024")
+        setSurveyStatus(full.status)
+        const loaded = toEditorSections(full.sections ?? [])
+        setOriginalSections(loaded)
+        setSections(loaded)
+        editingSurveyRef.current = full
+        setModalState({ type: "edit", id: full.id, isTemplate: true })
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : "We could not load or create the survey template.")
+      }
+    })
   }
 
   const handleOpenView = async (id: string) => {
     const survey = surveys.find((s) => s.id === id)
     if (!survey) return
-    setRequestError(null)
     await runExclusive({ type: "view", surveyId: id }, async () => {
       try {
         const full = await fetchSurvey(survey.surveyId)
@@ -312,7 +354,7 @@ export function useSurveyManagement({ permissions, csvExportEnabled }: UseSurvey
         clearResponseState()
         setModalState({ type: "view", id })
       } catch (error) {
-        setRequestError(error instanceof Error ? error.message : "We could not load the survey.")
+        toast.error(error instanceof Error ? error.message : "We could not load the survey.")
       }
     })
   }
@@ -455,7 +497,7 @@ export function useSurveyManagement({ permissions, csvExportEnabled }: UseSurvey
       const message = "The exact response count is unavailable. Refresh the survey before erasing all responses."
       setAggregateError(message)
       setRawError(message)
-      setRequestError(message)
+      toast.error(message)
       return
     }
     const erasePayload = allPayload ?? {
@@ -496,7 +538,7 @@ export function useSurveyManagement({ permissions, csvExportEnabled }: UseSurvey
         }
         setAggregateError(message)
         setRawError(message)
-        if (scope === "all") setRequestError(message)
+        if (scope === "all") toast.error(message)
       }
     })
     setResponseAction(null)
@@ -506,7 +548,6 @@ export function useSurveyManagement({ permissions, csvExportEnabled }: UseSurvey
     if (!canManage) return
     const survey = surveys.find((s) => s.id === id)
     if (!survey) return
-    setRequestError(null)
     await runExclusive({ type: "edit", surveyId: id }, async () => {
       try {
         const full = await fetchSurvey(survey.surveyId)
@@ -521,31 +562,64 @@ export function useSurveyManagement({ permissions, csvExportEnabled }: UseSurvey
         const loaded = toEditorSections(full.sections ?? [])
         setOriginalSections(loaded)
         setSections(loaded)
+        editingSurveyRef.current = full
         setModalState({ type: "edit", id })
       } catch (error) {
-        setRequestError(error instanceof Error ? error.message : "We could not open the editor.")
+        toast.error(error instanceof Error ? error.message : "We could not open the editor.")
       }
     })
   }
 
-  const handleShowGeneratePreview = () => {
+  const handleShowGeneratePreview = async () => {
     if (!canManage || interactionLocked) return
-    setShowGeneratePreview(true)
+    await runExclusive({ type: "preview" }, async () => {
+      try {
+        const fullTemplate = await getTemplateSurvey()
+        setPreviewSurvey(fullTemplate)
+        setShowGeneratePreview(true)
+      } catch (_) {
+        toast.error("We could not load the preview.")
+      }
+    })
   }
 
   const handleConfirmGenerate = async () => {
     if (!canManage || generating || interactionLocked) return
-    setRequestError(null)
     await runExclusive({ type: "generate" }, async () => {
       setGenerating(true)
       try {
-        const created = await createSurveyWithStructure(
-          createGraduateTracerStudySurveyPayload(createClientId),
-        )
+        const fullTemplate = await getTemplateSurvey()
+
+        let payload;
+        if (fullTemplate) {
+          payload = {
+            title: fullTemplate.title,
+            description: fullTemplate.description,
+            target_cohort: fullTemplate.targetCohort,
+            status: "Inactive" as const,
+            sections: fullTemplate.sections?.map((s) => ({
+              client_id: createClientId(),
+              title: s.title,
+              description: s.description ?? null,
+              questions: s.questions.map((q) => ({
+                client_id: createClientId(),
+                question_text: q.text,
+                question_type: q.type,
+                options: q.options ?? null,
+                config: q.config ?? null,
+                is_required: q.isRequired ?? true,
+              })),
+            })) ?? [],
+          }
+        } else {
+          payload = createGraduateTracerStudySurveyPayload(createClientId)
+        }
+
+        const created = await createSurveyWithStructure(payload)
         setSurveys((prev) => [created, ...prev])
         setShowGeneratePreview(false)
       } catch (error) {
-        setRequestError(error instanceof Error ? error.message : "We could not generate the questionnaire.")
+        toast.error(error instanceof Error ? error.message : "We could not generate the questionnaire.")
       } finally {
         setGenerating(false)
       }
@@ -568,14 +642,16 @@ export function useSurveyManagement({ permissions, csvExportEnabled }: UseSurvey
       }
       if (surveyStatus === "Active") {
         if (sections.length === 0) {
-          setSaveError("Add at least one section before activating the survey.")
+          const msg = "Add at least one section before activating the survey."
+          setSaveError(msg)
+          toast.error(msg)
           return
         }
         const emptySection = sections.find((section) => section.questions.length === 0)
         if (emptySection) {
-          setSaveError(
-            `Section "${emptySection.title || "Untitled Section"}" must contain at least one question before activating.`,
-          )
+          const msg = `Section "${emptySection.title || "Untitled Section"}" must contain at least one question before activating.`
+          setSaveError(msg)
+          toast.error(msg)
           return
         }
       }
@@ -592,13 +668,15 @@ export function useSurveyManagement({ permissions, csvExportEnabled }: UseSurvey
         })
         setSurveys((prev) => [created, ...prev.filter((survey) => survey.id !== created.id)])
       } else if (modalState?.type === "edit") {
-        const target = surveys.find((s) => s.id === modalState.id)
-        if (!target) return
+        const target = editingSurveyRef.current
+        if (!target || target.id !== modalState.id) return
 
         const structureChanged = JSON.stringify(sections) !== JSON.stringify(originalSections)
         const structureEditable = target.status === "Inactive"
         if (structureChanged && !structureEditable) {
-          setSaveError("Only inactive surveys can have their structure edited. The backend will check for response conflicts when saving.")
+          const msg = "Only inactive surveys can have their structure edited. The backend will check for response conflicts when saving."
+          setSaveError(msg)
+          toast.error(msg)
           return
         }
 
@@ -615,8 +693,11 @@ export function useSurveyManagement({ permissions, csvExportEnabled }: UseSurvey
           setSections(savedSections)
           setOriginalSections(savedSections)
           setSurveys((prev) => prev.map((survey) => survey.id === saved.id ? saved : survey))
+          if (modalState.isTemplate) {
+            cachedTemplateRef.current = saved
+          }
         }
-        await updateSurvey(target.surveyId, {
+        const updated = await updateSurvey(target.surveyId, {
           title: surveyTitle,
           description: surveyDescription || null,
           target_cohort: targetCohort,
@@ -624,16 +705,24 @@ export function useSurveyManagement({ permissions, csvExportEnabled }: UseSurvey
           retention_enabled: retentionEnabled,
           retention_days: retentionDays,
         })
-        const refreshed = await fetchSurvey(target.surveyId)
-        setSurveys((prev) => prev.map((s) => (s.id === refreshed.id ? refreshed : s)))
+        
+        if (modalState.isTemplate && cachedTemplateRef.current) {
+          cachedTemplateRef.current = { ...cachedTemplateRef.current, ...updated }
+        }
+        
+        if (!modalState.isTemplate) {
+          const refreshed = await fetchSurvey(target.surveyId)
+          setSurveys((prev) => prev.map((s) => (s.id === refreshed.id ? refreshed : s)))
+        }
       }
+      toast.success(modalState?.type === "create" ? "Survey created successfully." : "Survey saved successfully.")
       handleCloseModal()
     } catch (error) {
-      setSaveError(
-        error instanceof Error
-          ? error.message
-          : "We could not save the survey. Please try again.",
-      )
+      const message = error instanceof Error
+        ? error.message
+        : "We could not save the survey. Please try again."
+      setSaveError(message)
+      toast.error(message)
     } finally {
       setSaving(false)
     }
@@ -649,7 +738,6 @@ export function useSurveyManagement({ permissions, csvExportEnabled }: UseSurvey
 
   const handleOpenDistribute = (surveyId: string) => {
     if (!canManageDistribution || interactionLocked) return
-    setRequestError(null)
     setDistributeSurveyId(surveyId)
   }
 
@@ -926,7 +1014,6 @@ export function useSurveyManagement({ permissions, csvExportEnabled }: UseSurvey
       totalSurveys,
       cohortOptions,
       pendingAction,
-      requestError,
       saving,
       saveError,
       generating,
@@ -944,6 +1031,7 @@ export function useSurveyManagement({ permissions, csvExportEnabled }: UseSurvey
       retentionEnabled,
       retentionDays,
       showGeneratePreview,
+      previewSurvey,
       distributeSurveyId,
       surveyResponses,
       surveyResponseIdentities,
@@ -982,7 +1070,7 @@ export function useSurveyManagement({ permissions, csvExportEnabled }: UseSurvey
       handleDelete,
       handleRestore,
       handleCloseModal,
-      handleOpenCreate,
+      handleOpenTemplateEdit,
       handleOpenView,
       handleViewResponses,
       handleLoadRawResponses,

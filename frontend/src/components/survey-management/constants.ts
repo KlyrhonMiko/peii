@@ -285,7 +285,7 @@ export const QUESTION_TYPES = [
   { value: "multiple_choice", label: "Multiple Choice", icon: ListChecks },
   { value: "text", label: "Text Response", icon: Type },
   { value: "number", label: "Number", icon: Hash },
-  { value: "scale", label: "Scale", icon: Star },
+  { value: "scale", label: "Scale (1-5)", icon: Star },
   { value: "ranking", label: "Ranking", icon: ArrowUpDown },
   { value: "matrix", label: "Matrix", icon: Table },
   { value: "datetime", label: "Date/Time", icon: Calendar },

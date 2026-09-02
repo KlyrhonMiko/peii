@@ -33,7 +33,6 @@ from schemas.survey_response import (
 from services import survey_consent
 from services.audit_service import AuditEvent, commit_with_audit
 from services.base_service import utc_now
-from services.distribution_service import get_distribution_and_survey_by_token
 from services.question_validation import (
     get_matrix_columns,
     get_scale_bounds,
@@ -397,7 +396,7 @@ async def _validate_answers(
 
 async def submit_response(
     session: AsyncSession,
-    token: str,
+    survey_id: str,
     answers: dict[str, object],
     actor_id: UUID,
     idempotency_key: UUID | None = None,
@@ -431,15 +430,19 @@ async def submit_response(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
         )
 
-    # Resolve the token reference without a lock, then acquire the survey's
-    # exclusive lock before locking and revalidating its distribution.
-    distribution, survey = await get_distribution_and_survey_by_token(
+    # Resolve the survey directly
+    survey = await resolve_survey(
         session,
-        token,
+        survey_id,
         for_update=True,
-        shared_lock=False,
     )
-    questions = await _load_active_questions(session, distribution.survey_id)
+    if survey.is_deleted or survey.status != "Active":
+        raise AppError(
+            "Survey not found or no longer active.", status_code=status.HTTP_404_NOT_FOUND
+        )
+    questions = await _load_active_questions(session, survey.id)
+    if not questions:
+        raise AppError("Survey is not properly configured.", status_code=status.HTTP_404_NOT_FOUND)
     question_phases = _get_question_phases(questions)
     if question_phases is not None:
         _validate_phase_answer_ids(
@@ -449,7 +452,7 @@ async def submit_response(
         )
 
     respondent_digest = (
-        respondent_key_digest(distribution.survey_id, respondent.subject_digest)
+        respondent_key_digest(survey.id, respondent.subject_digest)
         if respondent is not None
         else None
     )
@@ -462,14 +465,14 @@ async def submit_response(
         ).hexdigest()
         response_match_conditions = [
             (
-                col(SurveyResponse.distribution_id) == distribution.id,
+                col(SurveyResponse.survey_id) == survey.id,
                 col(SurveyResponse.idempotency_key) == idempotency_key,
             )
         ]
         if respondent_digest is not None:
             response_match_conditions.append(
                 (
-                    col(SurveyResponse.survey_id) == distribution.survey_id,
+                    col(SurveyResponse.survey_id) == survey.id,
                     col(SurveyResponse.respondent_key_digest) == respondent_digest,
                 )
             )
@@ -488,7 +491,7 @@ async def submit_response(
             if respondent is not None and not _response_identity_matches(
                 existing,
                 respondent,
-                respondent_key_digest(distribution.survey_id, respondent.subject_digest),
+                respondent_key_digest(survey.id, respondent.subject_digest),
             ):
                 raise AppError(
                     "Idempotency-Key was already used by a different respondent.",
@@ -557,16 +560,13 @@ async def submit_response(
                     errors={"code": "idempotency_conflict"},
                 )
 
-    if survey.is_deleted or survey.status != "Active":
-        raise AppError(
-            "Survey not found or no longer active.", status_code=status.HTTP_404_NOT_FOUND
-        )
+
 
     if idempotency_key is None and respondent_digest is not None:
         duplicate_result = await session.exec(
             select(SurveyResponse)
             .where(
-                col(SurveyResponse.survey_id) == distribution.survey_id,
+                col(SurveyResponse.survey_id) == survey.id,
                 col(SurveyResponse.respondent_key_digest) == respondent_digest,
             )
             .order_by(col(SurveyResponse.id))
@@ -591,7 +591,7 @@ async def submit_response(
 
     await _validate_answers(
         session,
-        distribution.survey_id,
+        survey.id,
         answers,
         questions=questions,
         expected_question_ids=(
@@ -603,8 +603,7 @@ async def submit_response(
 
     accepted_at = utc_now()
     response = SurveyResponse(
-        survey_id=distribution.survey_id,
-        distribution_id=distribution.id,
+        survey_id=survey.id,
         idempotency_key=idempotency_key,
         idempotency_hash=answers_hash,
         consent_version=consent_version,
@@ -665,7 +664,7 @@ async def submit_response(
                     resource_type="survey_response",
                     resource_id=str(response.id),
                     performed_by=actor_id,
-                    changes={"distribution_id": str(distribution.id)},
+                    changes=None,
                     ip_address=None,
                 ),
                 phase_one_event,
@@ -696,20 +695,23 @@ def _phase2_idempotency_hash(answers: dict[str, object]) -> str:
 
 async def submit_phase2_response(
     session: AsyncSession,
-    token: str,
+    survey_id: str,
     answers: dict[str, object],
     actor_id: UUID,
     idempotency_key: UUID,
     respondent: GoogleSurveyRespondent,
     ip_address: str | None = None,
 ) -> tuple[SurveyResponse, bool]:
-    distribution, survey = await get_distribution_and_survey_by_token(
+    survey = await resolve_survey(
         session,
-        token,
+        survey_id,
         for_update=True,
-        shared_lock=False,
     )
-    questions = await _load_active_questions(session, distribution.survey_id)
+    if survey.is_deleted or survey.status != "Active":
+        raise AppError(
+            "Survey not found or no longer active.", status_code=status.HTTP_404_NOT_FOUND
+        )
+    questions = await _load_active_questions(session, survey.id)
     question_phases = _get_question_phases(questions)
     if question_phases is None:
         raise AppError(
@@ -718,7 +720,7 @@ async def submit_phase2_response(
             errors={"code": "phase2_unavailable"},
         )
     phase2_ids = {question_id for question_id, phase in question_phases.items() if phase == 2}
-    _validate_phase_answer_ids(answers, questions, phase2_ids)
+    await _validate_answers(session, survey.id, answers, questions, phase2_ids)
 
     try:
         answers_json = json.dumps(answers, allow_nan=False)
@@ -733,12 +735,12 @@ async def submit_phase2_response(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
         )
     answers_hash = _phase2_idempotency_hash(answers)
-    respondent_digest = respondent_key_digest(distribution.survey_id, respondent.subject_digest)
+    respondent_digest = respondent_key_digest(survey.id, respondent.subject_digest)
 
     response_result = await session.exec(
         select(SurveyResponse)
         .where(
-            col(SurveyResponse.survey_id) == distribution.survey_id,
+            col(SurveyResponse.survey_id) == survey.id,
             or_(
                 col(SurveyResponse.respondent_key_digest) == respondent_digest,
                 col(SurveyResponse.idempotency_key) == idempotency_key,
@@ -804,7 +806,7 @@ async def submit_phase2_response(
 
     await _validate_answers(
         session,
-        distribution.survey_id,
+        survey.id,
         answers,
         questions=questions,
         expected_question_ids=phase2_ids,
@@ -829,7 +831,7 @@ async def submit_phase2_response(
                 resource_type="survey_response",
                 resource_id=str(matching_response.id),
                 performed_by=actor_id,
-                changes={"phase": 2, "submitted_at": submitted_at},
+                changes={"phase": 2},
                 ip_address=ip_address,
             )
         ],

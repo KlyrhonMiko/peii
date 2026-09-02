@@ -39,6 +39,7 @@ def get_survey_list_query_params(
     status_filter: SurveyStatus | None = Query(default=None, alias="status"),
     target_cohort: str | None = Query(default=None),
     search: str | None = Query(default=None, min_length=1),
+    is_template: bool | None = Query(default=None),
 ) -> SurveyListQueryParams:
     return SurveyListQueryParams(
         limit=limit,
@@ -49,6 +50,7 @@ def get_survey_list_query_params(
         status=status_filter,
         target_cohort=target_cohort,
         search=search.strip() if search else None,
+        is_template=is_template,
     )
 
 

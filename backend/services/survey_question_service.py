@@ -13,7 +13,6 @@ from models.survey_section import SurveySection
 from schemas.survey_question import SurveyQuestionCreate, SurveyQuestionUpdate
 from services.audit_service import AuditEvent, commit_with_audit
 from services.base_service import apply_updates, utc_now
-from services.distribution_service import revoke_for_structure_change
 from services.question_validation import validate_question_definition
 from services.survey_service import get_survey_for_structure_edit
 
@@ -130,9 +129,9 @@ async def create_question(
         performed_by=actor_id,
     )
     session.add(question)
-    revoke_events = await revoke_for_structure_change(
-        session, survey, performed_by=actor_id, ip_address=ip_address
-    )
+    survey.updated_at = utc_now()
+    session.add(survey)
+
     await commit_with_audit(
         session,
         [
@@ -143,7 +142,6 @@ async def create_question(
                 performed_by=actor_id,
                 ip_address=ip_address,
             ),
-            *revoke_events,
         ],
     )
     await session.refresh(question)
@@ -234,9 +232,9 @@ async def update_question(
     apply_updates(question, normalized_updates)
     question.performed_by = actor_id
     session.add(question)
-    revoke_events = await revoke_for_structure_change(
-        session, survey, performed_by=actor_id, ip_address=ip_address
-    )
+    survey.updated_at = utc_now()
+    session.add(survey)
+
     await commit_with_audit(
         session,
         [
@@ -248,7 +246,6 @@ async def update_question(
                 changes=changes,
                 ip_address=ip_address,
             ),
-            *revoke_events,
         ],
     )
     await session.refresh(question)
@@ -280,9 +277,9 @@ async def delete_question(
     question.performed_by = actor_id
     question.updated_at = now
     session.add(question)
-    revoke_events = await revoke_for_structure_change(
-        session, survey, performed_by=actor_id, ip_address=ip_address
-    )
+    survey.updated_at = now
+    session.add(survey)
+
     await commit_with_audit(
         session,
         [
@@ -293,7 +290,6 @@ async def delete_question(
                 performed_by=actor_id,
                 ip_address=ip_address,
             ),
-            *revoke_events,
         ],
     )
     await session.refresh(question)
@@ -384,12 +380,11 @@ async def reorder_questions(
         question.order_index = index
         if str(question.id) in changed_question_ids:
             question.performed_by = actor_id
-        session.add(question)
+            session.add(question)
 
-    revoke_events = await revoke_for_structure_change(
-        session, survey, performed_by=actor_id, ip_address=ip_address
-    )
-    await commit_with_audit(session, [*changes, *revoke_events])
+    survey.updated_at = utc_now()
+    session.add(survey)
+    await commit_with_audit(session, changes)
     for question in questions:
         await session.refresh(question)
     return questions

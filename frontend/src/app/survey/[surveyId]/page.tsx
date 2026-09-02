@@ -78,9 +78,9 @@ async function getSurvey(token: string, accessToken: string): Promise<SurveyLoad
 export default async function SurveyPage({
   params,
 }: {
-  params: Promise<{ alumniToken: string }>
+  params: Promise<{ surveyId: string }>
 }) {
-  const { alumniToken } = await params
+  const { surveyId } = await params
   let accessToken: string | null = null
   let userEmail: string | null = null
 
@@ -98,10 +98,10 @@ export default async function SurveyPage({
     accessToken = null
   }
 
-  if (!accessToken) return <SurveyAuthInterstitial token={alumniToken} />
+  if (!accessToken) return <SurveyAuthInterstitial token={surveyId} />
 
-  const result = await getSurvey(alumniToken, accessToken)
-  if (result.kind === "auth-required") return <SurveyAuthInterstitial token={alumniToken} />
+  const result = await getSurvey(surveyId, accessToken)
+  if (result.kind === "auth-required") return <SurveyAuthInterstitial token={surveyId} />
   if (result.kind === "completed") return <SurveyStateMessage state="completed" />
   if (result.kind === "withdrawn") return <SurveyStateMessage state="withdrawn" />
 
@@ -112,13 +112,13 @@ export default async function SurveyPage({
 
   return (
     <ClientSurveyForm
-      key={alumniToken}
+      key={surveyId}
       title={result.survey.title}
       description={result.survey.description}
       consent={result.survey.consent}
       sections={result.survey.sections}
       submissionPhase={result.survey.submission_phase}
-      token={alumniToken}
+      token={surveyId}
       userEmail={userEmail}
     />
   )

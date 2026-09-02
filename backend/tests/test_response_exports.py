@@ -40,11 +40,7 @@ async def _create_export_survey(client):
         f"/api/v1/surveys/{survey['survey_id']}", json={"status": "Active"}
     )
     assert activated.status_code == 200
-    distribution = await client.post(
-        f"/api/v1/surveys/{survey['id']}/distributions/",
-        json={"expires_at": (datetime.now(UTC) + timedelta(days=29)).isoformat()},
-    )
-    return survey, question.json()["data"]["id"], distribution.json()["data"]["token"]
+    return survey, question.json()["data"]["id"], survey["survey_id"]
 
 
 async def _submit(client, token: str, question_id: str, answer: str):

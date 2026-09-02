@@ -20,42 +20,7 @@ export function ScaleConfigEditor({
   return (
     <div className="mt-2 ml-9 pl-4 border-l-2 border-slate-100 py-1">
       <div className="space-y-3">
-        <div className="flex items-center gap-4">
-          <div className="space-y-1">
-            <label className="text-[10px] font-bold text-slate-400 uppercase">Min Value</label>
-            <select
-              value={(question.config?.min as number) ?? 1}
-              onChange={(e) =>
-                updateQuestion(sectionIndex, questionIndex, {
-                  config: { ...(question.config || {}), min: Number(e.target.value) },
-                })
-              }
-              className="h-8 w-16 rounded border border-slate-200 bg-white px-2 text-xs"
-            >
-              <option value={0}>0</option>
-              <option value={1}>1</option>
-            </select>
-          </div>
-          <span className="text-slate-400 text-xs mt-4">to</span>
-          <div className="space-y-1">
-            <label className="text-[10px] font-bold text-slate-400 uppercase">Max Value</label>
-            <select
-              value={(question.config?.max as number) ?? 5}
-              onChange={(e) =>
-                updateQuestion(sectionIndex, questionIndex, {
-                  config: { ...(question.config || {}), max: Number(e.target.value) },
-                })
-              }
-              className="h-8 w-16 rounded border border-slate-200 bg-white px-2 text-xs"
-            >
-              {[2, 3, 4, 5, 6, 7, 8, 9, 10].map((val) => (
-                <option key={val} value={val}>
-                  {val}
-                </option>
-              ))}
-            </select>
-          </div>
-        </div>
+
         <div className="grid grid-cols-2 gap-3">
           <div className="space-y-1">
             <label className="text-[10px] font-bold text-slate-400 uppercase">Min Label (Optional)</label>

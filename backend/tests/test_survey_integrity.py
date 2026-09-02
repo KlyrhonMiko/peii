@@ -10,7 +10,6 @@ from core.database import get_async_session
 from core.deps import Principal, get_current_principal
 from main import app
 from models.survey import Survey
-from models.survey_distribution import SurveyDistribution
 from models.user import User
 
 pytestmark = pytest.mark.anyio
@@ -262,12 +261,8 @@ async def test_structure_edit_requires_inactive_and_zero_responses(client):
 
     await client.patch(f"/api/v1/surveys/{survey_business_id}", json={"status": "Inactive"})
     await _activate(client, survey_business_id)
-    distribution = await client.post(
-        f"/api/v1/surveys/{survey_uuid}/distributions/",
-        json={"expires_at": EXPIRY},
-    )
     response = await client.post(
-        f"/api/v1/survey/{distribution.json()['data']['token']}/respond",
+        f"/api/v1/survey/{survey_business_id}/respond",
         json={
             "answers": {question_id: "answer"},
             "consent": CONSENT,
@@ -311,14 +306,9 @@ async def test_manage_only_structure_conflicts_do_not_reveal_response_presence(
     )
     question_id = question.json()["data"]["id"]
     await _activate(client, response_business_id)
-    distribution = await client.post(
-        f"/api/v1/surveys/{response_uuid}/distributions/",
-        json={"expires_at": EXPIRY},
-    )
-    token = distribution.json()["data"]["token"]
     for _ in range(response_count):
         submitted = await client.post(
-            f"/api/v1/survey/{token}/respond",
+            f"/api/v1/survey/{response_business_id}/respond",
             json={
                 "answers": {question_id: "answer"},
                 "consent": CONSENT,
@@ -381,30 +371,6 @@ async def test_manage_only_structure_conflicts_do_not_reveal_response_presence(
     assert zero_body == response_body
 
 
-async def test_structure_change_revokes_distribution_token(client):
-    survey_uuid, survey_business_id, section_id = await _create_survey_with_section(
-        client, "Current Structure"
-    )
-    question = await client.post(
-        f"/api/v1/surveys/{survey_uuid}/questions/",
-        json={"question_text": "Status", "question_type": "text", "section_id": section_id},
-    )
-    await _activate(client, survey_business_id)
-    distribution = await client.post(
-        f"/api/v1/surveys/{survey_uuid}/distributions/",
-        json={"expires_at": EXPIRY},
-    )
-    token = distribution.json()["data"]["token"]
-    await client.patch(f"/api/v1/surveys/{survey_business_id}", json={"status": "Inactive"})
-    updated = await client.patch(
-        f"/api/v1/surveys/{survey_uuid}/questions/{question.json()['data']['id']}",
-        json={"question_text": "Changed"},
-    )
-    assert updated.status_code == 200
-    await _activate(client, survey_business_id)
-    assert (await client.get(f"/api/v1/survey/{token}")).status_code == 404
-
-
 async def test_response_rejects_unknown_and_missing_required_questions(client):
     survey_uuid, survey_business_id, section_id = await _create_survey_with_section(
         client, "Response Integrity"
@@ -420,14 +386,8 @@ async def test_response_rejects_unknown_and_missing_required_questions(client):
     )
     question_id = question.json()["data"]["id"]
     await _activate(client, survey_business_id)
-    distribution = await client.post(
-        f"/api/v1/surveys/{survey_uuid}/distributions/",
-        json={"expires_at": EXPIRY},
-    )
-    token = distribution.json()["data"]["token"]
-
     unknown = await client.post(
-        f"/api/v1/survey/{token}/respond",
+        f"/api/v1/survey/{survey_business_id}/respond",
         json={
             "answers": {"00000000-0000-0000-0000-000000000000": "Yes"},
             "consent": CONSENT,
@@ -439,7 +399,7 @@ async def test_response_rejects_unknown_and_missing_required_questions(client):
     assert unknown.json()["errors"][0]["code"] == "unknown_question"
 
     missing = await client.post(
-        f"/api/v1/survey/{token}/respond",
+        f"/api/v1/survey/{survey_business_id}/respond",
         json={"answers": {}, "consent": CONSENT, "withdrawal_code": WITHDRAWAL_CODE},
         headers={"Idempotency-Key": "018f4a1a-7b3b-7d0e-913a-c5f1c5c1c5c3"},
     )
@@ -447,7 +407,7 @@ async def test_response_rejects_unknown_and_missing_required_questions(client):
     assert missing.json()["errors"][0]["code"] == "required"
 
     valid = await client.post(
-        f"/api/v1/survey/{token}/respond",
+        f"/api/v1/survey/{survey_business_id}/respond",
         json={
             "answers": {question_id: "Yes"},
             "consent": CONSENT,
@@ -459,40 +419,22 @@ async def test_response_rejects_unknown_and_missing_required_questions(client):
 
 
 async def test_invalid_active_survey_cannot_be_distributed_or_submitted(client):
-    survey_uuid, _ = await _create_invalid_active_survey(client, "Empty Active Survey")
+    survey_uuid, survey_business_id = await _create_invalid_active_survey(client, "Empty Active Survey")
 
-    distribution = await client.post(
-        f"/api/v1/surveys/{survey_uuid}/distributions/",
-        json={"expires_at": EXPIRY},
-    )
-    assert distribution.status_code == 409
-    assert distribution.json()["message"] == "Survey is not ready for distribution."
-    assert distribution.json()["errors"][0]["code"] == "no_sections"
+    # We can check if trying to respond directly fails if invalid
+    response = await client.get(f"/api/v1/survey/{survey_business_id}")
+    assert response.status_code == 404
 
-    override = app.dependency_overrides[get_async_session]
-    session_generator = override()
-    session = await anext(session_generator)
-    try:
-        distribution = SurveyDistribution(
-            survey_id=UUID(survey_uuid),
-            token_digest=sha256(b"empty-active-survey-token").hexdigest(),
-            token_prefix="empty-ac",
-            expires_at=datetime(2099, 1, 1),
-        )
-        session.add(distribution)
-        await session.commit()
-    finally:
-        await session_generator.aclose()
-
-    public_survey = await client.get("/api/v1/survey/empty-active-survey-token")
+    public_survey = await client.get(f"/api/v1/survey/{survey_business_id}")
     response = await client.post(
-        "/api/v1/survey/empty-active-survey-token/respond",
+        f"/api/v1/survey/{survey_business_id}/respond",
         json={"answers": {}, "consent": CONSENT, "withdrawal_code": WITHDRAWAL_CODE},
         headers={"Idempotency-Key": "018f4a1a-7b3b-7d0e-913a-c5f1c5c1c5c2"},
     )
     assert public_survey.status_code == 404
     assert response.status_code == 404
 
+    override = app.dependency_overrides[get_async_session]
     session_generator = override()
     session = await anext(session_generator)
     try:

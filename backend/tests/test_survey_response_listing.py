@@ -101,7 +101,7 @@ async def _update_responses(responses: list[SurveyResponse]) -> None:
 
 
 async def test_raw_listing_requires_raw_permission(client):
-    survey, _question_id, _distributions = await _create_response_fixture(client)
+    survey, _question_id = await _create_response_fixture(client)
     _override_permissions("surveys.manage")
 
     response = await client.get(f"/api/v1/surveys/{survey['id']}/responses/")
@@ -121,7 +121,7 @@ async def test_raw_listing_requires_raw_permission(client):
     ],
 )
 async def test_raw_listing_rejects_invalid_query_bounds_and_sort(client, query):
-    survey, _question_id, _distributions = await _create_response_fixture(client)
+    survey, _question_id = await _create_response_fixture(client)
 
     response = await client.get(
         f"/api/v1/surveys/{survey['id']}/responses/", params=query
@@ -136,10 +136,10 @@ async def test_raw_listing_rejects_invalid_query_bounds_and_sort(client, query):
 
 
 async def test_raw_listing_filters_and_count_use_the_same_live_rows(client):
-    survey, question_id, distributions = await _create_response_fixture(client, 2)
-    await _submit(client, distributions[0]["token"], question_id, "first")
-    await _submit(client, distributions[0]["token"], question_id, "second")
-    await _submit(client, distributions[1]["token"], question_id, "other")
+    survey, question_id = await _create_response_fixture(client)
+    await _submit(client, survey["survey_id"], question_id, "first")
+    await _submit(client, survey["survey_id"], question_id, "second")
+    await _submit(client, survey["survey_id"], question_id, "other")
 
     responses = await _stored_responses()
     responses.sort(key=lambda response: response.created_at)
@@ -152,7 +152,6 @@ async def test_raw_listing_filters_and_count_use_the_same_live_rows(client):
         f"/api/v1/surveys/{survey['id']}/responses/",
         params={
             "limit": 1,
-            "distribution_id": distributions[0]["id"],
             "submitted_from": "2026-01-01T00:00:00Z",
             "submitted_before": "2026-01-03T00:00:00Z",
         },
@@ -173,14 +172,13 @@ async def test_raw_listing_filters_and_count_use_the_same_live_rows(client):
         "sort_order": "desc",
         "submitted_from": "2026-01-01T00:00:00Z",
         "submitted_before": "2026-01-03T00:00:00Z",
-        "distribution_id": distributions[0]["id"],
     }
 
 
 async def test_raw_listing_has_stable_created_at_id_order(client):
-    survey, question_id, distributions = await _create_response_fixture(client)
-    await _submit(client, distributions[0]["token"], question_id, "first")
-    await _submit(client, distributions[0]["token"], question_id, "second")
+    survey, question_id = await _create_response_fixture(client)
+    await _submit(client, survey["survey_id"], question_id, "first")
+    await _submit(client, survey["survey_id"], question_id, "second")
     responses = await _stored_responses()
     responses[0].created_at = datetime(2026, 2, 1, 12, 0, 0)
     responses[1].created_at = datetime(2026, 2, 1, 12, 0, 0)
@@ -198,9 +196,9 @@ async def test_raw_listing_has_stable_created_at_id_order(client):
 
 
 async def test_raw_listing_excludes_deleted_and_expired_even_if_requested(client):
-    survey, question_id, distributions = await _create_response_fixture(client)
+    survey, question_id = await _create_response_fixture(client)
     for answer in ("deleted", "expired", "live"):
-        await _submit(client, distributions[0]["token"], question_id, answer)
+        await _submit(client, survey["survey_id"], question_id, answer)
     responses = await _stored_responses()
     responses.sort(key=lambda response: cast(str, response.answers[question_id]))
     responses[0].is_deleted = True
@@ -228,8 +226,8 @@ async def test_raw_listing_excludes_deleted_and_expired_even_if_requested(client
 
 
 async def test_raw_listing_allows_authorized_reads_of_archived_surveys(client):
-    survey, question_id, distributions = await _create_response_fixture(client)
-    await _submit(client, distributions[0]["token"], question_id, "archived")
+    survey, question_id = await _create_response_fixture(client)
+    await _submit(client, survey["survey_id"], question_id, "archived")
     archived = await client.request("DELETE", f"/api/v1/surveys/{survey['survey_id']}", json={})
     assert archived.status_code == 200
 
@@ -240,7 +238,7 @@ async def test_raw_listing_allows_authorized_reads_of_archived_surveys(client):
 
 
 async def test_raw_listing_rejects_non_increasing_submitted_range(client):
-    survey, _question_id, _distributions = await _create_response_fixture(client)
+    survey, _question_id = await _create_response_fixture(client)
 
     response = await client.get(
         f"/api/v1/surveys/{survey['id']}/responses/",

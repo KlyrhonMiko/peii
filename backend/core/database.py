@@ -15,7 +15,6 @@ from models import (  # noqa: F401
     Role,
     RolePermission,
     Survey,
-    SurveyDistribution,
     SurveyQuestion,
     SurveyResponse,
     SurveySection,

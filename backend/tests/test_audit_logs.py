@@ -183,16 +183,8 @@ async def test_all_mutation_families_create_audits(client):
         await client.patch(f"/api/v1/surveys/{survey_id}", json={"status": "Active"})
     ).status_code == 200
 
-    distribution = await client.post(
-        f"/api/v1/surveys/{survey_uuid}/distributions/",
-        json={"expires_at": EXPIRY},
-    )
-    distribution_data = distribution.json()["data"]
-    distribution_id = distribution_data["id"]
-    assert len(await _audits_for(client, "survey_distribution", distribution_id, "create")) == 1
-
     response = await client.post(
-        f"/api/v1/survey/{distribution_data['token']}/respond",
+        f"/api/v1/survey/{survey_id}/respond",
         json={
             "answers": {
                 second_question_id: "answer",
@@ -210,15 +202,9 @@ async def test_all_mutation_families_create_audits(client):
     response_id = response_audit.json()["data"][-1]["resource_id"]
     response_audits = await _audits_for(client, "survey_response", response_id, "create")
     assert len(response_audits) == 1
-    assert response_audits[0]["changes"] == {"distribution_id": distribution_id}
+    assert response_audits[0]["changes"] is None
     assert response_audits[0]["performed_by"] == "00000000-0000-0000-0000-000000000001"
     assert response_audits[0]["ip_address"] is None
-
-    await client.request("DELETE", f"/api/v1/surveys/{survey_uuid}/distributions/{distribution_id}")
-    await client.request("DELETE", f"/api/v1/surveys/{survey_uuid}/distributions/{distribution_id}")
-    revoke_audits = await _audits_for(client, "survey_distribution", distribution_id, "revoke")
-    assert len(revoke_audits) == 1
-    assert "token" not in (revoke_audits[0]["changes"] or {})
 
 
 async def test_batch_user_mutation_creates_one_audit_per_user(client):

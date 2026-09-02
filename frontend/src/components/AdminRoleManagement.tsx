@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useTransition, type FormEvent } from "react"
 import { Check, Pencil, Plus, Search, ShieldCheck, UsersRound } from "lucide-react"
+import { toast } from "sonner"
 import Link from "next/link"
 
 import { Button, buttonVariants } from "@/components/ui/button"
@@ -41,7 +42,6 @@ export function AdminRoleManagement({ canManage, canManageUsers }: AdminRoleMana
   const [permissions, setPermissions] = useState<Permission[]>([])
   const [editingRole, setEditingRole] = useState<Role | null | undefined>(undefined)
   const [pendingUpdate, setPendingUpdate] = useState<PendingUpdate | null>(null)
-  const [notice, setNotice] = useState<string | null>(null)
   const [isPending, startTransition] = useTransition()
 
   const refresh = () => {
@@ -51,7 +51,7 @@ export function AdminRoleManagement({ canManage, canManageUsers }: AdminRoleMana
           setRoles(nextRoles)
           setPermissions(nextPermissions)
         })
-        .catch((error: unknown) => setNotice(errorMessage(error)))
+        .catch((error: unknown) => toast.error(errorMessage(error)))
     })
   }
 
@@ -64,10 +64,10 @@ export function AdminRoleManagement({ canManage, canManageUsers }: AdminRoleMana
       void createRole(input)
         .then(() => {
           setEditingRole(undefined)
-          setNotice("Role created.")
+          toast.success("Role created.")
           refresh()
         })
-        .catch((error: unknown) => setNotice(errorMessage(error)))
+        .catch((error: unknown) => toast.error(errorMessage(error)))
     })
   }
 
@@ -77,10 +77,10 @@ export function AdminRoleManagement({ canManage, canManageUsers }: AdminRoleMana
         .then(() => {
           setEditingRole(undefined)
           setPendingUpdate(null)
-          setNotice("Role updated.")
+          toast.success("Role updated.")
           refresh()
         })
-        .catch((error: unknown) => setNotice(errorMessage(error)))
+        .catch((error: unknown) => toast.error(errorMessage(error)))
     })
   }
 
@@ -118,13 +118,6 @@ export function AdminRoleManagement({ canManage, canManageUsers }: AdminRoleMana
           )}
         </div>
       </div>
-
-      {notice && (
-        <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700 flex items-center justify-between gap-2" role="status">
-          <span>{notice}</span>
-          <Button variant="ghost" size="xs" onClick={() => setNotice(null)} className="h-6 hover:bg-emerald-100 hover:text-emerald-900">Dismiss</Button>
-        </div>
-      )}
 
       <div className="-mx-2 overflow-x-auto">
         <table className="w-full text-left text-[13px] table-fixed min-w-[720px]">

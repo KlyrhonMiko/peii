@@ -2,6 +2,7 @@
 
 import { type FormEvent, useEffect, useRef, useState, useMemo } from "react"
 import Link from "next/link"
+import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -125,8 +126,10 @@ export function ClientSurveyForm({
       if (!navigator.clipboard) throw new Error("Clipboard unavailable")
       await navigator.clipboard.writeText(code)
       setCodeCopied(true)
+      toast.success("Withdrawal code copied to clipboard.")
     } catch {
       setCodeCopied(false)
+      toast.error("Could not copy withdrawal code.")
     }
   }
 
@@ -676,7 +679,6 @@ function GroupedScaleGrid({
                           checked={selected}
                           onChange={() => onAnswer(q.id, number)}
                           aria-label={`${q.question_text}: ${number}`}
-                          aria-invalid={hasError}
                           className="size-4 cursor-pointer accent-zinc-900"
                         />
                       </td>

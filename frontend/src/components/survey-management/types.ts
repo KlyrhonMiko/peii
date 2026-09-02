@@ -2,7 +2,7 @@ import type { SurveyQuestion, SurveySection } from "@/lib/surveys"
 
 export type ModalState =
   | { type: "create" }
-  | { type: "edit"; id: string }
+  | { type: "edit"; id: string; isTemplate?: boolean }
   | { type: "view"; id: string }
   | { type: "settings"; id: string }
   | null
@@ -21,7 +21,7 @@ export type EditorSection = Omit<SurveySection, "questions"> & {
 }
 
 export type PendingAction = {
-  type: "view" | "edit" | "generate" | "save" | "delete" | "restore" | "distribute" | "responses"
+  type: "view" | "edit" | "generate" | "save" | "delete" | "restore" | "distribute" | "responses" | "preview"
   surveyId?: string
 } | null
 

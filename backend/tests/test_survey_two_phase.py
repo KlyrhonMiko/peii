@@ -66,11 +66,7 @@ async def _create_two_phase_survey(client) -> tuple[str, dict[str, str], dict[st
         f"/api/v1/surveys/{survey['survey_id']}", json={"status": "Active"}
     )
     assert activated.status_code == 200
-    distribution = await client.post(
-        f"/api/v1/surveys/{survey['id']}/distributions/", json={"expires_at": EXPIRY}
-    )
-    assert distribution.status_code == 201
-    return distribution.json()["data"]["token"], phase_questions[1], phase_questions[2]
+    return survey["survey_id"], phase_questions[1], phase_questions[2]
 
 
 def _answers(question_ids: dict[str, str], value: str) -> dict[str, str]:
@@ -284,18 +280,13 @@ async def test_legacy_survey_keeps_single_phase_get_and_rejects_follow_up(client
     await client.patch(
         f"/api/v1/surveys/{survey['survey_id']}", json={"status": "Active"}
     )
-    distribution = await client.post(
-        f"/api/v1/surveys/{survey['id']}/distributions/", json={"expires_at": EXPIRY}
-    )
-    token = distribution.json()["data"]["token"]
-
-    public = await client.get(f"/api/v1/survey/{token}")
+    public = await client.get(f"/api/v1/survey/{survey['survey_id']}")
     assert public.status_code == 200
     assert public.json()["data"]["collection_state"] is None
     assert len(public.json()["data"]["questions"]) == 1
 
     follow_up = await client.patch(
-        f"/api/v1/survey/{token}/respond",
+        f"/api/v1/survey/{survey['survey_id']}/respond",
         json={"answers": {question.json()["data"]["id"]: "answer"}},
         headers={"Idempotency-Key": str(uuid4())},
     )

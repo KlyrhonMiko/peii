@@ -61,6 +61,8 @@ def _apply_survey_list_filters(statement, params: SurveyListQueryParams):
                 col(Survey.description).ilike(search_term),
             )
         )
+    if params.is_template is not None:
+        statement = statement.where(col(Survey.is_template) == params.is_template)
 
     return statement
 
@@ -507,10 +509,7 @@ async def soft_delete_survey(
     survey.performed_by = actor_id
     survey.updated_at = utc_now()
     session.add(survey)
-    # Avoid a module cycle with distribution validation's survey-readiness dependency.
-    from services.distribution_service import revoke_for_survey_archive
 
-    distribution_events = await revoke_for_survey_archive(session, survey, actor_id, ip_address)
     await commit_with_audit(
         session,
         [
@@ -521,7 +520,6 @@ async def soft_delete_survey(
                 performed_by=actor_id,
                 ip_address=ip_address,
             ),
-            *distribution_events,
         ],
     )
     await session.refresh(survey)

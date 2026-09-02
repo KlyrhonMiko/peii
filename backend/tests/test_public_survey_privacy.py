@@ -35,11 +35,7 @@ async def _create_public_survey(client):
         },
     )
     await client.patch(f"/api/v1/surveys/{survey['survey_id']}", json={"status": "Active"})
-    distribution = await client.post(
-        f"/api/v1/surveys/{survey['id']}/distributions/",
-        json={"expires_at": EXPIRY},
-    )
-    return distribution.json()["data"]["token"], question.json()["data"]["id"]
+    return survey["survey_id"], question.json()["data"]["id"]
 
 
 def _consent(version: str | None = None, accepted: bool = True) -> dict[str, object]:

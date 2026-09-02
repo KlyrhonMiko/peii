@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useTransition } from "react"
 import { Check, ChevronDown, KeyRound, Loader2, Mail, Pencil, Plus, RotateCcw, Search, ShieldCheck, Trash2, UserRoundPlus, User, Users } from "lucide-react"
+import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
@@ -71,7 +72,6 @@ export function AdminUserManagement({ permissions }: AdminUserManagementProps) {
   const [bulkDialogOpen, setBulkDialogOpen] = useState(false)
   const [selected, setSelected] = useState<UserRecord | null>(null)
   const [confirmation, setConfirmation] = useState<{ action: ConfirmationAction; user: UserRecord } | null>(null)
-  const [notice, setNotice] = useState<string | null>(null)
   const [initialLoad, setInitialLoad] = useState(true)
   const [isPending, startTransition] = useTransition()
 
@@ -82,7 +82,7 @@ export function AdminUserManagement({ permissions }: AdminUserManagementProps) {
           setUsers(records)
           setTotal(recordTotal)
         })
-        .catch((error: unknown) => setNotice(message(error)))
+        .catch((error: unknown) => toast.error(message(error)))
         .finally(() => setInitialLoad(false))
     })
   }
@@ -95,16 +95,16 @@ export function AdminUserManagement({ permissions }: AdminUserManagementProps) {
 
   useEffect(() => {
     if (!permissions.canAssignRoles || !permissions.canReadRoles) return
-    void listRoles().then(setRoles).catch((error: unknown) => setNotice(message(error)))
+    void listRoles().then(setRoles).catch((error: unknown) => toast.error(message(error)))
   }, [permissions.canAssignRoles, permissions.canReadRoles])
 
   const mutate = (action: () => Promise<unknown>, success: string) => {
     startTransition(() => {
       void action().then(() => {
-        setNotice(success)
+        toast.success(success)
         setConfirmation(null)
         refresh()
-      }).catch((error: unknown) => setNotice(message(error)))
+      }).catch((error: unknown) => toast.error(message(error)))
     })
   }
 
@@ -133,7 +133,7 @@ export function AdminUserManagement({ permissions }: AdminUserManagementProps) {
     if (!selected) return
     const roleIds = roles.filter((role) => formData.get(`role-${role.id}`) === "on").map((role) => role.id)
     if (roleIds.length === 0) {
-      setNotice("Select at least one role.")
+      toast.error("Select at least one role.")
       return
     }
     mutate(() => assignUserRoles(selected.user_id, roleIds), "Roles updated.")
@@ -147,7 +147,7 @@ export function AdminUserManagement({ permissions }: AdminUserManagementProps) {
       return { email, username, first_name: firstName, last_name: lastName, middle_name: middleName || null, contact: contact || null, is_active: true }
     })
     if (!usersToCreate.length || usersToCreate.some((user) => !user.email || !user.username || !user.first_name || !user.last_name)) {
-      setNotice("Each row needs email, username, first name, and last name.")
+      toast.error("Each row needs email, username, first name, and last name.")
       return
     }
     mutate(() => createUsers(usersToCreate), `${usersToCreate.length} users created and invitations requested.`)
@@ -194,13 +194,6 @@ export function AdminUserManagement({ permissions }: AdminUserManagementProps) {
           </div>
         )}
       </div>
-
-      {notice && (
-        <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700 flex items-center justify-between gap-2" role="status">
-          <span>{notice}</span>
-          <Button variant="ghost" size="xs" onClick={() => setNotice(null)} className="h-6 hover:bg-emerald-100 hover:text-emerald-900">Dismiss</Button>
-        </div>
-      )}
 
       {/* Toolbar */}
       <div className="flex flex-col gap-3 py-2 sm:flex-row sm:items-center flex-wrap">

@@ -1,3 +1,4 @@
+from __future__ import annotations
 import pytest
 
 from services import supabase_auth_service

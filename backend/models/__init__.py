@@ -2,7 +2,6 @@ from models.audit_log import AuditLog
 from models.google_survey_auth_proof import GoogleSurveyAuthProof
 from models.rbac import Permission, Role, RolePermission, UserRole
 from models.survey import Survey
-from models.survey_distribution import SurveyDistribution
 from models.survey_question import SurveyQuestion
 from models.survey_response import ResponseErasureReceipt, SurveyResponse
 from models.survey_section import SurveySection
@@ -14,7 +13,6 @@ __all__ = [
     "GoogleSurveyAuthProof",
     "Survey",
     "SurveyQuestion",
-    "SurveyDistribution",
     "SurveyResponse",
     "ResponseErasureReceipt",
     "SurveySection",

@@ -57,22 +57,18 @@ async def _create_survey(client, status: str = "Inactive") -> tuple[dict, str, s
         f"/api/v1/surveys/{survey['survey_id']}", json={"status": "Active"}
     )
     assert activated.status_code == 200
-    distribution = await client.post(
-        f"/api/v1/surveys/{survey['id']}/distributions/", json={"expires_at": EXPIRY}
-    )
     if status == "Inactive":
         changed = await client.patch(
             f"/api/v1/surveys/{survey['survey_id']}", json={"status": status}
         )
         assert changed.status_code == 200
-    return survey, question_id, distribution.json()["data"]["token"]
+    return survey, question_id, survey["survey_id"]
 
 
 @pytest.mark.parametrize("survey_status", ["Inactive", "Active", "Closed", "archived"])
 async def test_aggregate_access_allows_every_survey_status(client, survey_status):
     _override_permissions(
         "surveys.manage",
-        "survey_distributions.manage",
         "survey_responses.read_aggregates",
     )
     setup_status = "Inactive" if survey_status == "Inactive" else "Active"
@@ -110,8 +106,6 @@ async def test_aggregate_access_allows_every_survey_status(client, survey_status
 async def test_archived_aggregate_returns_exact_four_response_total(client):
     _override_permissions(
         "survey_responses.read_aggregates",
-        "surveys.manage",
-        "survey_distributions.manage",
     )
     survey, question_id, token = await _create_survey(client, "Closed")
     for _ in range(4):

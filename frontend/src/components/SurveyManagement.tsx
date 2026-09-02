@@ -30,11 +30,16 @@ export function SurveyManagement({ permissions, csvExportEnabled }: SurveyManage
       <SurveyDeleteConfirmModal store={store} />
 
       <SurveyDistributionManager
-        surveyId={distributeSurveyId ?? ""}
+        survey={state.surveys.find((s) => s.id === distributeSurveyId) ?? null}
         open={distributeSurveyId !== null}
         canManage={canManageDistribution}
         onOpenChange={(open) => {
           if (!open) setDistributeSurveyId(null)
+        }}
+        onSurveyUpdate={(updatedSurvey) => {
+          actions.setSurveys((prev) =>
+            prev.map((s) => (s.id === updatedSurvey.id ? updatedSurvey : s))
+          )
         }}
       />
     </>

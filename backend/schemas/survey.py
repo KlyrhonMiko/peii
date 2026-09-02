@@ -25,6 +25,7 @@ class SurveyBase(SurveyBaseSchema):
     target_cohort: str | None = None
     retention_enabled: bool = True
     retention_days: int = Field(default=1825, ge=1)
+    is_template: bool = False
 
 
 class SurveyCreate(SurveyBase):
@@ -114,3 +115,4 @@ class SurveyListQueryParams(ListQueryParams):
     target_cohort: str | None = None
     search: str | None = None
     sort_by: Literal["created_at", "survey_id", "title", "status", "responses_count"] = "created_at"
+    is_template: bool | None = None

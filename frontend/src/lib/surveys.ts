@@ -235,6 +235,7 @@ export interface SurveyListOptions {
   sortOrder?: "asc" | "desc"
   limit?: number
   offset?: number
+  isTemplate?: boolean
 }
 
 export interface SurveyResponseListOptions {
@@ -343,6 +344,7 @@ export function buildSurveyListQuery(options: SurveyListOptions = {}): string {
   if (options.sortOrder) query.set("sort_order", options.sortOrder)
   if (options.limit) query.set("limit", String(options.limit))
   if (options.offset) query.set("offset", String(options.offset))
+  if (options.isTemplate !== undefined) query.set("is_template", String(options.isTemplate))
   const value = query.toString()
   return value ? `?${value}` : ""
 }
@@ -372,6 +374,7 @@ export async function createSurvey(payload: {
   status?: SurveyStatus
   retention_enabled?: boolean
   retention_days?: number
+  is_template?: boolean
 }): Promise<Survey> {
   const res = await api.post<ApiSurvey>("/surveys/", {
     ...payload,
@@ -407,6 +410,7 @@ export async function createSurveyWithStructure(payload: {
   status?: SurveyStatus
   retention_enabled?: boolean
   retention_days?: number
+  is_template?: boolean
 } & SurveyStructurePayload): Promise<Survey> {
   const res = await api.post<ApiSurvey>("/surveys/with-structure", {
     ...payload,

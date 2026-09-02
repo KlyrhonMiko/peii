@@ -10,10 +10,6 @@ import type { SurveyStatus } from "@/lib/surveys"
 interface SurveyEditorSidebarProps {
   surveyTitle: string
   setSurveyTitle: (val: string) => void
-  targetCohort: string
-  setTargetCohort: (val: string) => void
-  cohortOpen: boolean
-  setCohortOpen: (open: boolean) => void
   surveyStatus: SurveyStatus
   setSurveyStatus: (val: SurveyStatus) => void
   statusOpen: boolean
@@ -29,10 +25,6 @@ interface SurveyEditorSidebarProps {
 export function SurveyEditorSidebar({
   surveyTitle,
   setSurveyTitle,
-  targetCohort,
-  setTargetCohort,
-  cohortOpen,
-  setCohortOpen,
   surveyStatus,
   setSurveyStatus,
   statusOpen,
@@ -60,51 +52,7 @@ export function SurveyEditorSidebar({
           />
         </div>
 
-        <div className="space-y-1.5">
-          <label className="text-[13px] font-medium text-slate-700">Target Cohort</label>
-          <Popover open={cohortOpen} onOpenChange={setCohortOpen}>
-            <PopoverTrigger
-              render={
-                <Button
-                  variant="outline"
-                  type="button"
-                  className="h-8 w-full justify-between font-normal text-sm border border-input bg-transparent hover:bg-slate-50/50 hover:border-slate-300 transition-colors cursor-pointer outline-none focus-visible:ring-3 focus-visible:ring-ring/50 select-none text-left"
-                >
-                  <span>{targetCohort}</span>
-                  <ChevronDown className="size-4 text-slate-400 shrink-0 opacity-60" />
-                </Button>
-              }
-            />
-            <PopoverContent
-              align="start"
-              style={{ width: "var(--anchor-width)" }}
-              className="p-1 flex flex-col gap-0.5 bg-white border border-slate-200 rounded-lg shadow-md animate-in fade-in-0 zoom-in-95 duration-100"
-            >
-              {["Class of 2024", "Class of 2025", "All Alumni"].map((cohortOption) => {
-                const isSelected = targetCohort === cohortOption
-                return (
-                  <button
-                    type="button"
-                    key={cohortOption}
-                    onClick={() => {
-                      setTargetCohort(cohortOption)
-                      setCohortOpen(false)
-                    }}
-                    className={cn(
-                      "flex items-center justify-between w-full px-2.5 py-1.5 text-xs font-medium rounded-md text-left transition-colors cursor-pointer outline-none",
-                      isSelected
-                        ? "bg-indigo-50 text-indigo-700 font-semibold"
-                        : "text-slate-650 hover:bg-slate-50 hover:text-slate-900"
-                    )}
-                  >
-                    <span>{cohortOption}</span>
-                    {isSelected && <Check className="size-3.5 text-indigo-600" />}
-                  </button>
-                )
-              })}
-            </PopoverContent>
-          </Popover>
-        </div>
+
 
         <div className="space-y-1.5">
           <label className="text-[13px] font-medium text-slate-700">Status</label>
@@ -156,23 +104,20 @@ export function SurveyEditorSidebar({
           <label className="text-[13px] font-medium text-slate-700">
             Description <span className="font-normal text-slate-400">(optional)</span>
           </label>
-          <textarea
-            rows={3}
-            className="w-full rounded-lg border border-input bg-transparent px-2.5 py-2 text-sm outline-none transition-colors placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 resize-none overflow-hidden min-h-[80px]"
-            placeholder="Brief description of this survey's goals…"
-            value={surveyDescription}
-            onChange={(e) => {
-              setSurveyDescription(e.target.value)
-              e.target.style.height = "auto"
-              e.target.style.height = `${e.target.scrollHeight}px`
-            }}
-            ref={(el) => {
-              if (el) {
-                el.style.height = "auto"
-                el.style.height = `${el.scrollHeight}px`
-              }
-            }}
-          />
+          <div className="grid">
+            <textarea
+              className="w-full [grid-area:1/1] rounded-lg border border-input bg-transparent px-2.5 py-2 text-sm outline-none transition-colors placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 resize-none overflow-hidden min-h-[80px]"
+              placeholder="Brief description of this survey's goals…"
+              value={surveyDescription}
+              onChange={(e) => setSurveyDescription(e.target.value)}
+            />
+            <div
+              className="w-full [grid-area:1/1] px-2.5 py-2 text-sm border border-transparent whitespace-pre-wrap break-words invisible pointer-events-none min-h-[80px]"
+              aria-hidden="true"
+            >
+              {surveyDescription + "\u200b"}
+            </div>
+          </div>
         </div>
 
         <div className="space-y-3 rounded-lg border border-slate-200 bg-slate-50/50 p-3.5">
