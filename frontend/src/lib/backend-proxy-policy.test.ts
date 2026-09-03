@@ -55,6 +55,16 @@ describe("isAllowedBackendRequest", () => {
     expect(isAllowedBackendRequest("POST", ["surveys", "survey-id", "responses", "erase", "again"])).toBe(false)
   })
 
+  it("allows audit log reads", () => {
+    expect(isAllowedBackendRequest("GET", ["audit-logs"])).toBe(true)
+    expect(isAllowedBackendRequest("GET", ["audit-logs", "0192f2bb-4a9a-0000-0000-000000000000"])).toBe(true)
+
+    expect(isAllowedBackendRequest("POST", ["audit-logs"])).toBe(false)
+    expect(isAllowedBackendRequest("DELETE", ["audit-logs", "log-id"])).toBe(false)
+    expect(isAllowedBackendRequest("GET", ["audit-logs", "log-id", "extra"])).toBe(false)
+    expect(isAllowedBackendRequest("GET", ["audit-logs", ""])).toBe(false)
+  })
+
   it("rejects unsupported survey subroutes for every method", () => {
     for (const method of ["GET", "POST", "PATCH", "PUT", "DELETE"]) {
       expect(isAllowedBackendRequest(method, ["surveys", "survey-id", "unsupported"])).toBe(false)

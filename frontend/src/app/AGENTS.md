@@ -14,14 +14,15 @@ Follow the route-area guide when editing a nested route:
 - `layout.tsx` defines app-wide metadata, fonts, and the top-level `TooltipProvider`.
 - `page.tsx` is the public PEII landing page.
 - `researcher/` contains authenticated dashboard, analytics, survey, and model routes.
-- `admin/` contains authenticated, permission-gated user and role management routes.
+- `admin/` contains authenticated, permission-gated user, role, and audit-log management routes.
 - `survey/` contains Google-authenticated tokenized alumni survey routes, loading UI, and the
   public `/survey/withdraw` response-withdrawal page.
 - `login/`, `forgot-password/`, `reset-password/`, and `auth/confirm/` implement Supabase
   authentication and recovery flows.
 - `api/backend/[...path]/` is the authenticated, allowlisted backend proxy.
-- `access-denied/` handles authorization failures; `dev/sentiment-test/` is a public
-  development utility.
+- `access-denied/` handles authorization failures; `dev/sentiment-test/` is a development
+  utility that 404s in production builds (the interactivity lives in
+  `src/components/SentimentTest.tsx`).
 - `globals.css` is the Tailwind v4 and shadcn theme entrypoint.
 
 ## Route Rules

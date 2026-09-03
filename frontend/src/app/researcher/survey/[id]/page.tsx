@@ -1,4 +1,7 @@
+import { requirePortalUser } from "@/lib/auth"
+
 export default async function SurveyViewPage({ params }: { params: Promise<{ id: string }> }) {
+  await requirePortalUser("surveys.read")
   const resolvedParams = await params;
   return (
     <div className="space-y-6">

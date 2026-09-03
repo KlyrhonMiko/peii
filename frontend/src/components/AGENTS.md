@@ -7,8 +7,9 @@ Follow `ui/AGENTS.md` when editing primitive building blocks under `src/componen
 
 ## Current Responsibilities
 - `app-sidebar.tsx` and `nav-bar.tsx` contain shared portal navigation.
-- `AdminUserManagement.tsx` and `AdminRoleManagement.tsx` contain live permission-aware
-  administration workflows.
+- `AdminUserManagement.tsx`, `AdminRoleManagement.tsx`, and `AdminAuditLogs.tsx` contain
+  live permission-aware administration workflows; `SentimentTest.tsx` holds the development
+  sentiment-analysis utility surfaced only in non-production builds.
 - `DashboardFilters.tsx`, `ProgramFilter.tsx`, and `SurveySelect.tsx` provide product
   filtering and selection controls.
 - `ClientCohortTrendChart.tsx`, `ClientPEIIDimensionsChart.tsx`, and

@@ -28,6 +28,10 @@ async def password_login(email: str, password: str) -> dict[str, Any]:
     return response.json()
 
 
+_ADMIN_USERS_PAGE_SIZE = 1000
+_ADMIN_USERS_MAX_PAGES = 50
+
+
 async def invite_user(email: str, redirect_to: str) -> dict[str, Any]:
     async with httpx.AsyncClient(timeout=10.0) as client:
         response = await client.post(
@@ -37,23 +41,44 @@ async def invite_user(email: str, redirect_to: str) -> dict[str, Any]:
             json={"email": email},
         )
     if response.status_code not in {200, 201}:
+        detail = ""
+        try:
+            body = response.json()
+            detail = str(body.get("message", body.get("error_description", "")))
+        except ValueError:
+            detail = response.text or ""
+        lowered = detail.casefold()
+        is_duplicate = response.status_code in {400, 409, 422} and (
+            "already" in lowered or "exists" in lowered
+        )
+        if is_duplicate:
+            raise AppError(
+                "Auth user already exists.",
+                status_code=409,
+                errors=[detail] if detail else None,
+            )
         raise AppError("Unable to send invitation.", status_code=502)
     return response.json()
 
 
 async def get_auth_user_by_email(email: str) -> dict[str, Any] | None:
+    normalized = email.strip().casefold()
     async with httpx.AsyncClient(timeout=10.0) as client:
-        response = await client.get(
-            _auth_url("/admin/users?page=1&per_page=1000"),
-            headers=_headers(secret=True),
-        )
-    if response.status_code != 200:
-        raise AppError("Unable to read Supabase users.", status_code=502)
-    users = response.json().get("users", [])
-    return next(
-        (user for user in users if user.get("email", "").lower() == email.lower()),
-        None,
-    )
+        for page in range(1, _ADMIN_USERS_MAX_PAGES + 1):
+            response = await client.get(
+                _auth_url("/admin/users"),
+                headers=_headers(secret=True),
+                params={"page": page, "per_page": _ADMIN_USERS_PAGE_SIZE},
+            )
+            if response.status_code != 200:
+                raise AppError("Unable to read Supabase users.", status_code=502)
+            users = response.json().get("users", [])
+            for user in users:
+                if user.get("email", "").strip().casefold() == normalized:
+                    return user
+            if len(users) < _ADMIN_USERS_PAGE_SIZE:
+                break
+    return None
 
 
 async def send_recovery_email(email: str, redirect_to: str) -> None:

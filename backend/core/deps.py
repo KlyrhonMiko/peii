@@ -44,10 +44,14 @@ async def get_current_principal(
     if claims.has_oauth_amr:
         raise AppError("Authentication is not available for this account.", status_code=401)
     user = await auth_service.get_user_by_auth_subject(session, claims.subject)
-    permissions = await auth_service.rbac_service.effective_permissions(session, user.id)
-    return Principal(
-        user=user, permissions=frozenset(permissions), access_token=claims.access_token
+    permissions = frozenset(
+        await auth_service.rbac_service.effective_permissions(session, user.id)
     )
+    if "portal.access" not in permissions:
+        raise AppError(
+            "You do not have permission to perform this action.", status_code=403
+        )
+    return Principal(user=user, permissions=permissions, access_token=claims.access_token)
 
 
 CurrentPrincipal = Annotated[Principal, Depends(get_current_principal)]

@@ -100,7 +100,9 @@ export function isAllowedBackendRequest(method: string, path: string[]): boolean
         matchesSurveyResponseAction(path, "aggregates") ||
         matchesSurveyResponseAction(path, "export") ||
         matchesSurveyResponseAction(path, "identity") ||
-        matchesSurveyResponseAction(path, "peii")
+        matchesSurveyResponseAction(path, "peii") ||
+        (path.length === 1 && path[0] === "audit-logs") ||
+        (path.length === 2 && path[0] === "audit-logs" && hasValue(path[1]))
       )
     case "POST":
       return (

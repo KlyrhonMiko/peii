@@ -13,6 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from core.config import settings  # noqa: E402
 from core.database import async_session_factory  # noqa: E402
+from core.exceptions import AppError  # noqa: E402
 from models.rbac import Permission, Role, RolePermission, UserRole  # noqa: E402
 from models.user import User  # noqa: E402
 from services.audit_service import AuditEvent, commit_with_audit  # noqa: E402
@@ -164,10 +165,17 @@ async def bootstrap_admin(
     auth_invite = invite_user_fn or invite_user
     auth_user = await auth_lookup(normalized_email)
     if auth_user is None:
-        auth_user = await auth_invite(
-            normalized_email,
-            f"{app_origin}/auth/confirm?next=/reset-password",
-        )
+        try:
+            auth_user = await auth_invite(
+                normalized_email,
+                f"{app_origin}/auth/confirm?next=/reset-password",
+            )
+        except AppError as exc:
+            if exc.status_code != 409:
+                raise
+            auth_user = await auth_lookup(normalized_email)
+            if auth_user is None:
+                raise
     subject = _auth_subject(auth_user, normalized_email)
 
     linked_result = await session.exec(

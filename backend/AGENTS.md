@@ -132,6 +132,8 @@ Read this file first, then the guide closest to the files you are changing.
 ## Authentication Boundary
 - `core.auth` verifies Supabase bearer JWTs through JWKS and issuer/audience checks.
 - `core.deps.CurrentPrincipal` resolves the local user and effective roles/permissions.
+  Resolving a principal requires `portal.access`; fine-grained capabilities are still checked
+  per route with `require_permissions(...)`.
 - Use `require_permissions(...)` for capability-gated routes. Survey access is global RBAC:
   authentication alone is not authorization. Survey authorization is global RBAC. Keep
   `surveys.read`, `surveys.manage`, aggregate reads, raw reads,

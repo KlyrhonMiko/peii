@@ -33,7 +33,8 @@ backend without knowing about one resource such as users.
   `AuthClaims`.
 - `database.py` owns both sync (`engine`/`get_session`) and async (`async_engine`/`get_async_session`) database engines and session factories. It configures PgBouncer-compatible connection args for async operations.
 - `deps.py` defines session aliases, shared query parameters, `CurrentPrincipal`, and
-  permission dependencies.
+  permission dependencies. `CurrentPrincipal` resolution requires the `portal.access`
+  permission; per-route capabilities stay with `require_permissions(...)`.
 - `context.py` defines thread-safe ContextVar (`request_id_ctx`) for tracing requests.
 - `logging.py` configures `structlog` for structured logging, supporting dev-friendly ConsoleRenderer and prod-friendly JSONRenderer, with automated request ID injection.
 - `middleware.py` defines ASGI `RequestIdMiddleware` for request ID propagation in headers/context.

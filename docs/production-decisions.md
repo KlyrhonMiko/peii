@@ -138,6 +138,11 @@ Role assignment is additionally constrained by the actor's effective permissions
 grant a role with permissions exceeding their own. Assignment of the protected system Admin role
 is restricted to active Admins.
 
+Principal resolution requires `portal.access`; every portal role (default and custom) must include
+it or the user is denied every protected route. All seeded roles already carry it, but before a
+release that introduces this enforcement, any existing custom roles created without `portal.access`
+must be updated (e.g. grant the permission) first, otherwise those users are locked out.
+
 ## Google-authenticated identified survey flow
 
 - Survey GET and submit require a dedicated Google OAuth respondent session and a backend proof.

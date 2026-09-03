@@ -8,7 +8,9 @@ This guide covers `src/lib/`.
 - `api.ts` owns the authenticated browser API envelope/error client.
 - `public-survey.ts` owns the public survey phase contract, submission payload, private 256-bit
   withdrawal-code generation/request parsing, envelope parsing, and retry-after helpers.
-- `users.ts`, `rbac.ts`, and `surveys.ts` own domain types, mapping, and operations. `surveys.ts`
+- `users.ts`, `rbac.ts`, `audit.ts`, and `surveys.ts` own domain types, mapping, and operations.
+  `audit.ts` maps the read-only audit trail list/detail endpoints through `/api/backend`;
+  `surveys.ts`
   includes retention-aware survey settings, aggregate, paginated raw-response,
   streamed export, and erasure operations; survey response idempotency is survey-scoped and
   there is no distribution feature.
