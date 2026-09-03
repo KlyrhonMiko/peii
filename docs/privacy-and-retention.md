@@ -5,24 +5,24 @@
 Phase 3 adds response retention, respondent withdrawal, raw-response reads, aggregates,
 streamed export, and response erasure. The completed identified survey flow requires Google
 authentication: the verified Google email and display name are stored with the response, and
-authorized researchers can identify respondents. The distribution token remains only a survey
-locator; it is not respondent identity or proof of authorization. The response idempotency key
-only makes retries safe for one distribution/key pair. PEII must not promise anonymity or
+authorized researchers can identify respondents. One Google account per survey is enforced via a
+survey-scoped pseudonymous dedupe digest. The token in `/survey/{token}` is only a survey locator;
+it is not respondent identity or proof of authorization. PEII must not promise anonymity or
 confidentiality.
 
-The current distribution contract is digest-only. The historical Phase 2 compatibility revision
-retained plaintext tokens while adding a digest and prefix, and the follow-up expiry revision kept
-the database expiry column nullable. The current `2bf09a6bc738` contract revision removed the
-plaintext column after digest reconciliation, and `d5a4f7c91e2b` applies the Supabase Data API
-RLS/ACL lockdown. The current Alembic head is `a8055c9859f5`, after `d5a4f7c91e2b`. The current
-head adds short-lived Google survey auth proofs, nullable legacy-compatible response identity
-snapshots, survey-scoped dedupe uniqueness, `survey_responses.read_identity`, and proof-table
-ACL/RLS lockdown. The protected-table and proof-table downgrades are intentionally fail-closed
-and irreversible. Runtime create/rotate stores only the digest and prefix; list/revoke metadata
-is token-free; and create/rotate reveal a newly generated token once.
-Omitted expiry receives the configured server default (currently 30 days), while an explicit future
-expiry cannot exceed the configured maximum (currently 30 days). Legacy rows with null expiry
-remain possible and non-expiring.
+The distribution token contract was removed in `f88b9c1d0000`, which drops `survey_distributions`
+and `survey_responses.distribution_id`; response idempotency is now survey-scoped via
+`UNIQUE(survey_id, idempotency_key)`. The earlier phases are historical: `f77a807cf2f9` added
+SHA-256 token digests and 8-character prefixes while retaining plaintext tokens, and the follow-up
+`d1f9bad768ad` kept the database expiry column nullable; `2bf09a6bc738` removed the plaintext
+column after digest reconciliation, and `d5a4f7c91e2b` applies the Supabase Data API RLS/ACL
+lockdown. `a8055c9859f5` added short-lived Google survey auth proofs, nullable legacy-compatible
+response identity snapshots, survey-scoped dedupe uniqueness, `survey_responses.read_identity`,
+and proof-table ACL/RLS lockdown; the protected-table and proof-table downgrades are intentionally
+fail-closed and irreversible. The current Alembic head is `a6c42481a0d9`; after `a8055c9859f5`
+the chain continues through `b9055c9859f6` (`is_template`), `f88b9c1d0000` (drops
+distributions), `3aad20b0fc8a` (ML sentiments), `b0d864b9935b` (false-positive feedbacks), and
+`a6c42481a0d9` (polarity override).
 
 ## Google-authenticated identified survey flow
 
@@ -122,7 +122,7 @@ scheduled purge has not run yet.
   unknown code. A valid request logically tombstones the response and is safe to repeat; direct
   identity and answers are removed, while the survey-scoped pseudonymous dedupe digest is retained
   so the same Google account cannot submit again. Administrative erasure clears that digest.
-- A lost code cannot be recovered by PEII: no response id, distribution token, or plaintext code
+- A lost code cannot be recovered by PEII: no response id or plaintext code
   is available to support a recovery lookup. The respondent must retain the code after submission.
 
 ## Response operations and permissions
@@ -157,7 +157,7 @@ identity-read capability.
 ### Generated two-phase questionnaire
 
 The generated Graduate Tracer questionnaire stores both phases in one response row under one
-distribution link. Question configuration marks Phase 1 and Phase 2 explicitly. The authenticated
+survey/Google-account dedupe scope. Question configuration marks Phase 1 and Phase 2 explicitly. The authenticated
 GET returns only the phase currently available to that Google respondent: POST creates the row for
 Phase 1, PATCH locks and merges Phase 2 answers into it, and a completed or withdrawn response
 returns no form. `created_at` records Phase 1; `updated_at` at completion and the immutable
@@ -174,9 +174,8 @@ reads an archived survey. They use offset pagination: `limit` defaults to 50 and
 100, `offset` defaults to 0, and ordering is `created_at` with `asc` or `desc` plus a stable id
 tiebreaker. The supported filters are:
 
-- `submitted_from` (inclusive submission timestamp);
-- `submitted_before` (exclusive submission timestamp); and
-- `distribution_id`.
+- `submitted_from` (inclusive submission timestamp); and
+- `submitted_before` (exclusive submission timestamp).
 
 The lower bound must be earlier than the upper bound. There is no raw-answer filter and no
 `include_deleted` escape hatch; deleted and expired rows remain excluded. The response envelope
@@ -234,7 +233,7 @@ count to match. Reusing an idempotency key with the same request returns the ori
 reusing it with a different request is rejected.
 
 Both erasure paths logically tombstone rows rather than physically deleting them. Tombstoning
-clears answers, direct identity, distribution linkage, submission idempotency data, consent
+clears answers, direct identity, submission idempotency data, consent
 version/time/snapshot, and the withdrawal digest, then retains only the response row's minimal
 tombstone state. Survey counts are reconciled in the same transaction. The mutation and its
 audit entry commit atomically; an erasure receipt is retained for batch idempotency. A retention

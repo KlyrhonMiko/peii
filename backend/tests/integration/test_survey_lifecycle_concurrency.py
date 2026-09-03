@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-from hashlib import sha256
 from uuid import UUID, uuid4
 
 import pytest
@@ -23,8 +22,7 @@ ACTOR_ID = UUID("30000000-0000-0000-0000-000000000001")
 SURVEY_ID = UUID("30000000-0000-0000-0000-000000000002")
 SECTION_ID = UUID("30000000-0000-0000-0000-000000000003")
 QUESTION_ID = UUID("30000000-0000-0000-0000-000000000004")
-DISTRIBUTION_ID = UUID("30000000-0000-0000-0000-000000000005")
-TOKEN = "integration-concurrency-token"
+SURVEY_BUSINESS_ID = "SURV-CONCUR"
 WITHDRAWAL_CODE = "A" * 42 + "B"
 
 
@@ -87,23 +85,6 @@ def _populate_active_survey(database: PostgresTestDatabase) -> None:
                 "ts": timestamp,
             },
         )
-        connection.execute(
-            text(
-                "INSERT INTO survey_distributions "
-                "(id, created_at, updated_at, is_deleted, deleted_at, performed_by, survey_id, "
-                "token_digest, token_prefix, expires_at, revoked_at) VALUES (:id, :ts, :ts, "
-                "false, NULL, :actor, :survey, :token_digest, :token_prefix, :expires_at, NULL)"
-            ),
-            {
-                "id": str(DISTRIBUTION_ID),
-                "survey": str(SURVEY_ID),
-                "actor": str(ACTOR_ID),
-                "token_digest": sha256(TOKEN.encode()).hexdigest(),
-                "token_prefix": TOKEN[:8],
-                "expires_at": "2099-01-01 00:00:00",
-                "ts": timestamp,
-            },
-        )
 
 
 @pytest.mark.anyio
@@ -130,7 +111,7 @@ async def test_submit_and_archive_linearize_without_deadlock(
                 await _assert_async_current_schema(session, postgres_database.schema)
                 response, replayed = await submit_response(
                     session,
-                    TOKEN,
+                    SURVEY_BUSINESS_ID,
                     {str(QUESTION_ID): "yes"},
                     ACTOR_ID,
                 )
@@ -175,18 +156,10 @@ async def test_submit_and_archive_linearize_without_deadlock(
             text("SELECT count(*) FROM survey_responses WHERE survey_id = CAST(:id AS uuid)"),
             {"id": str(SURVEY_ID)},
         ).scalar_one()
-        revoked_count = sync_connection.execute(
-            text(
-                "SELECT count(*) FROM survey_distributions "
-                "WHERE id = CAST(:id AS uuid) AND revoked_at IS NOT NULL"
-            ),
-            {"id": str(DISTRIBUTION_ID)},
-        ).scalar_one()
 
     assert state.is_deleted is True
     assert state.status == "Active"
     assert state.responses_count == response_count
-    assert revoked_count == 1
     assert response_count in {0, 1}
     if response_count == 1:
         assert not isinstance(submit_result, Exception)
@@ -225,7 +198,7 @@ async def test_concurrent_idempotent_submissions_persist_one_response_and_audit_
             await _assert_async_current_schema(session, postgres_database.schema)
             response, replayed = await submit_response(
                 session,
-                TOKEN,
+                SURVEY_BUSINESS_ID,
                 answers,
                 ACTOR_ID,
                 idempotency_key=idempotency_key,
@@ -286,9 +259,7 @@ async def test_concurrent_idempotent_submissions_persist_one_response_and_audit_
         ("survey", "response_submitted"),
     }
     assert audits_by_kind[("survey_response", "create")]["resource_id"] == str(response_id)
-    assert audits_by_kind[("survey_response", "create")]["changes"] == {
-        "distribution_id": str(DISTRIBUTION_ID)
-    }
+    assert audits_by_kind[("survey_response", "create")]["changes"] is None
     assert audits_by_kind[("survey", "response_submitted")]["resource_id"] == "SURV-CONCUR"
     assert audits_by_kind[("survey", "response_submitted")]["changes"] == {
         "response_id": str(response_id)

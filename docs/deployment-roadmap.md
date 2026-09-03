@@ -12,9 +12,12 @@ are still deployment responsibilities.
 - Fresh databases start at `20260825_v1`. The forward chain is
   `f77a807cf2f9` (Phase 2 distribution security), `d1f9bad768ad` (nullable distribution expiry),
   then `fb1c93d15474` (Phase 3 retention and withdrawal), followed by `2bf09a6bc738` (remove
-  plaintext distribution tokens), `d5a4f7c91e2b` (Supabase Data API RLS/ACL lockdown), and
-  `a8055c9859f5` (Google survey respondent identity and auth proofs).
-  `a8055c9859f5` is the current head.
+  plaintext distribution tokens), `d5a4f7c91e2b` (Supabase Data API RLS/ACL lockdown),
+  `a8055c9859f5` (Google survey respondent identity and auth proofs), `b9055c9859f6`
+  (`is_template`), `f88b9c1d0000` (drop survey distributions and distribution link,
+  survey-scoped response idempotency), `3aad20b0fc8a` (ML sentiments),
+  `b0d864b9935b` (false-positive feedbacks), and `a6c42481a0d9` (polarity override).
+  `a6c42481a0d9` is the current head.
 - Run `./.venv/bin/alembic upgrade head` once as the protected release job. Promote API replicas
   only after the migration, backfill review, and smoke test succeed. Future schema changes are
   forward revisions; do not migrate independently in every replica.
@@ -30,19 +33,23 @@ are still deployment responsibilities.
   defaults and defaults for other object creators are not mutated and require separate
   provider/admin configuration. It creates no Data API policies, validates its postconditions,
   and has an intentionally fail-closed, irreversible downgrade.
-- The `a8055c9859f5` migration adds short-lived Google survey auth proofs, nullable
+- The `a8055c9859f5` migration (intermediate) adds short-lived Google survey auth proofs, nullable
   legacy-compatible response identity snapshots, survey-scoped dedupe uniqueness,
   `survey_responses.read_identity`, and proof-table ACL/RLS lockdown. Admin and the default
   researcher receive identity permission; staff does not. Raw, aggregate, and CSV contracts
   remain identity-free, and the identity endpoint requires both raw and identity permission.
+- Later revisions: `b9055c9859f6` adds the survey `is_template` flag, `f88b9c1d0000` drops
+  `survey_distributions` and `survey_responses.distribution_id` (response idempotency becomes
+  survey-scoped), and `3aad20b0fc8a`/`b0d864b9935b`/`a6c42481a0d9` add ML sentiments,
+  false-positive feedbacks, and polarity override.
 
-### Current distribution and RBAC contract
+### Retired distribution contract and RBAC
 
-- The `2bf09a6bc738` contract revision leaves distribution rows with a token digest and prefix
-  only. Create and rotate reveal a newly generated token once; list and revoke metadata never
-  return it. Omitted expiry uses the configured server default (currently 30 days), while an
-  explicit future expiry cannot exceed the configured maximum (currently 30 days). Legacy rows
-  with null expiry remain possible and non-expiring.
+- The `2bf09a6bc738` contract revision (historical) left distribution rows with a token digest and
+  prefix only; create and rotate revealed a newly generated token once, while list and revoke
+  metadata never returned it. The digest/prefix storage and the 30-day default/maximum expiry
+  runtime contract were retired in `f88b9c1d0000`, which drops the `survey_distributions` table
+  and `survey_responses.distribution_id`.
 - Role assignment cannot grant a role whose permissions exceed the actor's effective permissions.
   Assignment of the protected system Admin role is restricted to active Admins.
 
@@ -84,7 +91,7 @@ are still deployment responsibilities.
   totals and cells for groups of any size and keep bounded aggregate cardinality. Small-group
   aggregates are not anonymous or privacy-preserving.
 - Raw reads are offset-paginated (default 50, maximum 100), stable-ordered by submission time,
-  and support only `submitted_from`, `submitted_before`, and `distribution_id` filters. Deleted
+  and support only `submitted_from` and `submitted_before` filters. Deleted
   and expired rows remain excluded. Authorized reads, aggregates, and exports work for archived
   surveys.
 - CSV export is long-format, streamed in bounded partitions/chunks, and preflight-capped at
@@ -170,8 +177,7 @@ PUBLIC_SURVEY_PRIVACY_NOTICE=<approved notice>
 PUBLIC_SURVEY_PURPOSE=<approved purpose>
 PUBLIC_SURVEY_RETENTION=<approved retention duration/statement>
 PUBLIC_SURVEY_CONTACT=<approved withdrawal/privacy contact>
-SURVEY_DISTRIBUTION_DEFAULT_EXPIRY_DAYS=30
-SURVEY_DISTRIBUTION_MAX_EXPIRY_DAYS=30
+# SURVEY_DISTRIBUTION_DEFAULT_EXPIRY_DAYS / SURVEY_DISTRIBUTION_MAX_EXPIRY_DAYS retired with f88b9c1d0000
 DATABASE_TLS_MODE=require
 ```
 
@@ -219,10 +225,11 @@ consider application tests or the liveness health check proof of either.
 2. Block public response writes at ingress, drain in-flight writes, and stop every old API
    replica. Phase 3 is not a rolling frontend/backend release.
 3. Apply `./.venv/bin/alembic upgrade head` once. Confirm the revision order through
-   `a8055c9859f5` after `d5a4f7c91e2b`, verify distribution digests are populated and the
-   plaintext token column is absent, inspect the enabled/1,825 survey policy backfill, verify
-   response deadline backfill from submission timestamps, and verify the protected-table and
-   proof-table RLS/ACL lockdown postconditions. Reconcile enabled-retention rows with null
+   `a6c42481a0d9`, verify the `survey_distributions` table is absent and the
+   `uq_survey_responses_survey_idempotency` unique constraint is present, inspect the
+   enabled/1,825 survey policy backfill, verify response deadline backfill from submission
+   timestamps, and verify the protected-table and proof-table RLS/ACL lockdown postconditions.
+   Reconcile enabled-retention rows with null
    deadlines.
 4. Deploy the compatible backend and frontend together and invalidate stale public-form caches.
    Smoke-test enabled and disabled retention,
@@ -236,13 +243,15 @@ consider application tests or the liveness health check proof of either.
 
 The Phase 2 distribution compatibility sequence is historical: expand -> dual-write/digest-first
 -> reconcile -> digest-only app -> contract/drop gate. `2bf09a6bc738` completed that gate and
-plaintext distribution tokens are no longer stored. The `d1f9bad768ad` nullable database expiry
-shape is also historical compatibility behavior; current create/rotate applies the configured
-default and maximum validation described above.
+plaintext distribution tokens were no longer stored. The `d1f9bad768ad` nullable database expiry
+shape is also historical compatibility behavior, and the digest/prefix, one-time reveal, and
+30-day default/maximum runtime contract were retired in `f88b9c1d0000`, which drops
+`survey_distributions` and `survey_responses.distribution_id`.
 
 Before `2bf09a6bc738`, application rollback during the compatibility window was permitted only
-while plaintext remained. At the current head, plaintext cannot be reconstructed, and the
-`d5a4f7c91e2b` and `a8055c9859f5` lockdown downgrades are disabled. Never use an ad hoc baseline
+while plaintext remained. At the current head, plaintext cannot be reconstructed, the
+`d5a4f7c91e2b` and `a8055c9859f5` lockdown downgrades are disabled, and `f88b9c1d0000` has a
+no-op `pass` downgrade that cannot restore the dropped distribution table. Never use an ad hoc baseline
 downgrade. For a
 database incident, restore a validated backup/PITR copy into an isolated database, run release
 checks, and promote only after schema, RLS/ACL, RBAC, privacy, and health checks pass; otherwise

@@ -59,11 +59,11 @@ parsing, status codes, response models, and response assembly.
 - Protected routes use `CurrentPrincipal` or `require_permissions(...)` from `core.deps`.
 - Survey routes use explicit capability checks over a global RBAC workspace; authentication
   alone does not grant survey access. Keep raw
-  reads, identity reads, aggregates, export, distribution management, and erasure separately
+  reads, identity reads, aggregates, export, and erasure separately
   permissioned. The identity endpoint requires both raw-read and identity-read capabilities.
 - The CSV export route additionally fails closed behind `CSV_EXPORT_ENABLED`; keep its feature
   guard separate from the `survey_responses.export` permission dependency.
 - Survey token routes require the dedicated Google OAuth respondent session and backend proof;
-  they are not portal routes and must not expose token secrets in metadata responses. Public
-  withdrawal remains direct and code-only.
+  they are not portal routes and must not expose respondent session or proof secrets in metadata
+  responses. Public withdrawal remains direct and code-only.
 - Frontend guards never replace backend authorization.

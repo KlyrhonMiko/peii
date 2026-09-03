@@ -45,7 +45,6 @@ const aggregate: SurveyResponseAggregate = {
 const response: SurveyResponse = {
   id: "response-1",
   surveyId: survey.id,
-  distributionId: null,
   createdAt: "2026-02-01T00:00:00Z",
   answers: { "q-choice": "Good", "q-text": "Helpful" },
 }

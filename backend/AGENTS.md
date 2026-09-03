@@ -134,7 +134,7 @@ Read this file first, then the guide closest to the files you are changing.
 - `core.deps.CurrentPrincipal` resolves the local user and effective roles/permissions.
 - Use `require_permissions(...)` for capability-gated routes. Survey access is global RBAC:
   authentication alone is not authorization. Survey authorization is global RBAC. Keep
-  `surveys.read`, `surveys.manage`, distribution management, aggregate reads, raw reads,
+  `surveys.read`, `surveys.manage`, aggregate reads, raw reads,
   identity reads, export, and erase as separate capabilities. The Google-authenticated survey
   GET and submit flow requires a dedicated respondent session and backend proof; the portal
   remains password/invite/recovery based and rejects OAuth sessions. Public withdrawal remains
@@ -157,19 +157,20 @@ Read this file first, then the guide closest to the files you are changing.
 - Add a new revision for new schema work. Do not rewrite older shared or applied revisions.
 - The database uses the canonical first-release baseline `20260825_v1`, followed by
   `f77a807cf2f9_expand_distribution_security`, `d1f9bad768ad`, the Phase 3 `fb1c93d15474`
-  revision, `2bf09a6bc738`, `d5a4f7c91e2b`, and `a8055c9859f5`. `a8055c9859f5` is the current migration head. Fresh environments
+  revision, `2bf09a6bc738`, `d5a4f7c91e2b`, `a8055c9859f5`, `b9055c9859f6`, `f88b9c1d0000`,
+  `3aad20b0fc8a`, `b0d864b9935b`, and `a6c42481a0d9`. `a6c42481a0d9` is the current migration head. Fresh environments
   must run `./.venv/bin/alembic upgrade head`; production runs it once as the protected release
   job before API replicas are promoted.
 - Historically, the `f77a807cf2f9` compatibility revision added SHA-256 token digests and
   8-character prefixes while retaining plaintext distribution tokens, and `d1f9bad768ad` made
-  the database expiry column nullable. The current `2bf09a6bc738` contract revision backfills
-  and requires digests, then drops the plaintext token column; it is irreversible because
+  the database expiry column nullable. The `2bf09a6bc738` contract revision backfilled
+  and required digests, then dropped the plaintext token column; it was irreversible because
   plaintext tokens cannot be reconstructed.
-- Under the current runtime contract, distribution create/rotate stores only the token digest and
-  prefix. List and revoke metadata are token-free; create and rotate reveal the generated bearer
-  token once. Omitted expiry uses the configured server default (currently 30 days), and an
-  explicit expiry must not exceed the configured maximum (currently 30 days). Legacy nullable
-  expiry values remain possible for pre-existing rows.
+- The distribution table and its runtime contract were removed in `f88b9c1d0000`, which drops
+  `survey_distributions` and `survey_responses.distribution_id` and replaces the response
+  idempotency unique with the survey-scoped `uq_survey_responses_survey_idempotency(survey_id,
+  idempotency_key)`. Its downgrade is a no-op `pass`, so it cannot restore the dropped
+  distribution feature.
 - The `d5a4f7c91e2b` revision enables RLS and removes effective public/anon/authenticated/
   service-role table and column access and schema creation for protected application tables.
   It requires the migration identity to own all protected tables before making any changes,
@@ -182,6 +183,9 @@ Read this file first, then the guide closest to the files you are changing.
   `survey_responses.read_identity`, with proof-table ACL/RLS lockdown. Admin and the default
   researcher receive identity permission; staff does not. Raw, aggregate, and CSV contracts
   remain identity-free, and the identity endpoint requires both raw and identity permission.
+- `b9055c9859f6` adds `is_template`; `f88b9c1d0000` drops `survey_distributions` and
+  `survey_responses.distribution_id`; `3aad20b0fc8a`/`b0d864b9935b`/`a6c42481a0d9` add
+  `ml_sentiments`, `false_positive_feedbacks`, and `polarity_override`.
 - Keep model, schema, service/router contract, tests, and migration files in sync when one feature touches all of them.
 
 ## Testing Standards

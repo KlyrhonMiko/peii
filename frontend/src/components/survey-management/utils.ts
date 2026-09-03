@@ -82,7 +82,6 @@ export function getSurveyCapabilities(
   return {
     read: can("surveys.read"),
     manage: can(SURVEY_PERMISSIONS.manage),
-    distributionManage: can(SURVEY_PERMISSIONS.distributionManage),
     readAggregates: can(SURVEY_PERMISSIONS.readAggregates),
     readRaw: can(SURVEY_PERMISSIONS.readRaw),
     readIdentity: can(SURVEY_PERMISSIONS.readRaw) && can(SURVEY_PERMISSIONS.readIdentity),

@@ -171,8 +171,6 @@ class Settings(BaseSettings):
     TRUSTED_PROXY_CIDRS: list[str] = Field(default_factory=list)
     TRUSTED_PROXY_MAX_HOPS: int = Field(default=20, ge=1, le=100)
     TRUSTED_PROXY_MAX_HEADER_BYTES: int = Field(default=2048, ge=64, le=16384)
-    SURVEY_DISTRIBUTION_DEFAULT_EXPIRY_DAYS: int = Field(default=30, ge=1)
-    SURVEY_DISTRIBUTION_MAX_EXPIRY_DAYS: int = Field(default=30, ge=1)
     PUBLIC_SURVEY_CONSENT_VERSION: str = "2026-09-01"
     PUBLIC_SURVEY_PRIVACY_NOTICE: str = (
         "Your verified Google email and display name are stored with your response, and "

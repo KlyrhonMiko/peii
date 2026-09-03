@@ -12,7 +12,7 @@ analytics, survey management/detail/settings, and model routes.
   divergence chart wrappers.
 - `survey/page.tsx` authenticates with `surveys.read` and composes the live
    `SurveyManagement` client component. That component owns survey CRUD, structure
-   editing/reordering, retention settings, distribution, response, aggregate, raw, identity,
+   editing/reordering, retention settings, response, aggregate, raw, identity,
    export, and erasure workflows. Aggregates are available for every survey status and may change
    while an active survey receives responses. Raw/export reads may access archived surveys but
    still exclude expired/deleted responses; identity reads are separately capability-gated;

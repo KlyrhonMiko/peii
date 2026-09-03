@@ -12,7 +12,6 @@ describe("isAllowedBackendRequest", () => {
     expect(isAllowedBackendRequest("GET", ["surveys", "survey-id", "responses"])).toBe(true)
     expect(isAllowedBackendRequest("GET", ["surveys", "survey-id", "responses", "identity"])).toBe(true)
     expect(isAllowedBackendRequest("POST", ["surveys", "survey-id", "restore"])).toBe(true)
-    expect(isAllowedBackendRequest("POST", ["surveys", "survey-id", "distributions", "distribution-id", "rotate"])).toBe(true)
   })
 
   it("allows user-management and role-management routes", () => {

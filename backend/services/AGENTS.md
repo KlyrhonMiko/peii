@@ -77,9 +77,10 @@ the single-submit path.
   `HTTPException`, so its errors do not use the shared application envelope.
 
 ## Survey Concurrency And Privacy
-- Mutations that can touch a survey lifecycle acquire locks in one order: survey first,
-  distributions ordered by UUID, then responses ordered by UUID. Resolve public token
-  references without a lock, then acquire the parent survey lock before a distribution lock.
+- Mutations that can touch a survey lifecycle acquire locks in one order: survey first, then
+  responses ordered by UUID. Distribution locking was removed with `f88b9c1d0000`. The only
+  public token references left are the Google respondent survey token (`/survey/{token}`) paired
+  with the backend proof, not distribution tokens.
 - Keep survey access global and capability-based. Raw reads, identity reads, exports, aggregates,
   and erasure remain distinct operations. The identity read requires both raw-read and
   identity-read capability; raw, aggregate, and CSV contracts remain identity-free.

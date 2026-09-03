@@ -14,23 +14,20 @@ import {
 } from "@/components/ui/dialog"
 import type { Survey } from "@/lib/surveys"
 
-interface SurveyDistributionManagerProps {
+interface SurveyShareLinkDialogProps {
   survey: Survey | null
   open: boolean
-  canManage: boolean
   onOpenChange: (open: boolean) => void
-  onSurveyUpdate?: (survey: Survey) => void
 }
 
-export function SurveyDistributionManager({
+export function SurveyShareLinkDialog({
   survey,
   open,
-  canManage,
   onOpenChange,
-}: SurveyDistributionManagerProps) {
+}: SurveyShareLinkDialogProps) {
   const [copied, setCopied] = useState(false)
 
-  const isSurveyActive = survey?.status === "Active"
+  const isSurveyActive = survey?.status === "Active" && !survey?.isDeleted
   const issuedUrl = survey && typeof window !== "undefined"
     ? `${window.location.origin}/survey/${survey.surveyId}`
     : null
@@ -64,7 +61,7 @@ export function SurveyDistributionManager({
                 <Share2 className="size-4.5 text-slate-700" />
               </div>
               <div className="flex-1 min-w-0">
-                <DialogTitle className="text-lg font-medium text-slate-900 tracking-tight text-left">Distribute Survey</DialogTitle>
+                <DialogTitle className="text-lg font-medium text-slate-900 tracking-tight text-left">Shareable Link</DialogTitle>
                 <DialogDescription className="text-sm text-slate-500 text-left mt-0.5 truncate pr-2">Manage your survey&apos;s shareable link.</DialogDescription>
               </div>
             </div>
@@ -75,15 +72,19 @@ export function SurveyDistributionManager({
           <div className="space-y-4 min-w-0">
             {!isSurveyActive ? (
               <div className="rounded-xl border border-dashed border-slate-200 bg-white p-6 text-center">
-                <p className="text-sm font-medium text-slate-900 mb-1">Survey is not active</p>
-                <p className="text-xs text-slate-500 mb-6">Change the survey status to &quot;Active&quot; in the editor to start collecting responses.</p>
-                {canManage && (
-                  <div className="flex flex-col gap-4 max-w-[280px] mx-auto">
-                    <Button onClick={() => onOpenChange(false)} variant="outline" className="w-full">
-                      Close
-                    </Button>
-                  </div>
-                )}
+                <p className="text-sm font-medium text-slate-900 mb-1">
+                  {survey?.isDeleted ? "Survey is archived" : "Survey is not active"}
+                </p>
+                <p className="text-xs text-slate-500 mb-6">
+                  {survey?.isDeleted
+                    ? "Archived surveys are unavailable to respondents. Restore the survey to share the link again."
+                    : 'Change the survey status to "Active" in the editor to start collecting responses.'}
+                </p>
+                <div className="flex flex-col gap-4 max-w-[280px] mx-auto">
+                  <Button onClick={() => onOpenChange(false)} variant="outline" className="w-full">
+                    Close
+                  </Button>
+                </div>
               </div>
             ) : (
               <div className="space-y-4 min-w-0">

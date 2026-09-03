@@ -84,8 +84,6 @@ services:
       TRUSTED_PROXY_CIDRS: "${TRUSTED_PROXY_CIDRS:-[]}"
       TRUSTED_PROXY_MAX_HOPS: "${TRUSTED_PROXY_MAX_HOPS:-20}"
       TRUSTED_PROXY_MAX_HEADER_BYTES: "${TRUSTED_PROXY_MAX_HEADER_BYTES:-2048}"
-      SURVEY_DISTRIBUTION_DEFAULT_EXPIRY_DAYS: "${SURVEY_DISTRIBUTION_DEFAULT_EXPIRY_DAYS:-30}"
-      SURVEY_DISTRIBUTION_MAX_EXPIRY_DAYS: "${SURVEY_DISTRIBUTION_MAX_EXPIRY_DAYS:-30}"
       PUBLIC_SURVEY_CONSENT_VERSION: "${PUBLIC_SURVEY_CONSENT_VERSION:-2026-09-01}"
       PUBLIC_SURVEY_PRIVACY_NOTICE: "${PUBLIC_SURVEY_PRIVACY_NOTICE:-Before Google sign-in and consent, this survey discloses: your verified Google email and display name are stored with your response; authorized researchers can identify respondents; identity enables one Google account per survey; on respondent withdrawal, direct identity and answers are removed but a survey-scoped pseudonymous dedupe digest is retained so that account cannot submit again; administrative erasure clears the digest; short-lived proof PII is physically deleted by the external purge after expiry. This survey does not promise anonymity or confidentiality.}"
       PUBLIC_SURVEY_PURPOSE: "${PUBLIC_SURVEY_PURPOSE:-Program evaluation and research.}"

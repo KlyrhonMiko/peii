@@ -125,7 +125,7 @@ function requiresTrailingSlash(path: string[]): boolean {
   return (
     path.length === 3 &&
     path[0] === "surveys" &&
-    ["sections", "questions", "distributions", "responses"].includes(path[2] ?? "")
+    ["sections", "questions", "responses"].includes(path[2] ?? "")
   )
 }
 

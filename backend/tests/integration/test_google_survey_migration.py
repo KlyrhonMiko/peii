@@ -158,12 +158,12 @@ def _seed_legacy_response(database: PostgresTestDatabase) -> None:
             text(
                 "INSERT INTO survey_responses "
                 "(id, created_at, updated_at, is_deleted, deleted_at, performed_by, survey_id, "
-                "distribution_id, idempotency_key, idempotency_hash, consent_version, "
+                "idempotency_key, idempotency_hash, consent_version, "
                 "consented_at, retention_expires_at, withdrawal_credential_digest, "
                 "consent_notice_snapshot, answers) VALUES "
                 "('50000000-0000-0000-0000-000000000002', '2021-01-02 03:04:05', "
                 "'2021-01-02 03:04:05', false, NULL, NULL, "
-                "'50000000-0000-0000-0000-000000000001', NULL, NULL, NULL, NULL, NULL, "
+                "'50000000-0000-0000-0000-000000000001', NULL, NULL, NULL, NULL, "
                 "'2026-01-02 03:04:05', NULL, NULL, '{\"legacy\": true}')"
             )
         )

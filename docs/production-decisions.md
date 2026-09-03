@@ -13,9 +13,14 @@ Phase 3 response-operations implementation. The forward migration chain is:
   -> 2bf09a6bc738 (remove plaintext distribution tokens)
   -> d5a4f7c91e2b (Supabase Data API RLS/ACL lockdown)
   -> a8055c9859f5 (Google survey respondent identity and auth proofs)
+  -> b9055c9859f6 (is_template)
+  -> f88b9c1d0000 (drop survey distributions and distribution link; survey-scoped idempotency)
+  -> 3aad20b0fc8a (ml_sentiments)
+  -> b0d864b9935b (false_positive_feedbacks)
+  -> a6c42481a0d9 (polarity_override)
 ```
 
-`a8055c9859f5` is the current Alembic head. Fresh environments and the production release job
+`a6c42481a0d9` is the current Alembic head. Fresh environments and the production release job
 run `./.venv/bin/alembic upgrade head` once before API replicas are promoted. Phase 3 is **not**
 a rolling or independently deployable frontend/backend release: the request contract and
 retention writes change together. Block public submissions at ingress, drain and stop every old
@@ -25,9 +30,11 @@ migrations independently in every replica or downgrade the baseline as an ad hoc
 
 The Phase 2 compatibility behavior is historical: `f77a807cf2f9` added SHA-256 token digests and
 8-character prefixes while retaining plaintext distribution tokens, and `d1f9bad768ad` made the
-database expiry column nullable. The current `2bf09a6bc738` contract revision reconciles existing
-digests/prefixes, requires the digest, and drops the plaintext token column. Its downgrade cannot
-reconstruct plaintext tokens.
+database expiry column nullable. The `2bf09a6bc738` contract revision reconciled existing
+digests/prefixes, required the digest, and dropped the plaintext token column. Its downgrade cannot
+reconstruct plaintext tokens. `f88b9c1d0000` later removed the whole distribution feature: it drops
+`survey_distributions` and `survey_responses.distribution_id` and replaces the response idempotency
+uniqueness with `uq_survey_responses_survey_idempotency(survey_id, idempotency_key)`.
 
 The `d5a4f7c91e2b` release step enables RLS for all protected application tables and revokes
 effective table/column privileges and schema creation from `PUBLIC`, `anon`, `authenticated`,
@@ -38,18 +45,24 @@ provider/admin configuration. It creates no policies, validates the RLS/ACL post
 has an intentionally fail-closed irreversible downgrade. The API remains the application access
 boundary; direct Supabase Data API access is not a substitute for its authorization checks.
 
-The `a8055c9859f5` release step adds short-lived Google survey auth proofs, nullable
+The `a8055c9859f5` release step (an intermediate step, now superseded) adds short-lived Google
+survey auth proofs, nullable
 legacy-compatible response identity snapshots, survey-scoped dedupe uniqueness, and the
 `survey_responses.read_identity` capability. It also applies ACL/RLS lockdown to the proof table.
 The default `admin` and `researcher` roles have identity permission; `staff` does not. Existing
 raw, aggregate, and CSV contracts remain identity-free, and the identity endpoint requires both
 `survey_responses.read_raw` and `survey_responses.read_identity`.
 
-Under the current runtime contract, create and rotate persist only a token digest and prefix.
-List and revoke metadata are token-free, while create and rotate reveal a newly generated bearer
-token once. Omitted expiry receives the configured server default (currently 30 days); explicit
-expiry must be in the future and cannot exceed the configured maximum (currently 30 days). Legacy
-rows with a null expiry remain possible and non-expiring.
+After `a8055c9859f5`, `b9055c9859f6` adds the survey `is_template` flag, `f88b9c1d0000` removes the
+distribution table and the response distribution link (see above), and
+`3aad20b0fc8a`/`b0d864b9935b`/`a6c42481a0d9` ship ML sentiments, false-positive feedbacks, and
+survey polarity override respectively. `a6c42481a0d9` is the current head.
+
+The distribution digest-only runtime contract (digest + prefix storage, one-time token reveal,
+30-day default/maximum expiry, nullable legacy expiry) was removed in `f88b9c1d0000`, which
+deleted the `survey_distributions` table and `survey_responses.distribution_id`; the associated
+`SURVEY_DISTRIBUTION_DEFAULT_EXPIRY_DAYS`/`SURVEY_DISTRIBUTION_MAX_EXPIRY_DAYS` config keys were
+removed with it.
 
 ## Deployment topology
 
@@ -106,7 +119,7 @@ The canonical permission catalog is:
 | `ml.sentiment.run` | Run sentiment analysis. |
 | `surveys.read` | View surveys. |
 | `surveys.manage` | Create, update, structure, archive, and restore surveys. |
-| `survey_distributions.manage` | Create, list, rotate, and revoke distributions. |
+| `survey_distributions.manage` | Orphaned: still in the permission catalog and database for backward compatibility; no route checks it; removal requires a data migration. |
 | `survey_responses.read_aggregates` | View aggregated survey responses. |
 | `survey_responses.read_raw` | View raw survey responses. |
 | `survey_responses.read_identity` | View authorized respondent identity snapshots. |
@@ -116,8 +129,9 @@ The canonical permission catalog is:
 Defaults remain: `admin` has all 22 capabilities; `researcher` has all except
 `survey_responses.erase` (including `survey_responses.read_identity`); and `staff` has
 `portal.access`, `ml.models.read`, `surveys.read`, and `survey_responses.read_aggregates` only.
-Raw reads, identity reads, exports, aggregates, distribution management, and erasure are
-separate capabilities. The identity endpoint requires both `survey_responses.read_raw` and
+Raw reads, identity reads, exports, aggregates, and erasure are
+separate capabilities. `survey_distributions.manage` remains orphaned in the catalog and database
+for backward compatibility: no route enforces it, and removing it requires a data migration. The identity endpoint requires both `survey_responses.read_raw` and
 `survey_responses.read_identity`; authentication or survey ownership is not an implicit grant.
 
 Role assignment is additionally constrained by the actor's effective permissions: an actor cannot
@@ -194,7 +208,8 @@ Intro, profile, Section II-A, and IV-A questions (40 total); Phase 2 contains du
 II-B and IV-B questions (28 total). Every question carries `config.survey_phase`, while surveys
 without that metadata remain single-phase.
 
-One Google respondent and one distribution link map to one response row. Authenticated GET exposes
+One Google account per survey maps to one response row; survey-scoped dedupe replaces the
+distribution link. Authenticated GET exposes
 only the available phase. POST creates Phase 1; PATCH locks the same row and merges Phase 2 without
 changing Phase 1 answers, consent, identity, withdrawal ownership, or `created_at`. Completion and
 withdrawal return no form. Phase audit events record each submission, and `responses_count` remains
@@ -212,7 +227,7 @@ one participant row rather than two submissions.
   limits. Small-group aggregates are not anonymous or privacy-preserving and must remain limited
   to approved aggregate-reader roles.
 - Raw listing uses offset pagination (`limit` 50 by default, maximum 100) and only supports
-  `submitted_from` (inclusive), `submitted_before` (exclusive), and `distribution_id` filters.
+  `submitted_from` (inclusive) and `submitted_before` (exclusive) filters.
   There is no `include_deleted` or answer-content escape hatch.
 - CSV export is long-format, streamed from the database, preflight-capped at 10,000 eligible
   responses, and private/no-store. The accepted preflight count bounds the deferred stream, so
@@ -276,8 +291,7 @@ PUBLIC_SURVEY_PRIVACY_NOTICE=<approved notice text>
 PUBLIC_SURVEY_PURPOSE=<approved purpose>
 PUBLIC_SURVEY_RETENTION=<approved retention statement>
 PUBLIC_SURVEY_CONTACT=<approved withdrawal/privacy contact>
-SURVEY_DISTRIBUTION_DEFAULT_EXPIRY_DAYS=30
-SURVEY_DISTRIBUTION_MAX_EXPIRY_DAYS=30
+# SURVEY_DISTRIBUTION_DEFAULT_EXPIRY_DAYS / SURVEY_DISTRIBUTION_MAX_EXPIRY_DAYS retired with f88b9c1d0000
 DATABASE_TLS_MODE=require
 ```
 
@@ -328,14 +342,15 @@ Execute this sequence without reordering:
 2. Enable the ingress maintenance/write-drain rule for public survey submissions and withdrawal,
    wait for in-flight writes to finish, and stop every old API replica. Keep submissions blocked
    until step 6; an old writer after the migration can create a null retention deadline.
-3. Run `./.venv/bin/alembic upgrade head` once. Confirm that `a8055c9859f5` is applied after
-   `d5a4f7c91e2b` (which follows `2bf09a6bc738`), verify distribution digests are populated and
-   the plaintext token column is absent, inspect the survey default backfill, verify response
+3. Run `./.venv/bin/alembic upgrade head` once. Confirm that `a6c42481a0d9` is applied after
+   `b0d864b9935b` (which follows `3aad20b0fc8a` after `f88b9c1d0000`), verify the
+   `survey_distributions` table is absent and the
+   `uq_survey_responses_survey_idempotency` unique constraint is present, inspect the survey
+   default backfill, verify response
    deadline backfill, verify the protected-table and proof-table RLS/ACL lockdown postconditions,
    and reconcile any enabled-retention response with a null deadline before continuing.
 4. Deploy the compatible API and frontend together and invalidate stale public-form caches. Verify
-   new distribution create/rotate responses reveal tokens once, list/revoke metadata stays
-   token-free, expiry defaults and maximum validation work, and new submissions snapshot enabled and
+   new submissions snapshot enabled and
    disabled policies correctly, withdrawal codes are one-time displayed/digest-only, and raw,
    aggregate, identity, export, and erase permission checks pass, including the requirement for
    both raw and identity capabilities on the identity endpoint.
@@ -349,7 +364,8 @@ Execute this sequence without reordering:
 Before `2bf09a6bc738`, application rollback during the Phase 2 compatibility window was allowed
 only while the plaintext distribution-token column remained available. At the current head,
 plaintext tokens cannot be reconstructed, and `d5a4f7c91e2b` and `a8055c9859f5` cannot be
-downgraded because their lockdowns are intentionally fail-closed. Do not downgrade the migration as an ad hoc rollback;
+downgraded because their lockdowns are intentionally fail-closed, while `f88b9c1d0000` has a
+no-op `pass` downgrade that cannot restore the dropped distribution table. Do not downgrade the migration as an ad hoc rollback;
 restore a validated backup/PITR copy in isolation or use a reviewed forward fix, run release
 validation including RLS/ACL checks, and then promote it.
 

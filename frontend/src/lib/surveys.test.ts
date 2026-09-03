@@ -12,7 +12,6 @@ vi.mock("@/lib/api", () => ({ api: mockApi }))
 
 import {
   buildSurveyListQuery,
-  createDistribution,
   createSurvey,
   createSurveyWithStructure,
   eraseResponses,
@@ -21,8 +20,6 @@ import {
   fetchResponses,
   fetchResponsesWithIdentity,
   mapSurvey,
-  mapDistribution,
-  rotateDistribution,
   updateSurvey,
 } from "./surveys"
 
@@ -51,46 +48,6 @@ describe("mapSurvey", () => {
   })
 })
 
-describe("mapDistribution", () => {
-  it("maps tokenless distribution metadata", () => {
-    const distribution = mapDistribution({
-      id: "distribution-id",
-      survey_id: "survey-id",
-      status: "active",
-      is_active: true,
-      expires_at: "2099-01-01T00:00:00Z",
-      revoked_at: null,
-      created_at: "2026-01-01T00:00:00Z",
-    })
-
-    expect(distribution).toEqual({
-      id: "distribution-id",
-      surveyId: "survey-id",
-      status: "active",
-      isActive: true,
-      expiresAt: "2099-01-01T00:00:00Z",
-      revokedAt: null,
-      createdAt: "2026-01-01T00:00:00Z",
-    })
-    expect("token" in distribution).toBe(false)
-  })
-
-  it("does not copy a token if an ordinary metadata response includes one", () => {
-    const distribution = mapDistribution({
-      id: "distribution-id",
-      survey_id: "survey-id",
-      status: "active",
-      is_active: true,
-      expires_at: null,
-      revoked_at: null,
-      created_at: "2026-01-01T00:00:00Z",
-      token: "must-not-be-exposed",
-    } as Parameters<typeof mapDistribution>[0])
-
-    expect("token" in distribution).toBe(false)
-  })
-})
-
 describe("buildSurveyListQuery", () => {
   it("serializes supported survey list filters", () => {
     expect(buildSurveyListQuery({
@@ -104,61 +61,6 @@ describe("buildSurveyListQuery", () => {
       offset: 40,
     })).toBe(
       "?include_deleted=true&search=alumni+survey&status=Active&target_cohort=Class+of+2024&sort_by=responses_count&sort_order=desc&limit=20&offset=40",
-    )
-  })
-})
-
-describe("distribution API operations", () => {
-  afterEach(() => {
-    vi.restoreAllMocks()
-    vi.clearAllMocks()
-  })
-
-  it("sends an explicit expiry when creating a distribution", async () => {
-    mockApi.post.mockResolvedValue({
-      data: {
-        id: "distribution-id",
-        survey_id: "survey-id",
-        status: "active",
-        is_active: true,
-        expires_at: "2030-01-02T03:04:05.000Z",
-        revoked_at: null,
-        created_at: "2026-01-01T00:00:00Z",
-        token: "one-time-token",
-      },
-    })
-
-    await createDistribution("survey-id", "2030-01-02T03:04:05.000Z")
-
-    expect(mockApi.post).toHaveBeenCalledWith(
-      "/surveys/survey-id/distributions/",
-      { expires_at: "2030-01-02T03:04:05.000Z" },
-    )
-  })
-
-  it("sends an explicit expiry when rotating a distribution", async () => {
-    mockApi.post.mockResolvedValue({
-      data: {
-        id: "replacement-id",
-        survey_id: "survey-id",
-        status: "active",
-        is_active: true,
-        expires_at: "2031-02-03T04:05:06.000Z",
-        revoked_at: null,
-        created_at: "2026-01-01T00:00:00Z",
-        token: "replacement-token",
-      },
-    })
-
-    await rotateDistribution(
-      "survey-id",
-      "distribution-id",
-      "2031-02-03T04:05:06.000Z",
-    )
-
-    expect(mockApi.post).toHaveBeenCalledWith(
-      "/surveys/survey-id/distributions/distribution-id/rotate",
-      { expires_at: "2031-02-03T04:05:06.000Z" },
     )
   })
 })
@@ -285,12 +187,11 @@ describe("response privacy API operations", () => {
       sortOrder: "asc",
       submittedFrom: "2026-01-01T00:00:00Z",
       submittedBefore: "2026-02-01T00:00:00Z",
-      distributionId: "distribution-id",
     })
 
     expect(mockApi.get).toHaveBeenCalledTimes(1)
     expect(mockApi.get).toHaveBeenCalledWith(
-      "/surveys/survey-id/responses/?limit=25&offset=50&sort_by=created_at&sort_order=asc&submitted_from=2026-01-01T00%3A00%3A00Z&submitted_before=2026-02-01T00%3A00%3A00Z&distribution_id=distribution-id",
+      "/surveys/survey-id/responses/?limit=25&offset=50&sort_by=created_at&sort_order=asc&submitted_from=2026-01-01T00%3A00%3A00Z&submitted_before=2026-02-01T00%3A00%3A00Z",
     )
     expect(result.pagination).toEqual({
       total: 125,
@@ -307,7 +208,6 @@ describe("response privacy API operations", () => {
       data: [{
         id: "response-id",
         survey_id: "survey-id",
-        distribution_id: null,
         answers: {},
         created_at: "2026-01-01T00:00:00Z",
         provider: "google",

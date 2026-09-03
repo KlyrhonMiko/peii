@@ -20,8 +20,8 @@ Follow `ui/AGENTS.md` when editing primitive building blocks under `src/componen
   gates CRUD, retention settings, structure editing, aggregates, raw responses, CSV export, and
   erasure by the capabilities passed by the route. Response operations preserve separate global
   RBAC capabilities and archived-survey access rules.
-- `SurveyDistributionManager.tsx` owns distribution lifecycle UI: token-free metadata reloads,
-  explicit expiry, one-time token display, rotation, and revocation.
+- `SurveyShareLinkDialog.tsx` (formerly `SurveyDistributionManager.tsx`) shows the public
+  shareable survey link (`/survey/{surveyId}`); the distribution feature was removed.
 - `CohortTrendChart.tsx` contains a filter-aware Recharts bar chart;
   `PEIIDimensionsChart.tsx` and `SentimentDivergenceChart.tsx` contain analytics charts.
 

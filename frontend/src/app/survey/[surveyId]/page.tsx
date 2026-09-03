@@ -183,7 +183,7 @@ function SurveyLoadError({
       ? "Too many requests"
       : "Survey temporarily unavailable"
   const message = isUnavailable
-    ? "This link may have expired, been revoked, or the survey is no longer accepting responses."
+    ? "This survey is unavailable, archived, or no longer accepting responses."
     : isRateLimited
       ? "Please wait before trying to load this survey again."
       : "We could not load this survey right now."

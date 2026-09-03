@@ -9,9 +9,12 @@ database change log, not as scratch files.
 - The directory contains the canonical first-release baseline `20260825_v1`, the Phase 2
   compatibility revision `f77a807cf2f9_expand_distribution_security`, the follow-up
   `d1f9bad768ad` expiry compatibility revision, the Phase 3 `fb1c93d15474` retention/withdrawal
-  revision, the current `2bf09a6bc738` digest-only distribution-token revision, the
-  `d5a4f7c91e2b` Supabase Data API lockdown revision, the current `a8055c9859f5` Google survey
-  respondent identity/auth-proof revision, and this guide. `a8055c9859f5` is the current head.
+  revision, the `2bf09a6bc738` digest-only distribution-token revision, the
+  `d5a4f7c91e2b` Supabase Data API lockdown revision, `a8055c9859f5` (Google survey
+  respondent identity/auth proofs), `b9055c9859f6` (`is_template`),
+  `f88b9c1d0000` (drops survey distributions), `3aad20b0fc8a` (ml_sentiments),
+  `b0d864b9935b` (false_positive_feedbacks), `a6c42481a0d9` (polarity_override), and this guide.
+  `a6c42481a0d9` is the current head.
   Future revisions may follow these revisions, but predecessor
   history must not be reintroduced.
   The lockdown revision requires its migration identity to own every protected table before
@@ -38,7 +41,8 @@ database change log, not as scratch files.
   enabled/1,825-day policy. Do not activate retention purge until that backfill has been reviewed.
 - The `f77a807cf2f9` revision's plaintext-token compatibility behavior is historical. The
   `2bf09a6bc738` revision backfills missing digests/prefixes and removes the plaintext token
-  column; it cannot be downgraded to recover those values.
+  column; it cannot be downgraded to recover those values. `f88b9c1d0000` later dropped the
+  distribution table entirely, and its downgrade is a no-op `pass`.
 
 ## Consistency Checks
 - Confirm the final migration state matches the current SQLModel definitions.

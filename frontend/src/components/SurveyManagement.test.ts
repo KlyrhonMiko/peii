@@ -61,7 +61,6 @@ describe("getSurveyCapabilities", () => {
     expect(getSurveyCapabilities([
       "surveys.read",
       "surveys.manage",
-      "survey_distributions.manage",
       "survey_responses.read_aggregates",
       "survey_responses.read_raw",
       "survey_responses.read_identity",
@@ -69,7 +68,6 @@ describe("getSurveyCapabilities", () => {
     ], true)).toEqual({
       read: true,
       manage: true,
-      distributionManage: true,
       readAggregates: true,
        readRaw: true,
        readIdentity: true,
@@ -81,14 +79,12 @@ describe("getSurveyCapabilities", () => {
   it("does not grant capabilities for near-match permissions", () => {
     expect(getSurveyCapabilities([
       "surveys.manage.any",
-      "survey_distributions.manage.extra",
       "survey_responses.read_raw.extra",
       "survey_responses.exported",
       "survey_responses.erase.extra",
     ], true)).toEqual({
       read: false,
       manage: false,
-      distributionManage: false,
        readAggregates: false,
        readRaw: false,
        readIdentity: false,
