@@ -7,12 +7,14 @@ Follow `ui/AGENTS.md` when editing primitive building blocks under `src/componen
 
 ## Current Responsibilities
 - `app-sidebar.tsx` and `nav-bar.tsx` contain shared portal navigation.
-- `AdminUserManagement.tsx` and `AdminRoleManagement.tsx` contain live permission-aware
-  administration workflows.
+- `AdminUserManagement.tsx`, `AdminRoleManagement.tsx`, and `AdminAuditLogs.tsx` contain
+  live permission-aware administration workflows; `SentimentTest.tsx` holds the development
+  sentiment-analysis utility surfaced only in non-production builds.
 - `DashboardFilters.tsx`, `ProgramFilter.tsx`, and `SurveySelect.tsx` provide product
   filtering and selection controls.
-- `ClientCohortTrendChart.tsx`, `ClientPEIIDimensionsChart.tsx`, and
-  `ClientSentimentDivergenceChart.tsx` isolate client-only dynamic chart imports.
+- `ClientCohortTrendChart.tsx`, `ClientPEIIDimensionsChart.tsx`,
+  `ClientPEIIHistoricalTrendChart.tsx`, and `ClientSentimentDivergenceChart.tsx` isolate
+  client-only dynamic chart imports.
 - `ClientSurveyForm.tsx` renders the Google-authenticated identified survey intake with
   section-per-page navigation, Phase 1 POST, and Phase 2 PATCH behavior.
 - `public-survey/WithdrawalForm.tsx` renders the public code-based response withdrawal flow.
@@ -20,10 +22,11 @@ Follow `ui/AGENTS.md` when editing primitive building blocks under `src/componen
   gates CRUD, retention settings, structure editing, aggregates, raw responses, CSV export, and
   erasure by the capabilities passed by the route. Response operations preserve separate global
   RBAC capabilities and archived-survey access rules.
-- `SurveyDistributionManager.tsx` owns distribution lifecycle UI: token-free metadata reloads,
-  explicit expiry, one-time token display, rotation, and revocation.
+- `SurveyShareLinkDialog.tsx` (formerly `SurveyDistributionManager.tsx`) shows the public
+  shareable survey link (`/survey/{surveyId}`); the distribution feature was removed.
 - `CohortTrendChart.tsx` contains a filter-aware Recharts bar chart;
-  `PEIIDimensionsChart.tsx` and `SentimentDivergenceChart.tsx` contain analytics charts.
+  `PEIIDimensionsChart.tsx`, `PEIIHistoricalTrendChart.tsx`, and `SentimentDivergenceChart.tsx`
+  contain analytics charts.
 
 ## Component Rules
 - Prefer `PascalCase` filenames and exported component names for new product components.

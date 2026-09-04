@@ -1,5 +1,6 @@
 """Redis-backed fixed-window rate limiting and reusable FastAPI dependencies."""
 
+import asyncio
 import hmac
 from dataclasses import dataclass
 from hashlib import sha256
@@ -67,18 +68,19 @@ class UpstashRedisRestClient:
         )
         self._url = url
 
-    async def eval(self, script: str, numkeys: int, *args: object) -> Any:
-        command: list[object] = ["EVAL", script, numkeys, *args]
+    async def _execute(self, *command: object) -> Any:
         try:
-            response = await self._client.post(self._url, json=command)
+            response = await self._client.post(self._url, json=list(command))
             response.raise_for_status()
             payload = response.json()
         except Exception:
             raise RuntimeError("Upstash Redis request failed") from None
-
         if not isinstance(payload, dict) or "error" in payload or "result" not in payload:
             raise RuntimeError("Upstash Redis returned an invalid response")
-        result = payload["result"]
+        return payload["result"]
+
+    async def eval(self, script: str, numkeys: int, *args: object) -> Any:
+        result = await self._execute("EVAL", script, numkeys, *args)
         if not isinstance(result, list) or len(result) != 3:
             raise RuntimeError("Upstash Redis returned an invalid result")
         try:
@@ -86,6 +88,38 @@ class UpstashRedisRestClient:
         except (TypeError, ValueError):
             raise RuntimeError("Upstash Redis returned an invalid result") from None
         return result
+
+    async def get(self, key: str) -> str | None:
+        result = await self._execute("GET", key)
+        if result is None:
+            return None
+        return str(result)
+
+    async def setex(self, key: str, ttl_seconds: int, value: str) -> None:
+        await self._execute("SET", key, value, "EX", int(ttl_seconds))
+
+    async def scan(
+        self, cursor: int = 0, match: str | None = None, count: int = 200
+    ) -> tuple[int, list[str]]:
+        command: list[object] = ["SCAN", str(cursor)]
+        if match is not None:
+            command.extend(["MATCH", match])
+        command.extend(["COUNT", str(count)])
+        result = await self._execute(*command)
+        if not isinstance(result, list) or len(result) != 2:
+            raise RuntimeError("Upstash Redis returned an invalid SCAN result")
+        next_cursor_raw, keys_raw = result
+        try:
+            next_cursor = int(str(next_cursor_raw))
+        except (TypeError, ValueError):
+            raise RuntimeError("Upstash Redis returned an invalid SCAN cursor") from None
+        keys = [str(item) for item in keys_raw] if isinstance(keys_raw, list) else []
+        return next_cursor, keys
+
+    async def unlink(self, *keys: str) -> None:
+        if not keys:
+            return
+        await self._execute("DEL", *keys)
 
     async def aclose(self) -> None:
         await self._client.aclose()
@@ -132,6 +166,7 @@ class FixedWindowRateLimiter:
             return
         if not self.secret:
             raise RedisUnavailableError()
+        secret = self.secret
 
         failure_policy = "fail_closed"
         if read_only:
@@ -139,8 +174,9 @@ class FixedWindowRateLimiter:
                 getattr(self.settings, "RATE_LIMIT_READ_FAILURE_POLICY", "fail_closed")
             )
             failure_policy = read_failure_policy or configured_failure_policy
-        for identifier in identifiers:
-            key = build_rate_limit_key(policy_name, identifier, self.secret)
+
+        async def check_identifier(identifier: str) -> None:
+            key = build_rate_limit_key(policy_name, identifier, secret)
             try:
                 result = await self.redis.eval(
                     FIXED_WINDOW_LUA,
@@ -151,12 +187,22 @@ class FixedWindowRateLimiter:
                 )
             except Exception as exc:
                 if read_only and failure_policy == "fail_open":
-                    continue
+                    return None
                 raise RedisUnavailableError() from exc
 
             allowed, _count, retry_after = (int(value) for value in result)
             if not allowed:
                 raise RateLimitExceeded(max(1, retry_after))
+            return None
+
+        outcomes = await asyncio.gather(
+            *(check_identifier(identifier) for identifier in identifiers),
+            return_exceptions=True,
+        )
+        # Preserve first-offender ordering: buckets are checked in identifier order.
+        for outcome in outcomes:
+            if isinstance(outcome, BaseException):
+                raise outcome
 
 
 class RedisRateLimitLifecycle:
@@ -167,7 +213,8 @@ class RedisRateLimitLifecycle:
         self.limiter: FixedWindowRateLimiter | None = None
 
     async def start(self) -> None:
-        if not settings.RATE_LIMIT_ENABLED:
+        cache_enabled = bool(getattr(settings, "CACHE_ENABLED", False))
+        if not settings.RATE_LIMIT_ENABLED and not cache_enabled:
             return
         try:
             upstash_url = getattr(settings, "UPSTASH_REDIS_REST_URL", None)
@@ -190,20 +237,26 @@ class RedisRateLimitLifecycle:
                     socket_timeout=settings.REDIS_SOCKET_TIMEOUT_SECONDS,
                     decode_responses=False,
                 )
-            self.limiter = FixedWindowRateLimiter(
-                self.client,
-                secret=settings.RATE_LIMIT_KEY_HMAC_SECRET,
-                settings_obj=settings,
-            )
+            if settings.RATE_LIMIT_ENABLED:
+                self.limiter = FixedWindowRateLimiter(
+                    self.client,
+                    secret=settings.RATE_LIMIT_KEY_HMAC_SECRET,
+                    settings_obj=settings,
+                )
+            else:
+                self.limiter = None
         except Exception:
             # Connection errors are handled at request time so read/write policy is
             # applied consistently instead of making the process impossible to start.
             self.client = None
-            self.limiter = FixedWindowRateLimiter(
-                _UnavailableRedis(),
-                secret=settings.RATE_LIMIT_KEY_HMAC_SECRET,
-                settings_obj=settings,
-            )
+            if settings.RATE_LIMIT_ENABLED:
+                self.limiter = FixedWindowRateLimiter(
+                    _UnavailableRedis(),
+                    secret=settings.RATE_LIMIT_KEY_HMAC_SECRET,
+                    settings_obj=settings,
+                )
+            else:
+                self.limiter = None
 
     async def stop(self) -> None:
         if self.client is not None:
@@ -228,6 +281,11 @@ def get_rate_limiter() -> FixedWindowRateLimiter:
         secret=settings.RATE_LIMIT_KEY_HMAC_SECRET,
         settings_obj=settings,
     )
+
+
+def get_redis_client() -> Any | None:
+    """Return the shared Redis client for response caching (None when unavailable)."""
+    return redis_lifecycle.client
 
 
 def rate_limit_policy(name: str) -> RateLimitPolicy:
@@ -325,12 +383,27 @@ async def enforce_rate_limit(
     )
 
 
+async def _raise_first_outcome(outcomes: tuple[BaseException | None, ...]) -> None:
+    for outcome in outcomes:
+        if isinstance(outcome, BaseException):
+            raise outcome
+
+
 async def enforce_identifier_rate_limit(policy_name: str, identifier: str) -> None:
-    """Apply an identity bucket and a separate, materially higher global breaker."""
-    await enforce_rate_limit(rate_limit_policy(policy_name), [identifier])
-    await enforce_rate_limit(
-        rate_limit_policy(f"{policy_name}-global"), [f"{policy_name}-global"]
+    """Apply an identity bucket and a separate, materially higher global breaker.
+
+    The buckets are evaluated concurrently, so a rejected identity bucket also
+    increments the global breaker for the attempt (floods still push it). The
+    outcome raised is whichever bucket first exceeds its limit.
+    """
+    outcomes = await asyncio.gather(
+        enforce_rate_limit(rate_limit_policy(policy_name), [identifier]),
+        enforce_rate_limit(
+            rate_limit_policy(f"{policy_name}-global"), [f"{policy_name}-global"]
+        ),
+        return_exceptions=True,
     )
+    await _raise_first_outcome(outcomes)
 
 
 async def enforce_authenticated_survey_rate_limit(
@@ -341,13 +414,14 @@ async def enforce_authenticated_survey_rate_limit(
 ) -> None:
     """Apply a verified respondent/session/survey bucket and a global breaker."""
     identifier = f"subject:{auth_user_id}:session:{session_id}:survey:{survey_id}"
-    await enforce_rate_limit(
-        rate_limit_policy(policy_name),
-        [identifier],
+    outcomes = await asyncio.gather(
+        enforce_rate_limit(rate_limit_policy(policy_name), [identifier]),
+        enforce_rate_limit(
+            rate_limit_policy(f"{policy_name}-global"), [f"{policy_name}-global"]
+        ),
+        return_exceptions=True,
     )
-    await enforce_rate_limit(
-        rate_limit_policy(f"{policy_name}-global"), [f"{policy_name}-global"]
-    )
+    await _raise_first_outcome(outcomes)
 
 
 async def check_google_survey_attestation(

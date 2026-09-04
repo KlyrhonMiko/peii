@@ -1,14 +1,25 @@
+from typing import cast
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Response
+from fastapi import APIRouter, Depends, Request, Response
+from pydantic import BaseModel
 
-from core.deps import AsyncDBSession, CurrentPrincipal, require_permissions
+from core.analytics_cache import get_analytics_cached, set_analytics_cached
+from core.cache import build_cache_key, cache_get, cache_set
+from core.deps import AnalyticsAsyncDBSession, AsyncDBSession, CurrentPrincipal, require_permissions
 from core.responses import APIResponse, success_response
-from schemas.survey_analytics import SurveyResponseAggregate
 from schemas.peii import PEIIAnalyticsResponse
-from services import survey_analytics_service
+from schemas.survey_analytics import SurveyResponseAggregate
+from services import false_positive_service, survey_analytics_service
 
 router = APIRouter()
+
+
+class FalsePositiveRequest(BaseModel):
+    response_id: UUID
+    question_id: UUID
+    # None = flip (classic FP), 1.0 = force positive, -1.0 = force negative
+    polarity_override: float | None = None
 
 
 @router.get(
@@ -20,15 +31,34 @@ router = APIRouter()
 )
 async def aggregate_survey_responses(
     survey_id: UUID,
-    session: AsyncDBSession,
+    session: AnalyticsAsyncDBSession,
     http_response: Response,
     principal: CurrentPrincipal,
 ) -> APIResponse[list[SurveyResponseAggregate]]:
     http_response.headers["Cache-Control"] = "private, no-store, max-age=0"
     http_response.headers["Pragma"] = "no-cache"
-    return success_response(
-        await survey_analytics_service.aggregate_responses(session, survey_id)
+    l1_key = ("aggregates", str(survey_id))
+    cached = get_analytics_cached(l1_key)
+    if cached is not None:
+        http_response.headers["X-Cache"] = "HIT"
+        return success_response(cast(list[SurveyResponseAggregate], cached))
+    redis_key = build_cache_key(survey_id)
+    redis_cached = await cache_get("aggregates", redis_key)
+    if isinstance(redis_cached, list):
+        try:
+            aggregates = [SurveyResponseAggregate.model_validate(item) for item in redis_cached]
+            set_analytics_cached(l1_key, aggregates)
+            http_response.headers["X-Cache"] = "HIT"
+            return success_response(aggregates)
+        except Exception:
+            pass
+    aggregates = await survey_analytics_service.aggregate_responses(session, survey_id)
+    set_analytics_cached(l1_key, aggregates)
+    await cache_set(
+        "aggregates", redis_key, [item.model_dump(mode="json") for item in aggregates]
     )
+    http_response.headers["X-Cache"] = "MISS"
+    return success_response(aggregates)
 
 
 @router.get(
@@ -40,7 +70,7 @@ async def aggregate_survey_responses(
 )
 async def compute_peii(
     survey_id: UUID,
-    session: AsyncDBSession,
+    session: AnalyticsAsyncDBSession,
     http_response: Response,
     principal: CurrentPrincipal,
     batch: str | None = None,
@@ -48,23 +78,31 @@ async def compute_peii(
 ) -> APIResponse[PEIIAnalyticsResponse]:
     http_response.headers["Cache-Control"] = "private, no-store, max-age=0"
     http_response.headers["Pragma"] = "no-cache"
-    return success_response(
-        await survey_analytics_service.compute_peii_scores(
-            session=session,
-            survey_ids=[survey_id],
-            batch_year=batch,
-            department=department
-        )
+    l1_key = ("peii", str(survey_id), batch or "", department or "")
+    cached = get_analytics_cached(l1_key)
+    if cached is not None:
+        http_response.headers["X-Cache"] = "HIT"
+        return success_response(cast(PEIIAnalyticsResponse, cached))
+    redis_key = build_cache_key(survey_id, batch or "", department or "")
+    redis_cached = await cache_get("peii", redis_key)
+    if isinstance(redis_cached, dict):
+        try:
+            peii = PEIIAnalyticsResponse.model_validate(redis_cached)
+            set_analytics_cached(l1_key, peii)
+            http_response.headers["X-Cache"] = "HIT"
+            return success_response(peii)
+        except Exception:
+            pass
+    peii = await survey_analytics_service.compute_peii_scores(
+        session=session,
+        survey_ids=[survey_id],
+        batch_year=batch,
+        department=department,
     )
-
-from pydantic import BaseModel
-from typing import Optional
-
-class FalsePositiveRequest(BaseModel):
-    response_id: UUID
-    question_id: UUID
-    # None = flip (classic FP), 1.0 = force positive, -1.0 = force negative
-    polarity_override: Optional[float] = None
+    set_analytics_cached(l1_key, peii)
+    await cache_set("peii", redis_key, peii.model_dump(mode="json"))
+    http_response.headers["X-Cache"] = "MISS"
+    return success_response(peii)
 
 @router.post(
     "/peii/false-positive",
@@ -78,73 +116,16 @@ async def mark_false_positive(
     payload: FalsePositiveRequest,
     session: AsyncDBSession,
     principal: CurrentPrincipal,
+    request: Request,
 ) -> APIResponse[dict[str, str]]:
-    from models.false_positive_feedback import FalsePositiveFeedback
-    from models.survey_response import SurveyResponse
-    from models.survey_question import SurveyQuestion
-    from services.ml_service import FeedbackAnalyzer
-    import asyncio
-    from sqlmodel import select
-    
-    # Upsert: if already flagged, update polarity_override instead of inserting duplicate
-    existing = (
-        await session.exec(
-            select(FalsePositiveFeedback)
-            .where(FalsePositiveFeedback.response_id == payload.response_id)
-            .where(FalsePositiveFeedback.question_id == payload.question_id)
-        )
-    ).first()
-    
-    if existing:
-        existing.polarity_override = payload.polarity_override
-        session.add(existing)
-    else:
-        fp = FalsePositiveFeedback(
-            response_id=payload.response_id,
-            question_id=payload.question_id,
-            polarity_override=payload.polarity_override,
-        )
-        session.add(fp)
-    
-    # Update ML cache and ml_sentiments if response exists
-    resp = await session.get(SurveyResponse, payload.response_id)
-    if resp and isinstance(resp.answers, dict):
-        text_ans = resp.answers.get(str(payload.question_id))
-        if text_ans and isinstance(text_ans, str):
-            q = await session.get(SurveyQuestion, payload.question_id)
-            if q:
-                # Format exactly as cached
-                prompt = f"Question: {q.question_text} Answer: {text_ans}"
-                
-                def _register_fp():
-                    import logging
-                    logger = logging.getLogger("api.survey_analytics")
-                    try:
-                        logger.info(f"Starting background task for false positive registration on question_id: {payload.question_id}")
-                        FeedbackAnalyzer.get_instance().register_false_positive(prompt)
-                        logger.info("Completed background task for false positive registration.")
-                    except Exception as e:
-                        logger.error(f"Failed in background task for false positive registration: {e}")
-                
-                # Tell ML Service to register it in a background thread
-                asyncio.create_task(asyncio.to_thread(_register_fp))
-            
-            # Flip or set polarity in database
-            if resp.ml_sentiments:
-                q_sents = resp.ml_sentiments.get(str(payload.question_id), [])
-                if q_sents:
-                    if payload.polarity_override is not None:
-                        # Force exact polarity
-                        new_sents = [[dim, payload.polarity_override] for dim, _ in q_sents]
-                    else:
-                        # Classic flip
-                        new_sents = [[dim, -polarity] for dim, polarity in q_sents]
-                    resp.ml_sentiments[str(payload.question_id)] = new_sents
-                    
-                    from sqlalchemy.orm.attributes import flag_modified
-                    flag_modified(resp, "ml_sentiments")
-                    session.add(resp)
-            
-    await session.commit()
-    
+    ip_address = request.client.host if request.client else None
+    await false_positive_service.mark_false_positive(
+        session=session,
+        survey_id=survey_id,
+        response_id=payload.response_id,
+        question_id=payload.question_id,
+        polarity_override=payload.polarity_override,
+        actor_id=principal.user.id,
+        ip_address=ip_address,
+    )
     return success_response({"status": "success"})

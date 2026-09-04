@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { toast } from "sonner"
 
 import type { Survey } from "@/lib/surveys"
-import { SurveyDistributionManager } from "./SurveyDistributionManager"
+import { SurveyShareLinkDialog } from "./SurveyShareLinkDialog"
 
 vi.mock("sonner", () => ({
   toast: {
@@ -30,7 +30,12 @@ const inactiveSurvey: Survey = {
   status: "Inactive",
 }
 
-describe("SurveyDistributionManager", () => {
+const archivedSurvey: Survey = {
+  ...activeSurvey,
+  isDeleted: true,
+}
+
+describe("SurveyShareLinkDialog", () => {
   beforeEach(() => {
     vi.restoreAllMocks()
     vi.mocked(toast.success).mockReset()
@@ -44,10 +49,9 @@ describe("SurveyDistributionManager", () => {
   it("renders inactive state notice when survey is not active", () => {
     const onOpenChange = vi.fn()
     render(
-      <SurveyDistributionManager
+      <SurveyShareLinkDialog
         survey={inactiveSurvey}
         open
-        canManage
         onOpenChange={onOpenChange}
       />,
     )
@@ -62,44 +66,62 @@ describe("SurveyDistributionManager", () => {
       (btn) => btn.textContent?.trim() === "Close" && btn.getAttribute("data-slot") !== "dialog-close",
     )
     expect(actionCloseButton).toBeDefined()
-    // The shareable link <label> tag is only rendered in the active branch
-    expect(screen.queryByText("Shareable Link")).not.toBeInTheDocument()
+    // The shareable link <code> value is only rendered in the active branch
+    expect(
+      screen.queryByText(`${window.location.origin}/survey/SURV-001`),
+    ).not.toBeInTheDocument()
 
     fireEvent.click(actionCloseButton!)
     expect(onOpenChange).toHaveBeenCalledWith(false)
   })
 
+  it("renders archived notice and hides the link for archived surveys", () => {
+    render(
+      <SurveyShareLinkDialog
+        survey={archivedSurvey}
+        open
+        onOpenChange={vi.fn()}
+      />,
+    )
+
+    expect(screen.getByText("Survey is archived")).toBeInTheDocument()
+    expect(
+      screen.getByText(/Restore the survey to share the link again/i),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByText(`${window.location.origin}/survey/SURV-001`),
+    ).not.toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: /copy/i })).not.toBeInTheDocument()
+  })
+
   it("renders inactive state notice when survey is null", () => {
     render(
-      <SurveyDistributionManager
+      <SurveyShareLinkDialog
         survey={null}
         open
-        canManage={false}
         onOpenChange={vi.fn()}
       />,
     )
 
     expect(screen.getByText("Survey is not active")).toBeInTheDocument()
-    // When canManage is false, no card action Close button is rendered (only the dialog X icon)
+    // The card action Close button is rendered (in addition to the dialog X icon)
     const buttons = screen.getAllByRole("button")
     const actionCloseButton = buttons.find(
       (btn) => btn.textContent?.trim() === "Close" && btn.getAttribute("data-slot") !== "dialog-close",
     )
-    expect(actionCloseButton).toBeUndefined()
+    expect(actionCloseButton).toBeDefined()
   })
 
   it("renders shareable link when survey is active", () => {
     render(
-      <SurveyDistributionManager
+      <SurveyShareLinkDialog
         survey={activeSurvey}
         open
-        canManage
         onOpenChange={vi.fn()}
       />,
     )
 
-    expect(screen.getByText("Distribute Survey")).toBeInTheDocument()
-    expect(screen.getByText("Shareable Link")).toBeInTheDocument()
+    expect(screen.getAllByText("Shareable Link").length).toBeGreaterThan(0)
     expect(
       screen.getByText(`${window.location.origin}/survey/SURV-001`),
     ).toBeInTheDocument()
@@ -115,10 +137,9 @@ describe("SurveyDistributionManager", () => {
     })
 
     render(
-      <SurveyDistributionManager
+      <SurveyShareLinkDialog
         survey={activeSurvey}
         open
-        canManage
         onOpenChange={vi.fn()}
       />,
     )
@@ -144,10 +165,9 @@ describe("SurveyDistributionManager", () => {
     })
 
     render(
-      <SurveyDistributionManager
+      <SurveyShareLinkDialog
         survey={activeSurvey}
         open
-        canManage
         onOpenChange={vi.fn()}
       />,
     )
@@ -164,23 +184,21 @@ describe("SurveyDistributionManager", () => {
   it("resets copied state when dialog is closed", () => {
     const onOpenChange = vi.fn()
     const { rerender } = render(
-      <SurveyDistributionManager
+      <SurveyShareLinkDialog
         survey={activeSurvey}
         open
-        canManage
         onOpenChange={onOpenChange}
       />,
     )
 
     rerender(
-      <SurveyDistributionManager
+      <SurveyShareLinkDialog
         survey={activeSurvey}
         open={false}
-        canManage
         onOpenChange={onOpenChange}
       />,
     )
 
-    expect(screen.queryByText("Distribute Survey")).not.toBeInTheDocument()
+    expect(screen.queryByText("Shareable Link")).not.toBeInTheDocument()
   })
 })

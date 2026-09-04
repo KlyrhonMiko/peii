@@ -1,6 +1,7 @@
 from datetime import datetime
 from uuid import UUID
 
+from sqlalchemy import Index
 from sqlmodel import Field
 
 from models.base_model import BaseModel
@@ -8,6 +9,7 @@ from models.base_model import BaseModel
 
 class User(BaseModel, table=True):
     __tablename__ = "users"
+    __table_args__ = (Index("ix_users_created_at", "created_at"),)
 
     user_id: str = Field(unique=True, index=True, max_length=20)
     auth_user_id: UUID | None = Field(default=None, unique=True, index=True)

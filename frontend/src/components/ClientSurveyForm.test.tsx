@@ -256,7 +256,7 @@ describe("ClientSurveyForm", () => {
     fireEvent.click(screen.getByRole("button", { name: /submit/i }))
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
-      /already been submitted.*withdraw.*private withdrawal code/i,
+      /already recorded.*reload to continue with phase 2/i,
     )
   })
 

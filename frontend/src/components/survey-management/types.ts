@@ -21,14 +21,13 @@ export type EditorSection = Omit<SurveySection, "questions"> & {
 }
 
 export type PendingAction = {
-  type: "view" | "edit" | "generate" | "save" | "delete" | "restore" | "distribute" | "responses" | "preview"
+  type: "view" | "edit" | "generate" | "save" | "delete" | "restore" | "responses" | "preview"
   surveyId?: string
 } | null
 
 export interface SurveyCapabilities {
   read: boolean
   manage: boolean
-  distributionManage: boolean
   readAggregates: boolean
   readRaw: boolean
   readIdentity?: boolean

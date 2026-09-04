@@ -8,7 +8,7 @@ from sqlmodel import Session
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from core.auth import AuthClaims, verify_bearer_token
-from core.database import get_async_session, get_session
+from core.database import get_analytics_async_session, get_async_session, get_session
 from core.exceptions import AppError
 from models.user import User
 from schemas.common import AuditQueryParams, ListQueryParams
@@ -16,6 +16,7 @@ from services import auth_service
 
 DBSession = Annotated[Session, Depends(get_session)]
 AsyncDBSession = Annotated[AsyncSession, Depends(get_async_session)]
+AnalyticsAsyncDBSession = Annotated[AsyncSession, Depends(get_analytics_async_session)]
 
 
 @dataclass(frozen=True)
@@ -44,10 +45,14 @@ async def get_current_principal(
     if claims.has_oauth_amr:
         raise AppError("Authentication is not available for this account.", status_code=401)
     user = await auth_service.get_user_by_auth_subject(session, claims.subject)
-    permissions = await auth_service.rbac_service.effective_permissions(session, user.id)
-    return Principal(
-        user=user, permissions=frozenset(permissions), access_token=claims.access_token
+    permissions = frozenset(
+        await auth_service.rbac_service.effective_permissions_cached(session, user.id)
     )
+    if "portal.access" not in permissions:
+        raise AppError(
+            "You do not have permission to perform this action.", status_code=403
+        )
+    return Principal(user=user, permissions=permissions, access_token=claims.access_token)
 
 
 CurrentPrincipal = Annotated[Principal, Depends(get_current_principal)]

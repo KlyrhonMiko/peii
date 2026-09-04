@@ -1,7 +1,7 @@
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import JSON, CheckConstraint, Column, ForeignKeyConstraint, UniqueConstraint
+from sqlalchemy import JSON, CheckConstraint, Column, Index, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlmodel import Field
 
@@ -38,6 +38,12 @@ class SurveyResponse(BaseModel, table=True):
             "AND display_name IS NULL AND email_verified IS NULL "
             "AND identity_captured_at IS NULL)",
             name="ck_survey_responses_identity_snapshot_coherent",
+        ),
+        Index(
+            "ix_survey_responses_survey_active_created",
+            "survey_id",
+            "is_deleted",
+            "created_at",
         ),
     )
 

@@ -318,8 +318,8 @@ async def _seed(session: AsyncSession) -> SurveyModel:
     questions_to_audit = []
     for section, questions in sections:
         for q_idx, spec in enumerate(questions):
-            options_str = json.dumps(spec["options"]) if spec["options"] else None
-            config_str = json.dumps(spec["config"]) if spec.get("config") else None
+            options_str = spec["options"] if spec["options"] else None
+            config_str = spec["config"] if spec.get("config") else None
             question = SurveyQuestionModel(
                 survey_id=survey.id,
                 section_id=section.id,
@@ -386,10 +386,11 @@ async def _get_seeded_data(
             for q in raw_qs:
                 opts: list[str] = []
                 if q.options:
-                    try:
-                        opts = json.loads(q.options)
-                    except (json.JSONDecodeError, TypeError):
-                        pass
+                    opts = (
+                        q.options
+                        if isinstance(q.options, list)
+                        else json.loads(q.options)
+                    )
                 questions.append({
                     "order": q.order_index + 1,
                     "type": str(q.question_type),

@@ -112,7 +112,6 @@ describe("buildAggregatePresentation", () => {
     const raw: SurveyResponse[] = [{
       id: "response-id",
       surveyId: "survey-id",
-      distributionId: null,
       answers: { "question-id": ["B", "A"] },
       createdAt: "2026-01-01T00:00:00Z",
     }]

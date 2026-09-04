@@ -8,9 +8,13 @@ This guide covers `src/lib/`.
 - `api.ts` owns the authenticated browser API envelope/error client.
 - `public-survey.ts` owns the public survey phase contract, submission payload, private 256-bit
   withdrawal-code generation/request parsing, envelope parsing, and retry-after helpers.
-- `users.ts`, `rbac.ts`, and `surveys.ts` own domain types, mapping, and operations. `surveys.ts`
-  includes retention-aware survey settings, distribution, aggregate, paginated raw-response,
-  streamed export, and erasure operations.
+- `users.ts`, `rbac.ts`, `audit.ts`, and `surveys.ts` own domain types, mapping, and operations.
+  `audit.ts` maps the read-only audit trail list/detail endpoints through `/api/backend`;
+  `surveys.ts`
+  includes retention-aware survey settings, aggregate, paginated raw-response,
+  prepared export (returns a signed download URL that the browser opens), and erasure operations;
+  survey response idempotency is survey-scoped and
+  there is no distribution feature.
 - `auth.ts` owns server-side current-user and permission guards.
 - `supabase/` owns the server client and cookie policy.
 - `safe-redirect.ts` and `backend-proxy-policy.ts` own navigation and backend endpoint
@@ -41,8 +45,8 @@ This guide covers `src/lib/`.
 - Keep `api.ts`, `users.ts`, `rbac.ts`, and `surveys.ts` aligned with backend schemas and
   the shared envelope shape.
 - Forward the effective capability set to researcher UI; authentication is not sufficient for
-  survey operations. Distribution metadata must remain token-free after reload, while create
-  and rotate may expose a token only in their one-time secret response.
+  survey operations. Survey response idempotency is survey-scoped; the distribution feature was
+  removed, so there is no distribution token to guard.
 - Authenticated browser calls use `api.ts` and `/api/backend`. Server-only calls use
   `BACKEND_INTERNAL_URL`; the server-rendered identified survey page may use it for the survey
   GET after Google OAuth, while browser submission uses the focused same-origin

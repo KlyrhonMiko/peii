@@ -1,5 +1,6 @@
 import { Cpu, Server, Activity } from "lucide-react"
 
+import { requirePortalUser } from "@/lib/auth"
 import { createSupabaseServerClient } from "@/lib/supabase/server"
 
 export const dynamic = "force-dynamic"
@@ -16,24 +17,22 @@ async function getModels(): Promise<ModelInfo[]> {
   if (!backendUrl) throw new Error("BACKEND_INTERNAL_URL is not configured")
   const supabase = await createSupabaseServerClient()
   const { data } = await supabase.auth.getSession()
-  if (!data.session?.access_token) return []
-  try {
-    const res = await fetch(`${backendUrl}/ml/models`, {
-      headers: { Authorization: `Bearer ${data.session.access_token}` },
-      cache: "no-store",
-    })
-    if (!res.ok) {
-      throw new Error("Failed to fetch models")
-    }
-    const json = await res.json()
-    return json.data || []
-  } catch (error) {
-    console.error("Failed to load models:", error)
-    return []
+  if (!data.session?.access_token) {
+    throw new Error("Authenticated session is unavailable")
   }
+  const res = await fetch(`${backendUrl}/ml/models`, {
+    headers: { Authorization: `Bearer ${data.session.access_token}` },
+    cache: "no-store",
+  })
+  if (!res.ok) {
+    throw new Error("Failed to fetch models")
+  }
+  const json = (await res.json()) as { data?: ModelInfo[] }
+  return json.data ?? []
 }
 
 export default async function ModelsPage() {
+  await requirePortalUser("ml.models.read")
   const models = await getModels()
 
   return (

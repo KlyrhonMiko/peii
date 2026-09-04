@@ -296,7 +296,6 @@ export const SURVEY_STATUSES: SurveyStatus[] = ["Inactive", "Active", "Closed"]
 
 export const SURVEY_PERMISSIONS = {
   manage: "surveys.manage",
-  distributionManage: "survey_distributions.manage",
   readAggregates: "survey_responses.read_aggregates",
   readRaw: "survey_responses.read_raw",
   readIdentity: "survey_responses.read_identity",

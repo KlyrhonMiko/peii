@@ -12,7 +12,6 @@ EXPECTED_TABLES = {
     "response_erasure_receipts",
     "role_permissions",
     "roles",
-    "survey_distributions",
     "survey_questions",
     "survey_responses",
     "survey_sections",

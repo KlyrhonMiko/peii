@@ -1,6 +1,15 @@
 from uuid import UUID
 
-from sqlalchemy import Boolean, CheckConstraint, ForeignKeyConstraint, Index, String, text
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    CheckConstraint,
+    ForeignKeyConstraint,
+    Index,
+    String,
+    text,
+)
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlmodel import Column, Field
 
 from models.base_model import BaseModel
@@ -30,8 +39,14 @@ class SurveyQuestion(BaseModel, table=True):
     section_id: UUID = Field(foreign_key="survey_sections.id", index=True, nullable=False)
     question_text: str = Field(max_length=500)
     question_type: QuestionType = Field(sa_column=Column(String(20), nullable=False))
-    options: str | None = Field(default=None, max_length=2000)
-    config: str | None = Field(default=None, max_length=2000)
+    options: list[str] | None = Field(
+        default=None,
+        sa_column=Column(JSON().with_variant(JSONB, "postgresql"), nullable=True),
+    )
+    config: dict[str, object] | None = Field(
+        default=None,
+        sa_column=Column(JSON().with_variant(JSONB, "postgresql"), nullable=True),
+    )
     order_index: int = Field(default=0, nullable=False, index=True)
     is_required: bool = Field(
         default=True,

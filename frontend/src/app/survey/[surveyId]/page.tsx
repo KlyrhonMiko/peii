@@ -31,14 +31,18 @@ type SurveyLoadResult =
   | { kind: "temporarily-unavailable"; retryAfter: number | null }
 
 type ActionablePublicSurvey = PublicSurvey & {
-  collection_state: Extract<PublicSurveyCollectionState, "phase1" | "phase2">
-  submission_phase: PublicSurveySubmissionPhase
+  collection_state: Extract<PublicSurveyCollectionState, "phase1" | "phase2"> | null
+  submission_phase: PublicSurveySubmissionPhase | null
 }
 
 function isActionableSurvey(survey: PublicSurvey): survey is ActionablePublicSurvey {
-  return (
+  const phaseActionable =
     (survey.collection_state === "phase1" || survey.collection_state === "phase2") &&
-    survey.submission_phase !== null &&
+    survey.submission_phase !== null
+  // Legacy single-submit surveys carry explicit nulls (no phase metadata).
+  const legacyActionable = survey.collection_state === null && survey.submission_phase === null
+  return (
+    (phaseActionable || legacyActionable) &&
     survey.sections.some((section) => section.questions.length > 0)
   )
 }
@@ -111,16 +115,23 @@ export default async function SurveyPage({
   }
 
   return (
-    <ClientSurveyForm
-      key={surveyId}
-      title={result.survey.title}
-      description={result.survey.description}
-      consent={result.survey.consent}
-      sections={result.survey.sections}
-      submissionPhase={result.survey.submission_phase}
-      token={surveyId}
-      userEmail={userEmail}
-    />
+    <div>
+      <p className="bg-background px-4 pt-6 text-center text-xs leading-relaxed text-muted-foreground">
+        {userEmail ? `Signed in as ${userEmail}. ` : ""}
+        Revisit this same link with the same Google account to continue where you left off.
+        If you submitted with a different account, switch account.
+      </p>
+      <ClientSurveyForm
+        key={surveyId}
+        title={result.survey.title}
+        description={result.survey.description}
+        consent={result.survey.consent}
+        sections={result.survey.sections}
+        submissionPhase={result.survey.submission_phase}
+        token={surveyId}
+        userEmail={userEmail}
+      />
+    </div>
   )
 }
 
@@ -183,7 +194,7 @@ function SurveyLoadError({
       ? "Too many requests"
       : "Survey temporarily unavailable"
   const message = isUnavailable
-    ? "This link may have expired, been revoked, or the survey is no longer accepting responses."
+    ? "This survey is unavailable, archived, or no longer accepting responses."
     : isRateLimited
       ? "Please wait before trying to load this survey again."
       : "We could not load this survey right now."

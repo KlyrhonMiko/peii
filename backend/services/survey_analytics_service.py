@@ -148,9 +148,11 @@ ORDER BY q.question_id, c.cell_rank NULLS FIRST, c.row_name NULLS FIRST, c.value
 """
 
 
-def _load_json(value: str | None, name: str) -> object:
+def _load_json(value: object | None, name: str) -> object:
     if value is None:
         return None
+    if not isinstance(value, str):
+        return value
     try:
         return json.loads(value)
     except json.JSONDecodeError as exc:

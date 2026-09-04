@@ -1,4 +1,3 @@
-import json
 from uuid import UUID
 
 from fastapi import status
@@ -298,22 +297,25 @@ async def get_survey_with_sections(
         .order_by(col(SurveySection.order_index), col(SurveySection.id))
     )
     sections = list(sections_result.all())
+    if not sections:
+        return survey, []
 
-    sections_with_questions: list[tuple[SurveySection, list[SurveyQuestion]]] = []
-    for section in sections:
-        questions_result = await session.exec(
-            select(SurveyQuestion)
-            .where(
-                col(SurveyQuestion.section_id) == section.id,
-                col(SurveyQuestion.survey_id) == survey.id,
-                col(SurveyQuestion.is_deleted).is_(False),
-            )
-            .order_by(col(SurveyQuestion.order_index), col(SurveyQuestion.id))
+    questions_result = await session.exec(
+        select(SurveyQuestion)
+        .where(
+            col(SurveyQuestion.survey_id) == survey.id,
+            col(SurveyQuestion.is_deleted).is_(False),
+            col(SurveyQuestion.section_id).in_([section.id for section in sections]),
         )
-        questions = list(questions_result.all())
-        sections_with_questions.append((section, questions))
+        .order_by(col(SurveyQuestion.order_index), col(SurveyQuestion.id))
+    )
+    questions_by_section: dict[UUID, list[SurveyQuestion]] = {}
+    for question in questions_result.all():
+        questions_by_section.setdefault(question.section_id, []).append(question)
 
-    return survey, sections_with_questions
+    return survey, [
+        (section, questions_by_section.get(section.id, [])) for section in sections
+    ]
 
 
 async def create_survey(
@@ -423,10 +425,8 @@ async def create_survey_with_structure(
                 section_id=section.id,
                 question_text=question_input.question_text,
                 question_type=question_input.question_type,
-                options=_parse_options(question_input.options),
-                config=json.dumps(question_input.config)
-                if question_input.config is not None
-                else None,
+                options=question_input.options,
+                config=question_input.config,
                 order_index=question_index,
                 is_required=question_input.is_required,
                 performed_by=actor_id,
@@ -567,18 +567,3 @@ async def restore_survey(
     )
     await session.refresh(survey)
     return survey
-
-
-def _parse_options(options: list[str] | None) -> str | None:
-    if options is None:
-        return None
-    return json.dumps(options)
-
-
-def _serialize_options(options_str: str | None) -> list[str] | None:
-    if options_str is None:
-        return None
-    try:
-        return json.loads(options_str)
-    except (json.JSONDecodeError, TypeError):
-        return None

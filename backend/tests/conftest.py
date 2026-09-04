@@ -37,9 +37,21 @@ os.environ["PUBLIC_SURVEY_RETENTION"] = (
     "Responses are retained according to the approved policy."
 )
 os.environ["PUBLIC_SURVEY_CONTACT"] = "privacy@example.gov.ph"
+# RBAC permission caching is exercised in its own focused unit tests; the API suite
+# must stay deterministic so each request resolves permissions from the database.
+os.environ["PERMISSION_CACHE_TTL_SECONDS"] = "0"
+# Survey analytics caching is likewise disabled so API tests recompute per request.
+os.environ["ANALYTICS_CACHE_TTL_SECONDS"] = "0"
+# Shared Redis response cache is disabled so API tests never depend on an external
+# store; tests/test_response_cache.py opts back in with a fake client per test.
+os.environ["CACHE_ENABLED"] = "false"
 
 from core.config import settings  # noqa: E402
-from core.database import get_async_session, get_session  # noqa: E402
+from core.database import (  # noqa: E402
+    get_analytics_async_session,
+    get_async_session,
+    get_session,
+)
 from core.deps import (  # noqa: E402
     GoogleSurveyRespondent,
     Principal,
@@ -111,8 +123,15 @@ async def client() -> AsyncIterator[httpx.AsyncClient]:
         async with async_session_factory() as session:
             yield session
 
+    async def override_get_analytics_async_session() -> AsyncGenerator[AsyncSession]:
+        async with async_session_factory() as session:
+            yield session
+
     app.dependency_overrides[get_session] = override_get_session
     app.dependency_overrides[get_async_session] = override_get_async_session
+    app.dependency_overrides[get_analytics_async_session] = (
+        override_get_analytics_async_session
+    )
 
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         sock.bind(("127.0.0.1", 0))

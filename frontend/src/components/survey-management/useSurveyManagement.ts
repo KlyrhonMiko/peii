@@ -50,7 +50,6 @@ export interface UseSurveyManagementProps {
 export function useSurveyManagement({ permissions, csvExportEnabled }: UseSurveyManagementProps) {
   const capabilities = getSurveyCapabilities(permissions, csvExportEnabled)
   const canManage = capabilities.manage
-  const canManageDistribution = capabilities.distributionManage
   const canReadAggregates = capabilities.readAggregates
   const canReadRaw = capabilities.readRaw
   const canReadIdentity = canReadRaw && capabilities.readIdentity === true
@@ -99,7 +98,7 @@ export function useSurveyManagement({ permissions, csvExportEnabled }: UseSurvey
   )
   const [showGeneratePreview, setShowGeneratePreview] = useState(false)
   const [previewSurvey, setPreviewSurvey] = useState<Survey | null>(null)
-  const [distributeSurveyId, setDistributeSurveyId] = useState<string | null>(null)
+  const [shareLinkSurveyId, setShareLinkSurveyId] = useState<string | null>(null)
   const [surveyResponses, setSurveyResponses] = useState<SurveyResponse[]>([])
   const [surveyResponseIdentities, setSurveyResponseIdentities] = useState<SurveyResponseIdentity[]>([])
   const [responseAggregates, setResponseAggregates] = useState<SurveyResponseAggregate[]>([])
@@ -138,15 +137,13 @@ export function useSurveyManagement({ permissions, csvExportEnabled }: UseSurvey
             ? "Saving survey..."
             : pendingAction?.type === "delete"
               ? "Archiving survey..."
-              : pendingAction?.type === "restore"
-                ? "Restoring survey..."
-                : pendingAction?.type === "preview"
-                  ? "Loading preview..."
-      : pendingAction?.type === "distribute"
-        ? "Loading distribution..."
-        : pendingAction?.type === "responses"
-          ? "Updating responses..."
-        : null
+            : pendingAction?.type === "restore"
+              ? "Restoring survey..."
+              : pendingAction?.type === "preview"
+                ? "Loading preview..."
+                : pendingAction?.type === "responses"
+                  ? "Updating responses..."
+                  : null
 
   const runExclusive = async <T,>(
     action: Exclude<PendingAction, null>,
@@ -473,7 +470,8 @@ export function useSurveyManagement({ permissions, csvExportEnabled }: UseSurvey
     setAggregateError(null)
     setRawError(null)
     try {
-      await exportResponses(surveyUuid)
+      const preparation = await exportResponses(surveyUuid)
+      window.location.assign(preparation.download_url)
     } catch (error) {
       const message = error instanceof Error ? error.message : "We could not export survey responses."
       setAggregateError(message)
@@ -736,9 +734,9 @@ export function useSurveyManagement({ permissions, csvExportEnabled }: UseSurvey
     await runExclusive(action, performSaveSurvey)
   }
 
-  const handleOpenDistribute = (surveyId: string) => {
-    if (!canManageDistribution || interactionLocked) return
-    setDistributeSurveyId(surveyId)
+  const handleOpenShareLink = (surveyId: string) => {
+    if (!canManage || interactionLocked) return
+    setShareLinkSurveyId(surveyId)
   }
 
   const setSelectedResponseIds = (responseIds: string[]) => {
@@ -1032,7 +1030,7 @@ export function useSurveyManagement({ permissions, csvExportEnabled }: UseSurvey
       retentionDays,
       showGeneratePreview,
       previewSurvey,
-      distributeSurveyId,
+      shareLinkSurveyId,
       surveyResponses,
       surveyResponseIdentities,
       responseAggregates,
@@ -1081,7 +1079,7 @@ export function useSurveyManagement({ permissions, csvExportEnabled }: UseSurvey
       handleShowGeneratePreview,
       handleConfirmGenerate,
       handleSaveSurvey,
-      handleOpenDistribute,
+      handleOpenShareLink,
       addSection,
       moveSection,
       moveQuestion,
@@ -1109,7 +1107,7 @@ export function useSurveyManagement({ permissions, csvExportEnabled }: UseSurvey
       setOpenQuestionSelectId,
       setDeleteConfirmId,
       setShowGeneratePreview,
-      setDistributeSurveyId,
+      setShareLinkSurveyId,
       setViewTab,
       setSelectedResponseIds,
       setDragItem,

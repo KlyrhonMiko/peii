@@ -7,6 +7,7 @@ from fastapi.responses import RedirectResponse
 
 from core.config import Settings, settings
 from core.handlers import register_exception_handlers
+from core.http_client import close_http_client, get_http_client
 from core.logging import setup_logging
 from core.middleware import (
     PublicSurveySecurityHeadersMiddleware,
@@ -23,9 +24,11 @@ setup_logging(json_output=settings.LOG_JSON, debug=settings.DEBUG)
 @asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     await redis_lifecycle.start()
+    get_http_client()
     try:
         yield
     finally:
+        await close_http_client()
         await redis_lifecycle.stop()
 
 

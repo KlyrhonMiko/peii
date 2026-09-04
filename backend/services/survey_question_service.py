@@ -30,28 +30,32 @@ async def _validate_survey_exists(session: AsyncSession, survey_id: UUID) -> Sur
     return survey
 
 
-def _serialize_options(options: list[str] | None) -> str | None:
-    return json.dumps(options) if options is not None else None
+def _serialize_options(options: list[str] | None) -> list[str] | None:
+    return options
 
 
-def _deserialize_options(options_str: str | None) -> list[str] | None:
-    if options_str is None:
+def _deserialize_options(value: list[str] | str | None) -> list[str] | None:
+    if value is None:
         return None
+    if not isinstance(value, str):
+        return value
     try:
-        return json.loads(options_str)
+        return json.loads(value)
     except (json.JSONDecodeError, TypeError):
         return None
 
 
-def _serialize_config(config: dict | None) -> str | None:
-    return json.dumps(config) if config is not None else None
+def _serialize_config(config: dict | None) -> dict | None:
+    return config
 
 
-def _deserialize_config(config_str: str | None) -> dict | None:
-    if config_str is None:
+def _deserialize_config(value: dict | str | None) -> dict | None:
+    if value is None:
         return None
+    if not isinstance(value, str):
+        return value
     try:
-        return json.loads(config_str)
+        return json.loads(value)
     except (json.JSONDecodeError, TypeError):
         return None
 

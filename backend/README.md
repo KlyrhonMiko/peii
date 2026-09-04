@@ -1,7 +1,7 @@
 # Backend
 
-FastAPI API for PEII authentication, RBAC, user administration, survey authoring and
-distribution, public responses, audit logs, and sentiment inference.
+FastAPI API for PEII authentication, RBAC, user administration, survey authoring,
+public responses, audit logs, and sentiment inference.
 
 ## Run locally
 
@@ -83,23 +83,24 @@ The fresh-database baseline is `20260825_v1`. The current forward chain is
 `f77a807cf2f9` (distribution security) -> `d1f9bad768ad` (distribution expiry compatibility)
 -> `fb1c93d15474` (Phase 3 retention and withdrawal) -> `2bf09a6bc738` (remove plaintext
 distribution tokens) -> `d5a4f7c91e2b` (Supabase Data API RLS/ACL lockdown) ->
-`a8055c9859f5` (Google survey respondent identity and auth proofs).
-`a8055c9859f5` is the current Alembic head. For production, run
+`a8055c9859f5` (Google survey respondent identity and auth proofs) -> `b9055c9859f6`
+(`is_template`) -> `f88b9c1d0000` (drop survey distributions and response distribution link,
+survey-scoped response idempotency) -> `3aad20b0fc8a` (ml_sentiments) ->
+`b0d864b9935b` (false_positive_feedbacks) -> `a6c42481a0d9` (polarity_override).
+`a6c42481a0d9` is the current Alembic head. For production, run
 `./.venv/bin/alembic upgrade head` once as the managed-service release job before API replicas
 are promoted. Do not run migrations independently in every replica. Review the Phase 3
 survey-policy and response-deadline backfill before activating the external purge job.
 
-Historically, the Phase 2 expand revision added SHA-256 token digests, 8-character prefixes, and
-consent evidence while retaining plaintext distribution tokens for its compatibility window;
-`d1f9bad768ad` also made the database expiry column nullable. The current `2bf09a6bc738` contract
-revision backfills and requires token digests, then drops the plaintext token column. Runtime
-create/rotate stores digest plus prefix only, list/revoke metadata is token-free, and create/rotate
-reveal the generated token once. Omitted expiry receives the configured server default (currently
-30 days); explicit expiry is limited by the configured maximum (currently 30 days). Historical
-rows with a null expiry remain possible and non-expiring.
-
-The runtime values are configured with `SURVEY_DISTRIBUTION_DEFAULT_EXPIRY_DAYS` and
-`SURVEY_DISTRIBUTION_MAX_EXPIRY_DAYS` (both currently `30`).
+Retired: the Phase 2 distribution-expansion contract is historical. `f77a807cf2f9` added SHA-256
+token digests, 8-character prefixes, and consent evidence while retaining plaintext distribution
+tokens for its compatibility window; `d1f9bad768ad` also made the database expiry column nullable;
+and `2bf09a6bc738` backfilled and required token digests, then dropped the plaintext token column.
+`f88b9c1d0000` later dropped the whole `survey_distributions` table and the response distribution
+link, so the digest-and-prefix storage, one-time token reveal, 30-day default/maximum expiry, and
+nullable-legacy-expiry runtime contract no longer apply; the
+`SURVEY_DISTRIBUTION_DEFAULT_EXPIRY_DAYS`/`SURVEY_DISTRIBUTION_MAX_EXPIRY_DAYS` config keys were
+removed with it.
 
 The `d5a4f7c91e2b` migration enables RLS for the protected application tables and revokes
 effective table/column privileges and schema creation from `PUBLIC`, `anon`, `authenticated`,
@@ -140,20 +141,20 @@ capability requirement.
 - Survey access is global RBAC, not unrestricted authentication. A permitted principal can act
   on any survey in the shared workspace, but every
   operation still requires its explicit capability.
-- The eight survey capabilities are `surveys.read`, `surveys.manage`,
-  `survey_distributions.manage`, `survey_responses.read_aggregates`,
+- The seven live survey capabilities are `surveys.read`, `surveys.manage`,
+  `survey_responses.read_aggregates`,
   `survey_responses.read_raw`, `survey_responses.read_identity`,
-  `survey_responses.export`, and `survey_responses.erase`. Admin has all eight; the default
+  `survey_responses.export`, and `survey_responses.erase`. Admin has all seven plus the
+  orphaned `survey_distributions.manage` (kept in the catalog and database for compatibility
+  only; no route enforces it, and its removal needs a data migration). The default
   researcher has all except erase (including identity); staff has `surveys.read` and
   `survey_responses.read_aggregates` only. Existing portal and ML capabilities remain in each
   default role. Raw, identity, CSV export, aggregates, and erase are separately permissioned;
   the identity endpoint requires both raw and identity permission.
-- Distribution metadata listings never return tokens; a newly issued or rotated token is
-  returned only once, and revoke responses also return metadata without a token. New create and
-  rotate requests use the configured default expiry when omitted (currently 30 days); supplied
-  expiry must be in the future and within the configured maximum (currently 30 days). Historical
-  null expiry values remain non-expiring. Archiving a survey revokes unrevoked distributions.
-  Restoring it leaves it inactive, so activation and a new link are explicit follow-up actions.
+- The survey distribution feature was retired in `f88b9c1d0000`, which drops the
+  `survey_distributions` table and `survey_responses.distribution_id`; response idempotency is
+  now survey-scoped via `UNIQUE(survey_id, idempotency_key)`. No distribution tokens, expiry
+  policies, rotation, or revocation exist in the current runtime contract.
 - Survey GET and submit require a dedicated Google OAuth respondent session and a backend proof.
   The portal remains password/invite/recovery based and rejects OAuth sessions. Next.js uses
   isolated `peii-survey-auth-token` cookies, the fixed
@@ -188,7 +189,7 @@ capability requirement.
   every survey status, accept no filters, and return exact totals and cells even for one to four
   responses. Live results can change as responses arrive, and small-group aggregates are not
   anonymous or privacy-preserving. Raw listing is paginated (default 50, maximum 100) and
-  supports only submission-time range and distribution filters.
+  supports only submission-time range filters.
 - The browser generates a private 256-bit withdrawal code and shows it once after Phase 1.
   Generated two-phase surveys use POST to create one response row, then authenticated PATCH to
   merge Phase 2 into that row; the same code withdraws the whole response and `responses_count`
@@ -274,7 +275,7 @@ Routes are mounted below `API_V1_PREFIX` (normally `/api/v1`):
 - `/auth`: login, current principal, logout, recovery, and password changes.
 - `/rbac`: permissions, roles, and role assignments.
 - `/users` and `/audit-logs`: administration and audit history.
-- `/surveys`: surveys plus nested sections, questions, distributions, and
+- `/surveys`: surveys plus nested sections, questions, and
   responses, aggregates, streamed export, and erasure.
 - `/survey/{token}`: Google-authenticated survey loading and idempotent response submission;
   the tokenized URL alone is not sufficient.

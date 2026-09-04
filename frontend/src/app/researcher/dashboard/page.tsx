@@ -7,7 +7,7 @@ import { ClientDemographicsOverview } from "@/components/ClientDemographicsOverv
 import { DashboardFilters } from "@/components/DashboardFilters"
 import { Skeleton } from "@/components/ui/skeleton"
 import { TrendingUp, Users, Sparkles, Database } from "lucide-react"
-import { fetchSurveys, fetchPEII } from "@/lib/surveys"
+import { fetchSurveys, fetchPEII, TRACER_STUDY_SURVEY_TITLE } from "@/lib/surveys"
 import type { PEIIDemographics, PEIIHistoricalTrend } from "@/lib/surveys"
 import type { PEIIDomainScore } from "@/components/PEIIDimensionsChart"
 
@@ -105,8 +105,12 @@ export default function DashboardPage() {
     async function fetchDashboardData() {
       if (!cancelled) setIsLoading(true)
       try {
-        const { surveys } = await fetchSurveys({ status: "Active" })
-        const activeTracerSurvey = surveys.find(s => s.title === "GRADUATE TRACER STUDY SURVEY")
+        const { surveys } = await fetchSurveys({
+          status: "Active",
+          search: TRACER_STUDY_SURVEY_TITLE,
+          limit: 100,
+        })
+        const activeTracerSurvey = surveys.find(s => s.title === TRACER_STUDY_SURVEY_TITLE)
         if (!activeTracerSurvey) {
           if (!cancelled) setHasData(false)
           return

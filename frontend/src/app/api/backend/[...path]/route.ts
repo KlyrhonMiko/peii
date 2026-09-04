@@ -17,6 +17,7 @@ const RESPONSE_HEADERS = [
   "referrer-policy",
   "x-request-id",
   "x-export-id",
+  "x-cache",
   "expires",
   "content-security-policy",
   "cross-origin-resource-policy",
@@ -125,7 +126,7 @@ function requiresTrailingSlash(path: string[]): boolean {
   return (
     path.length === 3 &&
     path[0] === "surveys" &&
-    ["sections", "questions", "distributions", "responses"].includes(path[2] ?? "")
+    ["sections", "questions", "responses"].includes(path[2] ?? "")
   )
 }
 
@@ -186,8 +187,10 @@ async function proxy(request: NextRequest, context: { params: Promise<{ path: st
   if (invalidContentLength) return invalidContentLength
 
   const supabase = await createSupabaseServerClient()
-  const claimsResult = await supabase.auth.getClaims()
-  const sessionResult = await supabase.auth.getSession()
+  const [claimsResult, sessionResult] = await Promise.all([
+    supabase.auth.getClaims(),
+    supabase.auth.getSession(),
+  ])
   if (request.signal.aborted) throw abortReason(request.signal)
 
   const headers = new Headers()

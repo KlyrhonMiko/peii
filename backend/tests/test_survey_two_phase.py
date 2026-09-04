@@ -291,3 +291,38 @@ async def test_legacy_survey_keeps_single_phase_get_and_rejects_follow_up(client
         headers={"Idempotency-Key": str(uuid4())},
     )
     assert follow_up.status_code == 409
+
+
+async def test_legacy_submit_reports_completed_on_reload(client):
+    """A legacy survey without phase metadata must not loop back to the form
+    after submit: the row exists and re-submit is a 409, so GET reports
+    completed for the same respondent."""
+    _use_stable_respondent()
+    survey_response = await client.post(
+        "/api/v1/surveys/", json={"title": f"Legacy reload {uuid4()}"}
+    )
+    survey = survey_response.json()["data"]
+    section = await client.post(
+        f"/api/v1/surveys/{survey['id']}/sections/", json={"title": "Main"}
+    )
+    question = await client.post(
+        f"/api/v1/surveys/{survey['id']}/questions/",
+        json={
+            "question_text": "Legacy answer",
+            "question_type": "text",
+            "section_id": section.json()["data"]["id"],
+        },
+    )
+    await client.patch(
+        f"/api/v1/surveys/{survey['survey_id']}", json={"status": "Active"}
+    )
+    submitted = await client.post(
+        f"/api/v1/survey/{survey['survey_id']}/respond",
+        json=_submit_payload({question.json()["data"]["id"]: "answer"}),
+        headers={"Idempotency-Key": str(uuid4())},
+    )
+    assert submitted.status_code == 201
+
+    reloaded = await client.get(f"/api/v1/survey/{survey['survey_id']}")
+    assert reloaded.json()["data"]["collection_state"] == "completed"
+    assert reloaded.json()["data"]["submission_phase"] is None
