@@ -42,6 +42,9 @@ os.environ["PUBLIC_SURVEY_CONTACT"] = "privacy@example.gov.ph"
 os.environ["PERMISSION_CACHE_TTL_SECONDS"] = "0"
 # Survey analytics caching is likewise disabled so API tests recompute per request.
 os.environ["ANALYTICS_CACHE_TTL_SECONDS"] = "0"
+# Shared Redis response cache is disabled so API tests never depend on an external
+# store; tests/test_response_cache.py opts back in with a fake client per test.
+os.environ["CACHE_ENABLED"] = "false"
 
 from core.config import settings  # noqa: E402
 from core.database import (  # noqa: E402

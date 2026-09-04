@@ -2,6 +2,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, Request, status
 
+from core.cache import cache_invalidate_prefix
 from core.deps import AsyncDBSession, Principal, require_permissions
 from core.responses import success_response
 from schemas.common import APIResponse
@@ -56,6 +57,7 @@ async def create_question(
         actor_id=principal.user.id,
         ip_address=ip_address,
     )
+    await cache_invalidate_prefix("surveys")
     return success_response(
         SurveyQuestionRead.model_validate(question),
         message="Question created.",
@@ -85,6 +87,7 @@ async def reorder_questions(
         actor_id=principal.user.id,
         ip_address=ip_address,
     )
+    await cache_invalidate_prefix("surveys")
     return success_response(
         [SurveyQuestionRead.model_validate(q) for q in questions],
         message="Questions reordered.",
@@ -115,6 +118,7 @@ async def update_question(
         actor_id=principal.user.id,
         ip_address=ip_address,
     )
+    await cache_invalidate_prefix("surveys")
     return success_response(
         SurveyQuestionRead.model_validate(question),
         message="Question updated.",
@@ -139,6 +143,7 @@ async def delete_question(
     question = await survey_question_service.delete_question(
         session, survey_id, question_id, actor_id=principal.user.id, ip_address=ip_address
     )
+    await cache_invalidate_prefix("surveys")
     return success_response(
         SurveyQuestionRead.model_validate(question),
         message="Question deleted.",

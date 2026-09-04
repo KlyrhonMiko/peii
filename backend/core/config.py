@@ -144,6 +144,18 @@ class Settings(BaseSettings):
     PERMISSION_CACHE_TTL_SECONDS: int = Field(default=30, ge=0, le=3600)
     # Survey analytics (PEII + aggregates) cache TTL (seconds). 0 disables (used by tests).
     ANALYTICS_CACHE_TTL_SECONDS: int = Field(default=30, ge=0, le=3600)
+    # Shared Redis response cache. CACHE_ENABLED=false or a TTL of 0 disables that
+    # namespace; tests stay deterministic because no Redis client is started there.
+    CACHE_ENABLED: bool = True
+    CACHE_PREFIX: str = "peii:cache:v1"
+    # Faster refreshes: analytics recompute is expensive but dashboards poll on every
+    # filter change, so keep 30s. Lists are cheap but volatile, so keep 15s.
+    # Role/permission catalogs are tiny and near-static, so 300s is safe.
+    CACHE_TTL_PEII_SECONDS: int = Field(default=300, ge=0, le=3600)
+    CACHE_TTL_AGGREGATES_SECONDS: int = Field(default=300, ge=0, le=3600)
+    CACHE_TTL_SURVEYS_SECONDS: int = Field(default=60, ge=0, le=3600)
+    CACHE_TTL_USERS_SECONDS: int = Field(default=60, ge=0, le=3600)
+    CACHE_TTL_RBAC_SECONDS: int = Field(default=300, ge=0, le=3600)
     # Local defaults keep metadata-only test runs usable. Production must replace these
     # with deployment-owned values; the HMAC key is never used as a bearer credential.
     GOOGLE_OAUTH_CLIENT_ID: str = LOCAL_GOOGLE_OAUTH_CLIENT_ID

@@ -7,7 +7,7 @@ from sqlalchemy.orm.attributes import flag_modified
 from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from core.analytics_cache import invalidate_survey_analytics
+from core.analytics_cache import ainvalidate_survey_analytics
 from core.exceptions import AppError
 from core.logging import get_logger
 from models.false_positive_feedback import FalsePositiveFeedback
@@ -141,7 +141,7 @@ async def mark_false_positive(
         return
 
     await commit_with_audit(session, events)
-    invalidate_survey_analytics(survey_id)
+    await ainvalidate_survey_analytics(survey_id)
 
     # Best-effort cache/training-data side effect; must not fail the request.
     if answer_text and isinstance(answer_text, str):

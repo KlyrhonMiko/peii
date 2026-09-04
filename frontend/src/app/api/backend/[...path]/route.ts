@@ -17,6 +17,7 @@ const RESPONSE_HEADERS = [
   "referrer-policy",
   "x-request-id",
   "x-export-id",
+  "x-cache",
   "expires",
   "content-security-policy",
   "cross-origin-resource-policy",

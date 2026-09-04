@@ -1,7 +1,8 @@
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, Query, Request, status
+from fastapi import APIRouter, Depends, Query, Request, Response, status
 
+from core.cache import build_cache_key, cache_get, cache_invalidate_prefix, cache_set
 from core.config import settings
 from core.deps import AsyncDBSession, CurrentPrincipal, Principal, require_permissions
 from core.exceptions import AppError
@@ -70,13 +71,50 @@ async def _user_read_roles(session: AsyncDBSession, user: User) -> UserRead:
 async def list_users(
     session: AsyncDBSession,
     params: UserListParams,
+    http_response: Response,
     _: Principal = Depends(require_permissions("users.read")),
 ) -> APIResponse[list[UserRead]]:
+    http_response.headers["Cache-Control"] = "private, no-store, max-age=0"
+    http_response.headers["Pragma"] = "no-cache"
+    cache_key = build_cache_key(
+        params.limit,
+        params.offset,
+        params.sort_by,
+        params.sort_order,
+        params.include_deleted,
+        params.is_active,
+        params.is_deleted,
+        params.search,
+    )
+    redis_cached = await cache_get("users", cache_key)
+    if isinstance(redis_cached, dict) and isinstance(redis_cached.get("items"), list):
+        try:
+            items = [UserRead.model_validate(item) for item in redis_cached["items"]]
+            total = int(redis_cached.get("total", len(items)))
+            http_response.headers["X-Cache"] = "HIT"
+            return success_response(
+                items,
+                meta=list_meta_response(
+                    filters=params,
+                    total=total,
+                    count=len(items),
+                    limit=params.limit,
+                    offset=params.offset,
+                ),
+            )
+        except Exception:
+            pass
     users, total = await user_service.list_users(session, params)
     roles_by_user = await rbac_service.effective_role_names_map(
         session, [user.id for user in users]
     )
     response_users = [_user_read(user, roles_by_user.get(user.id, [])) for user in users]
+    await cache_set(
+        "users",
+        cache_key,
+        {"items": [item.model_dump(mode="json") for item in response_users], "total": total},
+    )
+    http_response.headers["X-Cache"] = "MISS"
     return success_response(
         response_users,
         meta=list_meta_response(
@@ -116,6 +154,7 @@ async def batch_create_users(
     roles_by_user = await rbac_service.effective_role_names_map(
         session, [user.id for user in users]
     )
+    await cache_invalidate_prefix("users")
     return success_response(
         [_user_read(user, roles_by_user.get(user.id, [])) for user in users],
         message="Users created.",
@@ -143,6 +182,7 @@ async def create_user(
         _invitation_redirect(),
         ip_address=ip_address,
     )
+    await cache_invalidate_prefix("users")
     return success_response(await _user_read_roles(session, user), message="User created.")
 
 
@@ -181,6 +221,7 @@ async def resend_invitation(
         _invitation_redirect(),
         ip_address=ip_address,
     )
+    await cache_invalidate_prefix("users")
     return success_response(await _user_read_roles(session, user), message="Invitation resent.")
 
 
@@ -228,6 +269,7 @@ async def update_user(
     user = await user_service.update_user(
         session, user_id, payload, principal.user.id, ip_address=ip_address
     )
+    await cache_invalidate_prefix("users")
     return success_response(await _user_read_roles(session, user), message="User updated.")
 
 
@@ -248,6 +290,7 @@ async def delete_user(
     user = await user_service.soft_delete_user(
         session, user_id, payload, principal.user.id, ip_address=ip_address
     )
+    await cache_invalidate_prefix("users")
     return success_response(await _user_read_roles(session, user), message="User deleted.")
 
 
@@ -268,4 +311,5 @@ async def restore_user(
     user = await user_service.restore_user(
         session, user_id, payload, principal.user.id, ip_address=ip_address
     )
+    await cache_invalidate_prefix("users")
     return success_response(await _user_read_roles(session, user), message="User restored.")

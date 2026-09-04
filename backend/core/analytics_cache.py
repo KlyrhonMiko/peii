@@ -45,3 +45,16 @@ def invalidate_survey_analytics(survey_id: UUID | str) -> None:
 
 def invalidate_analytics_cache() -> None:
     _CACHE.clear()
+
+
+async def ainvalidate_survey_analytics(survey_id: UUID | str) -> None:
+    """Drop L1 entries and shared Redis PEII/aggregate entries for one survey."""
+    invalidate_survey_analytics(survey_id)
+    try:
+        from core.cache import build_cache_key, cache_invalidate_prefix
+
+        prefix = build_cache_key(survey_id)
+        await cache_invalidate_prefix("peii", prefix)
+        await cache_invalidate_prefix("aggregates", prefix)
+    except Exception:
+        return

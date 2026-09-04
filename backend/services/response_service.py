@@ -14,7 +14,8 @@ from sqlalchemy.exc import IntegrityError
 from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from core.analytics_cache import invalidate_survey_analytics
+from core.analytics_cache import ainvalidate_survey_analytics
+from core.cache import cache_invalidate_prefix
 from core.config import settings
 from core.deps import GoogleSurveyRespondent
 from core.exceptions import AppError
@@ -673,7 +674,8 @@ async def submit_response(
                 phase_one_event,
             ],
         )
-        invalidate_survey_analytics(survey.id)
+        await ainvalidate_survey_analytics(survey.id)
+        await cache_invalidate_prefix("surveys")
     except IntegrityError as exc:
         if _is_respondent_key_integrity_error(exc):
             raise AppError(
@@ -846,7 +848,8 @@ async def submit_phase2_response(
             )
         ],
     )
-    invalidate_survey_analytics(survey.id)
+    await ainvalidate_survey_analytics(survey.id)
+    await cache_invalidate_prefix("surveys")
     await session.refresh(matching_response)
     return matching_response, False
 
@@ -1037,7 +1040,8 @@ async def withdraw_response(
             )
         ],
     )
-    invalidate_survey_analytics(survey.id)
+    await ainvalidate_survey_analytics(survey.id)
+    await cache_invalidate_prefix("surveys")
     return SurveyResponseWithdrawalResult(withdrawn=True)
 
 
@@ -1162,7 +1166,8 @@ async def erase_responses(
             )
         ],
     )
-    invalidate_survey_analytics(survey.id)
+    await ainvalidate_survey_analytics(survey.id)
+    await cache_invalidate_prefix("surveys")
     return ResponseErasureResult(
         scope=payload.scope,
         requested_count=requested_count,

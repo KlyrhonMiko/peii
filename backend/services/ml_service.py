@@ -9,7 +9,7 @@ import torch
 from sqlmodel import select
 from transformers import pipeline
 
-from core.analytics_cache import invalidate_survey_analytics
+from core.analytics_cache import ainvalidate_survey_analytics
 from core.config import settings
 from core.database import async_session_factory
 from models.survey_question import SurveyQuestion
@@ -433,7 +433,7 @@ async def analyze_response_background(response_id: str):
                     )
                 ],
             )
-            invalidate_survey_analytics(response.survey_id)
+            await ainvalidate_survey_analytics(response.survey_id)
             logger.info(f"Successfully computed ML sentiments for response {response_id}")
 
     except Exception as e:

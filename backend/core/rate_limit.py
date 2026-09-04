@@ -68,18 +68,19 @@ class UpstashRedisRestClient:
         )
         self._url = url
 
-    async def eval(self, script: str, numkeys: int, *args: object) -> Any:
-        command: list[object] = ["EVAL", script, numkeys, *args]
+    async def _execute(self, *command: object) -> Any:
         try:
-            response = await self._client.post(self._url, json=command)
+            response = await self._client.post(self._url, json=list(command))
             response.raise_for_status()
             payload = response.json()
         except Exception:
             raise RuntimeError("Upstash Redis request failed") from None
-
         if not isinstance(payload, dict) or "error" in payload or "result" not in payload:
             raise RuntimeError("Upstash Redis returned an invalid response")
-        result = payload["result"]
+        return payload["result"]
+
+    async def eval(self, script: str, numkeys: int, *args: object) -> Any:
+        result = await self._execute("EVAL", script, numkeys, *args)
         if not isinstance(result, list) or len(result) != 3:
             raise RuntimeError("Upstash Redis returned an invalid result")
         try:
@@ -87,6 +88,38 @@ class UpstashRedisRestClient:
         except (TypeError, ValueError):
             raise RuntimeError("Upstash Redis returned an invalid result") from None
         return result
+
+    async def get(self, key: str) -> str | None:
+        result = await self._execute("GET", key)
+        if result is None:
+            return None
+        return str(result)
+
+    async def setex(self, key: str, ttl_seconds: int, value: str) -> None:
+        await self._execute("SET", key, value, "EX", int(ttl_seconds))
+
+    async def scan(
+        self, cursor: int = 0, match: str | None = None, count: int = 200
+    ) -> tuple[int, list[str]]:
+        command: list[object] = ["SCAN", str(cursor)]
+        if match is not None:
+            command.extend(["MATCH", match])
+        command.extend(["COUNT", str(count)])
+        result = await self._execute(*command)
+        if not isinstance(result, list) or len(result) != 2:
+            raise RuntimeError("Upstash Redis returned an invalid SCAN result")
+        next_cursor_raw, keys_raw = result
+        try:
+            next_cursor = int(str(next_cursor_raw))
+        except (TypeError, ValueError):
+            raise RuntimeError("Upstash Redis returned an invalid SCAN cursor") from None
+        keys = [str(item) for item in keys_raw] if isinstance(keys_raw, list) else []
+        return next_cursor, keys
+
+    async def unlink(self, *keys: str) -> None:
+        if not keys:
+            return
+        await self._execute("DEL", *keys)
 
     async def aclose(self) -> None:
         await self._client.aclose()
@@ -180,7 +213,8 @@ class RedisRateLimitLifecycle:
         self.limiter: FixedWindowRateLimiter | None = None
 
     async def start(self) -> None:
-        if not settings.RATE_LIMIT_ENABLED:
+        cache_enabled = bool(getattr(settings, "CACHE_ENABLED", False))
+        if not settings.RATE_LIMIT_ENABLED and not cache_enabled:
             return
         try:
             upstash_url = getattr(settings, "UPSTASH_REDIS_REST_URL", None)
@@ -203,20 +237,26 @@ class RedisRateLimitLifecycle:
                     socket_timeout=settings.REDIS_SOCKET_TIMEOUT_SECONDS,
                     decode_responses=False,
                 )
-            self.limiter = FixedWindowRateLimiter(
-                self.client,
-                secret=settings.RATE_LIMIT_KEY_HMAC_SECRET,
-                settings_obj=settings,
-            )
+            if settings.RATE_LIMIT_ENABLED:
+                self.limiter = FixedWindowRateLimiter(
+                    self.client,
+                    secret=settings.RATE_LIMIT_KEY_HMAC_SECRET,
+                    settings_obj=settings,
+                )
+            else:
+                self.limiter = None
         except Exception:
             # Connection errors are handled at request time so read/write policy is
             # applied consistently instead of making the process impossible to start.
             self.client = None
-            self.limiter = FixedWindowRateLimiter(
-                _UnavailableRedis(),
-                secret=settings.RATE_LIMIT_KEY_HMAC_SECRET,
-                settings_obj=settings,
-            )
+            if settings.RATE_LIMIT_ENABLED:
+                self.limiter = FixedWindowRateLimiter(
+                    _UnavailableRedis(),
+                    secret=settings.RATE_LIMIT_KEY_HMAC_SECRET,
+                    settings_obj=settings,
+                )
+            else:
+                self.limiter = None
 
     async def stop(self) -> None:
         if self.client is not None:
@@ -241,6 +281,11 @@ def get_rate_limiter() -> FixedWindowRateLimiter:
         secret=settings.RATE_LIMIT_KEY_HMAC_SECRET,
         settings_obj=settings,
     )
+
+
+def get_redis_client() -> Any | None:
+    """Return the shared Redis client for response caching (None when unavailable)."""
+    return redis_lifecycle.client
 
 
 def rate_limit_policy(name: str) -> RateLimitPolicy:

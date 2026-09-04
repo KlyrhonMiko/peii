@@ -1,8 +1,10 @@
 from typing import Annotated, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query, Request, status
+from fastapi import APIRouter, Depends, Query, Request, Response, status
+from fastapi.encoders import jsonable_encoder
 
+from core.cache import build_cache_key, cache_get, cache_invalidate_prefix, cache_set
 from core.deps import AsyncDBSession, Principal, require_permissions
 from core.exceptions import AppError
 from core.responses import list_meta_response, success_response
@@ -119,6 +121,7 @@ async def replace_survey_structure(
     updated_survey, sections = await survey_service.get_survey_with_sections(
         session, survey.survey_id
     )
+    await cache_invalidate_prefix("surveys")
     return success_response(
         _survey_structure_data(updated_survey, sections, principal.permissions),
         message="Survey structure saved.",
@@ -134,11 +137,51 @@ async def replace_survey_structure(
 async def list_surveys(
     session: AsyncDBSession,
     params: SurveyListParams,
+    http_response: Response,
     principal: Principal = Depends(require_permissions("surveys.read")),
 ) -> APIResponse[list[SurveyRead]]:
     _ensure_response_count_sort_is_authorized(params, principal.permissions)
+    http_response.headers["Cache-Control"] = "private, no-store, max-age=0"
+    http_response.headers["Pragma"] = "no-cache"
+    exact = survey_privacy.has_exact_response_count_capability(principal.permissions)
+    cache_key = build_cache_key(
+        params.limit,
+        params.offset,
+        params.sort_by,
+        params.sort_order,
+        params.include_deleted,
+        params.status,
+        params.target_cohort,
+        params.search,
+        params.is_template,
+        "exact" if exact else "masked",
+    )
+    redis_cached = await cache_get("surveys", cache_key)
+    if isinstance(redis_cached, dict) and isinstance(redis_cached.get("items"), list):
+        try:
+            items = [SurveyRead.model_validate(item) for item in redis_cached["items"]]
+            total = int(redis_cached.get("total", len(items)))
+            http_response.headers["X-Cache"] = "HIT"
+            return success_response(
+                items,
+                meta=list_meta_response(
+                    filters=params,
+                    total=total,
+                    count=len(items),
+                    limit=params.limit,
+                    offset=params.offset,
+                ),
+            )
+        except Exception:
+            pass
     surveys, total = await survey_service.list_surveys(session, params)
     response_surveys = [_survey_read(survey, principal.permissions) for survey in surveys]
+    await cache_set(
+        "surveys",
+        cache_key,
+        {"items": [item.model_dump(mode="json") for item in response_surveys], "total": total},
+    )
+    http_response.headers["X-Cache"] = "MISS"
     return success_response(
         response_surveys,
         meta=list_meta_response(
@@ -168,6 +211,7 @@ async def create_survey(
     survey = await survey_service.create_survey(
         session, payload, principal.user.id, ip_address=ip_address
     )
+    await cache_invalidate_prefix("surveys")
     return success_response(
         _survey_read(survey, principal.permissions), message="Survey created."
     )
@@ -197,6 +241,7 @@ async def create_survey_with_structure(
         session, survey.survey_id
     )
     survey_data = _survey_structure_data(created_survey, sections, principal.permissions)
+    await cache_invalidate_prefix("surveys")
     return success_response(survey_data, message="Survey created.")
 
 
@@ -209,12 +254,23 @@ async def create_survey_with_structure(
 async def get_survey(
     survey_id: str,
     session: AsyncDBSession,
+    http_response: Response,
     principal: Principal = Depends(require_permissions("surveys.read")),
 ) -> APIResponse[dict]:
+    http_response.headers["Cache-Control"] = "private, no-store, max-age=0"
+    http_response.headers["Pragma"] = "no-cache"
+    exact = survey_privacy.has_exact_response_count_capability(principal.permissions)
+    cache_key = build_cache_key(survey_id, "exact" if exact else "masked")
+    redis_cached = await cache_get("surveys", cache_key)
+    if isinstance(redis_cached, dict):
+        http_response.headers["X-Cache"] = "HIT"
+        return success_response(redis_cached)
     survey, sections_with_questions = await survey_service.get_survey_with_sections(
         session, survey_id
     )
     survey_data = _survey_structure_data(survey, sections_with_questions, principal.permissions)
+    await cache_set("surveys", cache_key, jsonable_encoder(survey_data))
+    http_response.headers["X-Cache"] = "MISS"
     return success_response(survey_data)
 
 
@@ -235,6 +291,7 @@ async def update_survey(
     survey = await survey_service.update_survey(
         session, survey_id, payload, principal.user.id, ip_address=ip_address
     )
+    await cache_invalidate_prefix("surveys")
     return success_response(
         _survey_read(survey, principal.permissions), message="Survey updated."
     )
@@ -257,6 +314,7 @@ async def delete_survey(
     survey = await survey_service.soft_delete_survey(
         session, survey_id, payload, principal.user.id, ip_address=ip_address
     )
+    await cache_invalidate_prefix("surveys")
     return success_response(
         _survey_read(survey, principal.permissions), message="Survey archived."
     )
@@ -279,6 +337,7 @@ async def restore_survey(
     survey = await survey_service.restore_survey(
         session, survey_id, payload, principal.user.id, ip_address=ip_address
     )
+    await cache_invalidate_prefix("surveys")
     return success_response(
         _survey_read(survey, principal.permissions), message="Survey restored."
     )
