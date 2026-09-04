@@ -97,14 +97,15 @@ def _response_identity_matches(
     respondent: GoogleSurveyRespondent,
     expected_digest: str,
 ) -> bool:
-    return (
-        response.provider == "google"
-        and response.auth_user_id == respondent.auth_user_id
-        and response.respondent_key_digest == expected_digest
-        and response.email == respondent.email
-        and response.display_name == respondent.display_name
-        and response.email_verified is respondent.email_verified
-    )
+    if response.provider != "google":
+        return False
+    if response.auth_user_id != respondent.auth_user_id:
+        return False
+    if response.respondent_key_digest != expected_digest:
+        return False
+    stored_email = (response.email or "").casefold()
+    current_email = (respondent.email or "").casefold()
+    return stored_email != "" and stored_email == current_email
 
 
 def _is_respondent_key_integrity_error(error: IntegrityError) -> bool:
@@ -183,9 +184,6 @@ async def get_public_survey_phase_state(
     respondent: GoogleSurveyRespondent,
 ) -> PublicSurveyPhaseState:
     question_phases = _get_question_phases(questions)
-    if question_phases is None:
-        return PublicSurveyPhaseState(None, None, None, {})
-
     respondent_digest = respondent_key_digest(survey_id, respondent.subject_digest)
     response_result = await session.exec(
         select(SurveyResponse).where(
@@ -194,19 +192,34 @@ async def get_public_survey_phase_state(
         )
     )
     response = response_result.first()
+    if question_phases is None:
+        # Legacy single-submit survey without phase metadata. A recorded row
+        # means this Google account already submitted: report the terminal
+        # state instead of presenting the form again (re-submit is rejected
+        # with 409, so showing the form would trap the respondent in a loop).
+        if response is None:
+            return PublicSurveyPhaseState(None, None, None, {})
+        if response.is_deleted:
+            return PublicSurveyPhaseState("withdrawn", None, None, {})
+        return PublicSurveyPhaseState("completed", None, None, {})
     if response is None:
         return PublicSurveyPhaseState("phase1", 1, 1, question_phases)
     if response.is_deleted:
         return PublicSurveyPhaseState("withdrawn", None, None, question_phases)
 
-    answer_ids = set(response.answers)
+    answer_ids = set(response.answers or {})
     phase1_ids = {question_id for question_id, phase in question_phases.items() if phase == 1}
     phase2_ids = {question_id for question_id, phase in question_phases.items() if phase == 2}
-    phase1_complete = phase1_ids.issubset(answer_ids)
-    phase2_complete = phase2_ids.issubset(answer_ids)
-    if phase1_complete and phase2_complete:
+    # Phase-2 answers imply Phase 1 was submitted (PATCH requires an existing
+    # row), so treat them as completed even if Phase-1 questions were edited
+    # after the respondent submitted.
+    if phase2_ids.issubset(answer_ids):
         return PublicSurveyPhaseState("completed", None, None, question_phases)
-    if phase1_complete:
+    if phase1_ids.issubset(answer_ids) or answer_ids:
+        # Any stored answers mean Phase 1 was submitted at the time. New
+        # Phase-1 questions added by later structure edits must not trap the
+        # respondent in Phase 1 forever (POST dedupes by digest, so they
+        # cannot re-submit Phase 1 to catch up).
         return PublicSurveyPhaseState("phase2", 2, 2, question_phases)
     return PublicSurveyPhaseState("phase1", 1, 1, question_phases)
 
@@ -587,8 +600,15 @@ async def submit_response(
             None,
         )
         if duplicate is not None:
+            if duplicate.is_deleted:
+                raise AppError(
+                    "This response has been withdrawn.",
+                    status_code=status.HTTP_409_CONFLICT,
+                    errors={"code": "withdrawn"},
+                )
             raise AppError(
-                "This respondent has already submitted a response.",
+                "Phase 1 already recorded for this Google account. "
+                "Reload to continue with Phase 2.",
                 status_code=status.HTTP_409_CONFLICT,
                 errors={"code": "already_submitted"},
             )
@@ -797,21 +817,27 @@ async def submit_phase2_response(
 
     if matching_response is None:
         raise AppError(
-            "Phase 1 must be submitted before the follow-up phase.",
+            "No Phase 1 found for this Google account. "
+            "If you submitted before, reload or switch to that account.",
             status_code=status.HTTP_409_CONFLICT,
             errors={"code": "phase1_required"},
         )
-    stored_answers = matching_response.answers
+    stored_answers = matching_response.answers or {}
     phase1_ids = {question_id for question_id, phase in question_phases.items() if phase == 1}
-    if not phase1_ids.issubset(stored_answers):
+    if not phase1_ids.issubset(stored_answers) and not stored_answers:
+        # The row exists but holds no answers at all. A non-empty row means
+        # Phase 1 was submitted before later structure edits added new
+        # Phase-1 questions; rejecting here would trap the respondent since
+        # POST dedupes by digest and cannot be re-submitted.
         raise AppError(
-            "Phase 1 must be submitted before the follow-up phase.",
+            "No Phase 1 found for this Google account. "
+            "If you submitted before, reload or switch to that account.",
             status_code=status.HTTP_409_CONFLICT,
             errors={"code": "phase1_required"},
         )
     if phase2_ids.issubset(stored_answers):
         raise AppError(
-            "The follow-up phase has already been submitted.",
+            "Follow-up already submitted for this Google account. Reload to see status.",
             status_code=status.HTTP_409_CONFLICT,
             errors={"code": "already_completed"},
         )

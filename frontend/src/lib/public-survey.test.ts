@@ -64,6 +64,13 @@ describe("parsePublicSurveyEnvelope", () => {
     legacyPayload.data.collection_state = null
     legacyPayload.data.submission_phase = null
     expect(parsePublicSurveyEnvelope(legacyPayload)).toEqual(
+      expect.objectContaining({ collection_state: null, submission_phase: null }),
+    )
+
+    const absentPayload = publicSurveyEnvelope()
+    delete absentPayload.data.collection_state
+    delete absentPayload.data.submission_phase
+    expect(parsePublicSurveyEnvelope(absentPayload)).toEqual(
       expect.objectContaining({ collection_state: "phase1", submission_phase: 1 }),
     )
   })

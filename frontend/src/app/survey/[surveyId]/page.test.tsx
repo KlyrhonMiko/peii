@@ -152,6 +152,53 @@ describe("SurveyPage", () => {
     expect(screen.queryByRole("form")).not.toBeInTheDocument()
   })
 
+  it("renders the single-submit form for a legacy survey with null phase state", async () => {
+    authenticateSurvey()
+    const question = {
+      id: "question-1",
+      question_text: "What did you enjoy?",
+      question_type: "text",
+      options: null,
+      config: null,
+      order_index: 0,
+      is_required: false,
+    }
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({
+        data: {
+          survey_id: "survey-1",
+          title: "Alumni Survey",
+          description: null,
+          questions: [question],
+          sections: [{
+            id: "section-1",
+            title: "Feedback",
+            description: null,
+            order_index: 0,
+            questions: [question],
+          }],
+          consent: {
+            version: "1",
+            notice: "Notice",
+            purpose: "Purpose",
+            retention: "Retention",
+            contact: "Contact",
+          },
+          collection_state: null,
+          submission_phase: null,
+        },
+        message: "Survey loaded",
+        errors: null,
+        meta: {},
+      }), { status: 200 }),
+    ))
+
+    render(await SurveyPage({ params: Promise.resolve({ surveyId: "valid-token" }) }))
+
+    expect(screen.getByRole("heading", { name: "Alumni Survey" })).toBeInTheDocument()
+    expect(screen.getByText("What did you enjoy?")).toBeInTheDocument()
+  })
+
   it("renders a rate-limit retry state with numeric Retry-After without exposing the token", async () => {
     authenticateSurvey()
     const token = "secret-survey-token"
