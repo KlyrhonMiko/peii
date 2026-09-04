@@ -6,6 +6,7 @@ from sqlalchemy import func
 from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from core.analytics_cache import invalidate_survey_analytics
 from core.config import settings
 from models.google_survey_auth_proof import GoogleSurveyAuthProof
 from models.survey import Survey
@@ -227,6 +228,7 @@ async def purge_expired_responses(
                 # maintenance/test environment.
                 await session.rollback()
                 raise
+            invalidate_survey_analytics(survey_id)
             purged_count += count
             batch_count += 1
 

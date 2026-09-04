@@ -12,7 +12,12 @@ import { ClientCurriculumFeedback } from "@/components/ClientCurriculumFeedback"
 import { DashboardFilters } from "@/components/DashboardFilters"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Target, AlertTriangle, Database, Users, TrendingUp } from "lucide-react"
-import { fetchSurveys, fetchPEII, fetchResponseAggregates } from "@/lib/surveys"
+import {
+  fetchSurveys,
+  fetchPEII,
+  fetchResponseAggregates,
+  TRACER_STUDY_SURVEY_TITLE,
+} from "@/lib/surveys"
 import type { PEIIDomainScore } from "@/components/PEIIDimensionsChart"
 import type { PEIIDemographics, PEIIHistoricalTrend, SurveyResponseAggregate, FeedbackClassification, QualitativeFeedback } from "@/lib/surveys"
 
@@ -214,8 +219,12 @@ export default function AnalyticsPage() {
     async function fetchData() {
       if (!cancelled) setIsLoading(true)
       try {
-        const { surveys } = await fetchSurveys({ status: "Active" })
-        const activeTracerSurvey = surveys.find(s => s.title === "GRADUATE TRACER STUDY SURVEY")
+        const { surveys } = await fetchSurveys({
+          status: "Active",
+          search: TRACER_STUDY_SURVEY_TITLE,
+          limit: 100,
+        })
+        const activeTracerSurvey = surveys.find(s => s.title === TRACER_STUDY_SURVEY_TITLE)
         if (!activeTracerSurvey) {
           if (!cancelled) setChartData([])
           return

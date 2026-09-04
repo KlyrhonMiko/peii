@@ -31,10 +31,18 @@ backend without knowing about one resource such as users.
   deployment.
 - `auth.py` parses bearer headers, caches Supabase JWKS, validates JWTs, and defines
   `AuthClaims`.
-- `database.py` owns both sync (`engine`/`get_session`) and async (`async_engine`/`get_async_session`) database engines and session factories. It configures PgBouncer-compatible connection args for async operations.
+- `database.py` owns both sync (`engine`/`get_session`) and async (`async_engine`/`get_async_session`) database engines and session factories. It configures PgBouncer-compatible connection args and explicit pool sizing (`DB_POOL_SIZE`/`DB_MAX_OVERFLOW`/`DB_POOL_TIMEOUT_SECONDS`/`DB_POOL_RECYCLE_SECONDS`/`DB_POOL_PRE_PING`) for non-SQLite async engines; local SQLite keeps framework defaults. Analytics/export reads use a dedicated pool (`analytics_async_engine`/`get_analytics_async_session`, sized by `DB_ANALYTICS_POOL_*`); `READ_REPLICA_DATABASE_URL` optionally points that pool at a read replica, and empty means the same database with its own separate pool.
+- `analytics_cache.py` owns the short-TTL in-process cache for survey analytics (PEII +
+  aggregates), keyed by survey and optional batch/department filters
+  (`get_analytics_cached`/`set_analytics_cached`, TTL from `ANALYTICS_CACHE_TTL_SECONDS`,
+  0 disables). Response mutations (submit, phase 2, withdraw, erase, false-positive
+  marking, ML sentiment refresh, retention purge) invalidate the affected survey via
+  `invalidate_survey_analytics`.
 - `deps.py` defines session aliases, shared query parameters, `CurrentPrincipal`, and
   permission dependencies. `CurrentPrincipal` resolution requires the `portal.access`
-  permission; per-route capabilities stay with `require_permissions(...)`.
+  permission; per-route capabilities stay with `require_permissions(...)`. Effective
+  permissions resolve through the short-TTL `rbac_service` cache (`PERMISSION_CACHE_TTL_SECONDS`,
+  0 disables), invalidated by RBAC mutations.
 - `context.py` defines thread-safe ContextVar (`request_id_ctx`) for tracing requests.
 - `logging.py` configures `structlog` for structured logging, supporting dev-friendly ConsoleRenderer and prod-friendly JSONRenderer, with automated request ID injection.
 - `middleware.py` defines ASGI `RequestIdMiddleware` for request ID propagation in headers/context.
@@ -42,6 +50,9 @@ backend without knowing about one resource such as users.
 - `handlers.py` translates `AppError`, `RequestValidationError`, and `IntegrityError` into
   the shared error envelope and structured-logs them using `structlog`.
 - `exceptions.py` owns small application exception types that handlers can render.
+- `http_client.py` owns the process-wide shared `httpx.AsyncClient` (`get_http_client()` /
+  `close_http_client()`) used by Supabase and Google auth service calls; the lifespan in
+  `main.py` warms it at startup and closes it at shutdown.
 
 ## Settings Rules
 - Add new runtime settings to `Settings` with explicit types and no default fallbacks unless optional.

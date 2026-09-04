@@ -124,8 +124,10 @@ export function AdminAuditLogs() {
   }, [action, requestId, resourceType])
 
   useEffect(() => {
-    refresh(0)
-  }, [refresh])
+    const timer = window.setTimeout(() => refresh(0), 250)
+    return () => window.clearTimeout(timer)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [action, requestId, resourceType])
 
   const openDetail = (log: AuditLog) => {
     void getAuditLog(log.id)

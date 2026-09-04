@@ -113,6 +113,23 @@ class Settings(BaseSettings):
     DATABASE_TLS_MODE: Literal["disable", "require"] = "disable"
     LOCAL_DATABASE_URL: str
     SUPABASE_DATABASE_URL: str
+    # Async SQLAlchemy engine pool sizing. Overrides apply to non-SQLite deployments
+    # (managed Postgres/Supabase); local SQLite tests keep framework defaults.
+    DB_POOL_SIZE: int = Field(default=10, ge=1, le=200)
+    DB_MAX_OVERFLOW: int = Field(default=20, ge=0, le=400)
+    DB_POOL_TIMEOUT_SECONDS: float = Field(default=30.0, gt=0, le=300)
+    DB_POOL_RECYCLE_SECONDS: int = Field(default=1800, ge=0, le=86_400)
+    DB_POOL_PRE_PING: bool = True
+    # Dedicated pool for read-only analytics/export sessions so bursty PEII, aggregate,
+    # and raw-list reads can never exhaust the primary pool shared by auth/portal traffic.
+    DB_ANALYTICS_POOL_SIZE: int = Field(default=5, ge=1, le=200)
+    DB_ANALYTICS_MAX_OVERFLOW: int = Field(default=10, ge=0, le=400)
+    DB_ANALYTICS_POOL_TIMEOUT_SECONDS: float = Field(default=30.0, gt=0, le=300)
+    DB_ANALYTICS_POOL_RECYCLE_SECONDS: int = Field(default=1800, ge=0, le=86_400)
+    DB_ANALYTICS_POOL_PRE_PING: bool = True
+    # Optional PostgreSQL read replica for analytics/export reads (sync-style URL like
+    # SUPABASE_DATABASE_URL). Empty means the same database with its own dedicated pool.
+    READ_REPLICA_DATABASE_URL: str = Field(default="")
     BACKEND_CORS_ORIGINS: list[str]
     SUPABASE_URL: str
     SUPABASE_PUBLISHABLE_KEY: str
@@ -123,6 +140,10 @@ class Settings(BaseSettings):
     INITIAL_ADMIN_FIRST_NAME: str
     INITIAL_ADMIN_LAST_NAME: str
     SYSTEM_ACTOR_ID: UUID
+    # Effective-permission resolution cache TTL (seconds). 0 disables (used by tests).
+    PERMISSION_CACHE_TTL_SECONDS: int = Field(default=30, ge=0, le=3600)
+    # Survey analytics (PEII + aggregates) cache TTL (seconds). 0 disables (used by tests).
+    ANALYTICS_CACHE_TTL_SECONDS: int = Field(default=30, ge=0, le=3600)
     # Local defaults keep metadata-only test runs usable. Production must replace these
     # with deployment-owned values; the HMAC key is never used as a bearer credential.
     GOOGLE_OAUTH_CLIENT_ID: str = LOCAL_GOOGLE_OAUTH_CLIENT_ID
@@ -144,6 +165,11 @@ class Settings(BaseSettings):
     RATE_LIMIT_KEY_HMAC_SECRET: str | None = None
     WITHDRAWAL_CODE_HMAC_SECRET: str | None = None
     CSV_EXPORT_ENABLED: bool = False
+    # Private Supabase Storage bucket name for prepared CSV export artifacts
+    # (configure the bucket once via the Supabase dashboard/CLI).
+    EXPORT_STORAGE_BUCKET: str = Field(default="survey-exports", max_length=100)
+    # Expiry for the signed Storage download URL returned after preparation.
+    EXPORT_SIGNED_URL_TTL_SECONDS: int = Field(default=900, ge=60, le=3600)
     PUBLIC_SURVEY_READ_LIMIT: int = Field(default=60, ge=1)
     PUBLIC_SURVEY_READ_WINDOW_SECONDS: int = Field(default=60, ge=1)
     PUBLIC_SURVEY_READ_GLOBAL_LIMIT: int = Field(default=6000, ge=1)

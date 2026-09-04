@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 import csv
 import io
 import secrets
@@ -13,7 +14,7 @@ from core.deps import Principal, get_current_principal
 from main import app
 from models.question_type import QuestionType
 from models.survey_question import SurveyQuestion
-from services import survey_analytics_service
+from services import response_export_service, survey_analytics_service
 
 pytestmark = pytest.mark.anyio
 EXPIRY = (datetime.now(UTC) + timedelta(days=29)).isoformat()
@@ -595,7 +596,24 @@ async def _return_questions(questions):
     return questions
 
 
-async def test_export_is_long_form_canonical_and_formula_safe(client, csv_export_enabled):
+def _install_export_storage_fakes(monkeypatch):
+    captured: list[tuple[str, str, bytes]] = []
+
+    async def upload(object_path, filename, content, **_kwargs):
+        captured.append((object_path, filename, content.read()))
+
+    async def sign(object_path):
+        return f"https://storage.example.test/{object_path}"
+
+    monkeypatch.setattr(response_export_service, "upload_export_artifact", upload)
+    monkeypatch.setattr(response_export_service, "create_signed_export_url", sign)
+    return captured
+
+
+async def test_export_is_long_form_canonical_and_formula_safe(
+    client, csv_export_enabled, monkeypatch
+):
+    captured = _install_export_storage_fakes(monkeypatch)
     survey, questions, token = await _create_survey_with_question_specs(
         client,
         {
@@ -621,7 +639,9 @@ async def test_export_is_long_form_canonical_and_formula_safe(client, csv_export
     assert exported.status_code == 200
     assert exported.headers["pragma"] == "no-cache"
     assert "max-age=0" in exported.headers["cache-control"]
-    rows = list(csv.DictReader(io.StringIO(exported.text)))
+    assert captured, "export artifact was not uploaded"
+    csv_content = captured[0][2].decode("utf-8")
+    rows = list(csv.DictReader(io.StringIO(csv_content)))
     assert len(rows) == 2
     assert rows[0]["question_text"] == "' =SUM(A1)"
     assert rows[0]["answer_json"] == '"=2+2"'

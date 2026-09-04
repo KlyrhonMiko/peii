@@ -1,4 +1,3 @@
-import json
 from uuid import UUID
 
 from fastapi import status
@@ -20,12 +19,12 @@ from services.question_validation import validate_question_definition
 from services.survey_service import get_survey_for_structure_edit, structure_edit_conflict_error
 
 
-def _serialize_options(options: list[str] | None) -> str | None:
-    return json.dumps(options) if options is not None else None
+def _serialize_options(options: list[str] | None) -> list[str] | None:
+    return options
 
 
-def _serialize_config(config: dict | None) -> str | None:
-    return json.dumps(config) if config is not None else None
+def _serialize_config(config: dict | None) -> dict | None:
+    return config
 
 
 async def replace_structure(

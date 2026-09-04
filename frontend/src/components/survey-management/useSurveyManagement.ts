@@ -470,7 +470,8 @@ export function useSurveyManagement({ permissions, csvExportEnabled }: UseSurvey
     setAggregateError(null)
     setRawError(null)
     try {
-      await exportResponses(surveyUuid)
+      const preparation = await exportResponses(surveyUuid)
+      window.location.assign(preparation.download_url)
     } catch (error) {
       const message = error instanceof Error ? error.message : "We could not export survey responses."
       setAggregateError(message)

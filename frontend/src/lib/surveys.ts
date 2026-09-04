@@ -4,6 +4,7 @@ export type SurveyStatus = "Inactive" | "Active" | "Closed"
 
 export const DEFAULT_RETENTION_ENABLED = true
 export const DEFAULT_RETENTION_DAYS = 1825
+export const TRACER_STUDY_SURVEY_TITLE = "GRADUATE TRACER STUDY SURVEY"
 
 // ── Frontend-facing types (camelCase, matching existing UI) ──────
 
@@ -636,8 +637,19 @@ export async function markFalsePositive(
   })
 }
 
-export async function exportResponses(surveyUuid: string): Promise<void> {
-  api.download(`/surveys/${surveyUuid}/responses/export`)
+export interface ExportPreparation {
+  export_id: string
+  response_count: number
+  answer_row_count: number
+  download_url: string
+  expires_at: string
+  filename: string
+}
+
+export async function exportResponses(surveyUuid: string): Promise<ExportPreparation> {
+  const res = await api.get<ExportPreparation>(`/surveys/${surveyUuid}/responses/export`)
+  if (!res.data) throw new Error("Backend did not return the export preparation")
+  return res.data
 }
 
 export async function eraseResponses(

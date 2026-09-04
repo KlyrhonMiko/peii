@@ -14,6 +14,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from core.analytics_cache import invalidate_survey_analytics
 from core.config import settings
 from core.deps import GoogleSurveyRespondent
 from core.exceptions import AppError
@@ -128,9 +129,11 @@ def _is_blank_answer(value: object) -> bool:
     )
 
 
-def _load_json(value: str | None, name: str) -> object:
+def _load_json(value: object | None, name: str) -> object:
     if value is None:
         return None
+    if not isinstance(value, str):
+        return value
     try:
         return json.loads(value)
     except json.JSONDecodeError as exc:
@@ -670,6 +673,7 @@ async def submit_response(
                 phase_one_event,
             ],
         )
+        invalidate_survey_analytics(survey.id)
     except IntegrityError as exc:
         if _is_respondent_key_integrity_error(exc):
             raise AppError(
@@ -842,6 +846,7 @@ async def submit_phase2_response(
             )
         ],
     )
+    invalidate_survey_analytics(survey.id)
     await session.refresh(matching_response)
     return matching_response, False
 
@@ -1032,6 +1037,7 @@ async def withdraw_response(
             )
         ],
     )
+    invalidate_survey_analytics(survey.id)
     return SurveyResponseWithdrawalResult(withdrawn=True)
 
 
@@ -1156,6 +1162,7 @@ async def erase_responses(
             )
         ],
     )
+    invalidate_survey_analytics(survey.id)
     return ResponseErasureResult(
         scope=payload.scope,
         requested_count=requested_count,

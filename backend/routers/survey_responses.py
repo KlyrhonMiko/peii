@@ -3,20 +3,20 @@ from typing import Annotated, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, Query, Request, Response, status
-from fastapi.responses import StreamingResponse
 
 from core.config import settings
-from core.deps import AsyncDBSession, CurrentPrincipal, require_permissions
+from core.deps import AnalyticsAsyncDBSession, AsyncDBSession, CurrentPrincipal, require_permissions
 from core.exceptions import AppError
 from core.responses import APIResponse, list_meta_response, success_response
 from schemas.survey_response import (
     EraseResponsesRequest,
+    ExportPreparationResponse,
     ResponseErasureResult,
     SurveyResponseIdentityRead,
     SurveyResponseListQueryParams,
     SurveyResponseRead,
 )
-from services import response_export_service, response_service, survey_service
+from services import response_export_service, response_service
 
 router = APIRouter()
 
@@ -79,14 +79,13 @@ def require_csv_export_enabled() -> None:
 )
 async def list_survey_responses(
     survey_id: UUID,
-    session: AsyncDBSession,
+    session: AnalyticsAsyncDBSession,
     params: ResponseListParams,
     http_response: Response,
     principal: CurrentPrincipal,
 ) -> APIResponse[list[SurveyResponseRead]]:
     http_response.headers["Cache-Control"] = "private, no-store, max-age=0"
     http_response.headers["Pragma"] = "no-cache"
-    await survey_service.resolve_survey(session, survey_id, include_deleted=True)
     responses, total = await response_service.list_responses(session, survey_id, params)
     response_data = [SurveyResponseRead.model_validate(r) for r in responses]
     return success_response(
@@ -117,7 +116,7 @@ async def list_survey_responses(
 )
 async def list_survey_responses_with_identity(
     survey_id: UUID,
-    session: AsyncDBSession,
+    session: AnalyticsAsyncDBSession,
     params: ResponseListParams,
     http_response: Response,
     principal: CurrentPrincipal,
@@ -140,20 +139,25 @@ async def list_survey_responses_with_identity(
 
 @router.get(
     "/export",
-    response_class=StreamingResponse,
+    response_model=APIResponse[ExportPreparationResponse],
     dependencies=[
         Depends(require_csv_export_enabled),
         Depends(require_permissions("survey_responses.export")),
     ],
     summary="Export Survey Responses",
-    description="Download a safe, long-format CSV response export.",
+    description=(
+        "Prepare a safe, long-format CSV response export. The CSV is generated "
+        "and uploaded to private Storage; the response returns a short-lived "
+        "signed download URL."
+    ),
 )
 async def export_survey_responses(
     survey_id: UUID,
     session: AsyncDBSession,
     request: Request,
+    http_response: Response,
     principal: CurrentPrincipal,
-) -> StreamingResponse:
+) -> APIResponse[ExportPreparationResponse]:
     ip_address = request.client.host if request.client else None
     prepared_export = await response_export_service.prepare_response_export(
         session,
@@ -161,21 +165,19 @@ async def export_survey_responses(
         actor_id=principal.user.id,
         ip_address=ip_address,
     )
-    return StreamingResponse(
-        content=prepared_export.content,
-        media_type="text/csv",
-        headers={
-            "Cache-Control": "private, no-store, max-age=0",
-            "Pragma": "no-cache",
-            "X-Content-Type-Options": "nosniff",
-            "Referrer-Policy": "no-referrer",
-            "Expires": "0",
-            "Content-Security-Policy": "sandbox",
-            "Cross-Origin-Resource-Policy": "same-origin",
-            "X-Accel-Buffering": "no",
-            "X-Export-ID": str(prepared_export.export_id),
-            "Content-Disposition": f'attachment; filename="survey-{survey_id}.csv"',
-        },
+    http_response.headers["Cache-Control"] = "private, no-store, max-age=0"
+    http_response.headers["Pragma"] = "no-cache"
+    http_response.headers["X-Export-ID"] = str(prepared_export.export_id)
+    return success_response(
+        ExportPreparationResponse(
+            export_id=prepared_export.export_id,
+            response_count=prepared_export.response_count,
+            answer_row_count=prepared_export.answer_row_count,
+            download_url=prepared_export.download_url,
+            expires_at=prepared_export.expires_at,
+            filename=prepared_export.filename,
+        ),
+        message="Export prepared.",
     )
 
 

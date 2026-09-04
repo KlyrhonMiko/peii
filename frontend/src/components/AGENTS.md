@@ -12,8 +12,9 @@ Follow `ui/AGENTS.md` when editing primitive building blocks under `src/componen
   sentiment-analysis utility surfaced only in non-production builds.
 - `DashboardFilters.tsx`, `ProgramFilter.tsx`, and `SurveySelect.tsx` provide product
   filtering and selection controls.
-- `ClientCohortTrendChart.tsx`, `ClientPEIIDimensionsChart.tsx`, and
-  `ClientSentimentDivergenceChart.tsx` isolate client-only dynamic chart imports.
+- `ClientCohortTrendChart.tsx`, `ClientPEIIDimensionsChart.tsx`,
+  `ClientPEIIHistoricalTrendChart.tsx`, and `ClientSentimentDivergenceChart.tsx` isolate
+  client-only dynamic chart imports.
 - `ClientSurveyForm.tsx` renders the Google-authenticated identified survey intake with
   section-per-page navigation, Phase 1 POST, and Phase 2 PATCH behavior.
 - `public-survey/WithdrawalForm.tsx` renders the public code-based response withdrawal flow.
@@ -24,7 +25,8 @@ Follow `ui/AGENTS.md` when editing primitive building blocks under `src/componen
 - `SurveyShareLinkDialog.tsx` (formerly `SurveyDistributionManager.tsx`) shows the public
   shareable survey link (`/survey/{surveyId}`); the distribution feature was removed.
 - `CohortTrendChart.tsx` contains a filter-aware Recharts bar chart;
-  `PEIIDimensionsChart.tsx` and `SentimentDivergenceChart.tsx` contain analytics charts.
+  `PEIIDimensionsChart.tsx`, `PEIIHistoricalTrendChart.tsx`, and `SentimentDivergenceChart.tsx`
+  contain analytics charts.
 
 ## Component Rules
 - Prefer `PascalCase` filenames and exported component names for new product components.

@@ -6,6 +6,7 @@ from core.config import settings
 from core.deps import AsyncDBSession, CurrentPrincipal, Principal, require_permissions
 from core.exceptions import AppError
 from core.responses import list_meta_response, success_response
+from models.user import User
 from schemas.common import APIResponse
 from schemas.user import (
     UserBatchCreate,
@@ -52,10 +53,12 @@ def get_user_list_query_params(
 UserListParams = Annotated[UserListQueryParams, Depends(get_user_list_query_params)]
 
 
-async def _user_read(session: AsyncDBSession, user) -> UserRead:
-    return UserRead.model_validate(user).model_copy(
-        update={"roles": await rbac_service.effective_role_names(session, user.id)}
-    )
+def _user_read(user: User, roles: list[str]) -> UserRead:
+    return UserRead.model_validate(user).model_copy(update={"roles": roles})
+
+
+async def _user_read_roles(session: AsyncDBSession, user: User) -> UserRead:
+    return _user_read(user, await rbac_service.effective_role_names(session, user.id))
 
 
 @router.get(
@@ -70,7 +73,10 @@ async def list_users(
     _: Principal = Depends(require_permissions("users.read")),
 ) -> APIResponse[list[UserRead]]:
     users, total = await user_service.list_users(session, params)
-    response_users = [await _user_read(session, user) for user in users]
+    roles_by_user = await rbac_service.effective_role_names_map(
+        session, [user.id for user in users]
+    )
+    response_users = [_user_read(user, roles_by_user.get(user.id, [])) for user in users]
     return success_response(
         response_users,
         meta=list_meta_response(
@@ -107,8 +113,12 @@ async def batch_create_users(
         _invitation_redirect(),
         ip_address=ip_address,
     )
+    roles_by_user = await rbac_service.effective_role_names_map(
+        session, [user.id for user in users]
+    )
     return success_response(
-        [await _user_read(session, user) for user in users], message="Users created."
+        [_user_read(user, roles_by_user.get(user.id, [])) for user in users],
+        message="Users created.",
     )
 
 
@@ -133,7 +143,7 @@ async def create_user(
         _invitation_redirect(),
         ip_address=ip_address,
     )
-    return success_response(await _user_read(session, user), message="User created.")
+    return success_response(await _user_read_roles(session, user), message="User created.")
 
 
 @router.get(
@@ -148,7 +158,7 @@ async def get_user(
     _: Principal = Depends(require_permissions("users.read")),
 ) -> APIResponse[UserRead]:
     user = await user_service.get_user(session, user_id)
-    return success_response(await _user_read(session, user))
+    return success_response(await _user_read_roles(session, user))
 
 
 @router.post(
@@ -171,7 +181,7 @@ async def resend_invitation(
         _invitation_redirect(),
         ip_address=ip_address,
     )
-    return success_response(await _user_read(session, user), message="Invitation resent.")
+    return success_response(await _user_read_roles(session, user), message="Invitation resent.")
 
 
 @router.post(
@@ -218,7 +228,7 @@ async def update_user(
     user = await user_service.update_user(
         session, user_id, payload, principal.user.id, ip_address=ip_address
     )
-    return success_response(await _user_read(session, user), message="User updated.")
+    return success_response(await _user_read_roles(session, user), message="User updated.")
 
 
 @router.delete(
@@ -238,7 +248,7 @@ async def delete_user(
     user = await user_service.soft_delete_user(
         session, user_id, payload, principal.user.id, ip_address=ip_address
     )
-    return success_response(await _user_read(session, user), message="User deleted.")
+    return success_response(await _user_read_roles(session, user), message="User deleted.")
 
 
 @router.post(
@@ -258,4 +268,4 @@ async def restore_user(
     user = await user_service.restore_user(
         session, user_id, payload, principal.user.id, ip_address=ip_address
     )
-    return success_response(await _user_read(session, user), message="User restored.")
+    return success_response(await _user_read_roles(session, user), message="User restored.")

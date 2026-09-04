@@ -19,8 +19,7 @@ def _ip_address(request: Request) -> str | None:
     return request.client.host if request.client else None
 
 
-async def _role_read(session: AsyncDBSession, role: Role) -> RoleRead:
-    permissions = await rbac_service.get_role_permissions(session, role)
+def _role_read(role: Role, permissions: list[Permission]) -> RoleRead:
     return RoleRead(
         id=role.id,
         name=role.name,
@@ -29,6 +28,10 @@ async def _role_read(session: AsyncDBSession, role: Role) -> RoleRead:
         is_active=role.is_active,
         permissions=[PermissionRead.model_validate(item) for item in permissions],
     )
+
+
+async def _role_read_loaded(session: AsyncDBSession, role: Role) -> RoleRead:
+    return _role_read(role, await rbac_service.get_role_permissions(session, role))
 
 
 @router.get(
@@ -58,7 +61,13 @@ async def list_permissions(session: AsyncDBSession) -> APIResponse[list[Permissi
 async def list_roles(session: AsyncDBSession) -> APIResponse[list[RoleRead]]:
     statement = select(Role).where(col(Role.is_deleted).is_(False)).order_by(col(Role.name))
     result = await session.exec(statement)
-    return success_response([await _role_read(session, role) for role in result.all()])
+    roles = list(result.all())
+    permissions_by_role = await rbac_service.get_role_permissions_map(
+        session, [role.id for role in roles]
+    )
+    return success_response(
+        [_role_read(role, permissions_by_role.get(role.id, [])) for role in roles]
+    )
 
 
 @router.post(
@@ -76,7 +85,7 @@ async def create_role(
     request: Request,
 ) -> APIResponse[RoleRead]:
     role = await rbac_service.create_role(session, payload, principal.user.id, _ip_address(request))
-    return success_response(await _role_read(session, role), message="Role created.")
+    return success_response(await _role_read_loaded(session, role), message="Role created.")
 
 
 @router.patch(
@@ -100,7 +109,7 @@ async def update_role(
     role = await rbac_service.update_role(
         session, role, payload, principal.user.id, _ip_address(request)
     )
-    return success_response(await _role_read(session, role), message="Role updated.")
+    return success_response(await _role_read_loaded(session, role), message="Role updated.")
 
 
 @router.put(

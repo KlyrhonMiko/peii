@@ -1,15 +1,5 @@
 const API_BASE = "/api/backend"
 
-export function download(path: string): void {
-  const anchor = document.createElement("a")
-  anchor.href = `${API_BASE}${path}`
-  anchor.download = ""
-  anchor.rel = "noopener"
-  document.body.append(anchor)
-  anchor.click()
-  anchor.remove()
-}
-
 export class ApiError extends Error {
   constructor(
     message: string,
@@ -122,5 +112,4 @@ export const api = {
     get: (path: string, options?: ApiRequestOptions) => requestRaw("GET", path, undefined, options),
     post: (path: string, body?: unknown, options?: ApiRequestOptions) => requestRaw("POST", path, body, options),
   },
-  download,
 }

@@ -1,5 +1,6 @@
 """Redis-backed fixed-window rate limiting and reusable FastAPI dependencies."""
 
+import asyncio
 import hmac
 from dataclasses import dataclass
 from hashlib import sha256
@@ -132,6 +133,7 @@ class FixedWindowRateLimiter:
             return
         if not self.secret:
             raise RedisUnavailableError()
+        secret = self.secret
 
         failure_policy = "fail_closed"
         if read_only:
@@ -139,8 +141,9 @@ class FixedWindowRateLimiter:
                 getattr(self.settings, "RATE_LIMIT_READ_FAILURE_POLICY", "fail_closed")
             )
             failure_policy = read_failure_policy or configured_failure_policy
-        for identifier in identifiers:
-            key = build_rate_limit_key(policy_name, identifier, self.secret)
+
+        async def check_identifier(identifier: str) -> None:
+            key = build_rate_limit_key(policy_name, identifier, secret)
             try:
                 result = await self.redis.eval(
                     FIXED_WINDOW_LUA,
@@ -151,12 +154,22 @@ class FixedWindowRateLimiter:
                 )
             except Exception as exc:
                 if read_only and failure_policy == "fail_open":
-                    continue
+                    return None
                 raise RedisUnavailableError() from exc
 
             allowed, _count, retry_after = (int(value) for value in result)
             if not allowed:
                 raise RateLimitExceeded(max(1, retry_after))
+            return None
+
+        outcomes = await asyncio.gather(
+            *(check_identifier(identifier) for identifier in identifiers),
+            return_exceptions=True,
+        )
+        # Preserve first-offender ordering: buckets are checked in identifier order.
+        for outcome in outcomes:
+            if isinstance(outcome, BaseException):
+                raise outcome
 
 
 class RedisRateLimitLifecycle:
@@ -325,12 +338,27 @@ async def enforce_rate_limit(
     )
 
 
+async def _raise_first_outcome(outcomes: tuple[BaseException | None, ...]) -> None:
+    for outcome in outcomes:
+        if isinstance(outcome, BaseException):
+            raise outcome
+
+
 async def enforce_identifier_rate_limit(policy_name: str, identifier: str) -> None:
-    """Apply an identity bucket and a separate, materially higher global breaker."""
-    await enforce_rate_limit(rate_limit_policy(policy_name), [identifier])
-    await enforce_rate_limit(
-        rate_limit_policy(f"{policy_name}-global"), [f"{policy_name}-global"]
+    """Apply an identity bucket and a separate, materially higher global breaker.
+
+    The buckets are evaluated concurrently, so a rejected identity bucket also
+    increments the global breaker for the attempt (floods still push it). The
+    outcome raised is whichever bucket first exceeds its limit.
+    """
+    outcomes = await asyncio.gather(
+        enforce_rate_limit(rate_limit_policy(policy_name), [identifier]),
+        enforce_rate_limit(
+            rate_limit_policy(f"{policy_name}-global"), [f"{policy_name}-global"]
+        ),
+        return_exceptions=True,
     )
+    await _raise_first_outcome(outcomes)
 
 
 async def enforce_authenticated_survey_rate_limit(
@@ -341,13 +369,14 @@ async def enforce_authenticated_survey_rate_limit(
 ) -> None:
     """Apply a verified respondent/session/survey bucket and a global breaker."""
     identifier = f"subject:{auth_user_id}:session:{session_id}:survey:{survey_id}"
-    await enforce_rate_limit(
-        rate_limit_policy(policy_name),
-        [identifier],
+    outcomes = await asyncio.gather(
+        enforce_rate_limit(rate_limit_policy(policy_name), [identifier]),
+        enforce_rate_limit(
+            rate_limit_policy(f"{policy_name}-global"), [f"{policy_name}-global"]
+        ),
+        return_exceptions=True,
     )
-    await enforce_rate_limit(
-        rate_limit_policy(f"{policy_name}-global"), [f"{policy_name}-global"]
-    )
+    await _raise_first_outcome(outcomes)
 
 
 async def check_google_survey_attestation(

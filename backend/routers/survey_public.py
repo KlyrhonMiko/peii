@@ -1,6 +1,6 @@
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Header, Response, status, BackgroundTasks
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, Response, status
 from sqlmodel import col, select
 
 from core.config import settings
@@ -11,7 +11,6 @@ from core.rate_limit import (
     public_survey_withdrawal_rate_limit,
 )
 from core.responses import success_response
-from models.survey import Survey
 from models.survey_question import SurveyQuestion
 from models.survey_section import SurveySection
 from schemas.common import APIResponse
@@ -51,10 +50,14 @@ async def get_public_survey(
     try:
         survey = await resolve_survey(session, survey_id)
     except AppError:
-        raise AppError("Survey not found or no longer active.", status_code=status.HTTP_404_NOT_FOUND)
+        raise AppError(
+            "Survey not found or no longer active.", status_code=status.HTTP_404_NOT_FOUND
+        )
 
     if survey.status != "Active":
-        raise AppError("Survey not found or no longer active.", status_code=status.HTTP_404_NOT_FOUND)
+        raise AppError(
+            "Survey not found or no longer active.", status_code=status.HTTP_404_NOT_FOUND
+        )
 
     # Load sections with nested questions
     sections_result = await session.exec(
@@ -71,19 +74,22 @@ async def get_public_survey(
 
     section_questions_by_section = []
     all_questions = {}
-    for section in sections:
-        questions_result = await session.exec(
-            select(SurveyQuestion)
-            .where(
-                col(SurveyQuestion.section_id) == section.id,
-                col(SurveyQuestion.survey_id) == survey.id,
-                col(SurveyQuestion.is_deleted).is_(False),
-            )
-            .order_by(col(SurveyQuestion.order_index), col(SurveyQuestion.id))
+    questions_result = await session.exec(
+        select(SurveyQuestion)
+        .where(
+            col(SurveyQuestion.survey_id) == survey.id,
+            col(SurveyQuestion.is_deleted).is_(False),
+            col(SurveyQuestion.section_id).in_([section.id for section in sections]),
         )
-        section_questions = list(questions_result.all())
-        section_questions_by_section.append((section, section_questions))
-        all_questions.update({str(question.id): question for question in section_questions})
+        .order_by(col(SurveyQuestion.order_index), col(SurveyQuestion.id))
+    )
+    questions_by_section: dict[UUID, list[SurveyQuestion]] = {}
+    for question in questions_result.all():
+        questions_by_section.setdefault(question.section_id, []).append(question)
+        all_questions[str(question.id)] = question
+    section_questions_by_section = [
+        (section, questions_by_section.get(section.id, [])) for section in sections
+    ]
 
     phase_state = await response_service.get_public_survey_phase_state(
         session,

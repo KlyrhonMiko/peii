@@ -1,6 +1,7 @@
 from __future__ import annotations
+
 import secrets
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -205,9 +206,9 @@ async def test_attestation_requires_three_way_google_supabase_session_binding(
 ):
     fake_client = FakeGoogleClient()
     monkeypatch.setattr(
-        google_survey_auth_service.httpx,
-        "AsyncClient",
-        lambda **_kwargs: fake_client,
+        google_survey_auth_service,
+        "get_http_client",
+        lambda: fake_client,
     )
 
     async def claims_override() -> AuthClaims:
@@ -271,9 +272,9 @@ async def test_repeated_attestation_reuses_verified_proof_without_audit_write(
 ):
     fake_client = FakeGoogleClient()
     monkeypatch.setattr(
-        google_survey_auth_service.httpx,
-        "AsyncClient",
-        lambda **_kwargs: fake_client,
+        google_survey_auth_service,
+        "get_http_client",
+        lambda: fake_client,
     )
 
     async def claims_override() -> AuthClaims:
@@ -324,9 +325,9 @@ async def test_repeated_attestation_reuses_verified_proof_without_audit_write(
 async def test_existing_proof_rejects_verified_token_with_email_mismatch(client, monkeypatch):
     fake_client = FakeGoogleClient()
     monkeypatch.setattr(
-        google_survey_auth_service.httpx,
-        "AsyncClient",
-        lambda **_kwargs: fake_client,
+        google_survey_auth_service,
+        "get_http_client",
+        lambda: fake_client,
     )
 
     async def claims_override() -> AuthClaims:
@@ -367,9 +368,9 @@ async def test_same_identity_proof_insert_race_reuses_the_winner(
 ):
     fake_client = FakeGoogleClient()
     monkeypatch.setattr(
-        google_survey_auth_service.httpx,
-        "AsyncClient",
-        lambda **_kwargs: fake_client,
+        google_survey_auth_service,
+        "get_http_client",
+        lambda: fake_client,
     )
 
     async def race_commit(session, _events) -> None:
@@ -399,9 +400,9 @@ async def test_same_identity_proof_insert_race_reuses_the_winner(
 async def test_unrelated_proof_commit_integrity_error_is_not_swallowed(client, monkeypatch):
     fake_client = FakeGoogleClient()
     monkeypatch.setattr(
-        google_survey_auth_service.httpx,
-        "AsyncClient",
-        lambda **_kwargs: fake_client,
+        google_survey_auth_service,
+        "get_http_client",
+        lambda: fake_client,
     )
 
     async def unrelated_failure(session, _events) -> None:
@@ -429,9 +430,9 @@ async def test_existing_proof_never_accepts_an_unverified_provider_token(
 ):
     fake_client = FakeGoogleClient(invalid_tokens={"attacker-token"})
     monkeypatch.setattr(
-        google_survey_auth_service.httpx,
-        "AsyncClient",
-        lambda **_kwargs: fake_client,
+        google_survey_auth_service,
+        "get_http_client",
+        lambda: fake_client,
     )
 
     async def claims_override() -> AuthClaims:
@@ -505,9 +506,9 @@ async def test_attestation_rejects_wrong_google_audience_without_persisting_proo
 ):
     fake_client = FakeGoogleClient(audience="another-client")
     monkeypatch.setattr(
-        google_survey_auth_service.httpx,
-        "AsyncClient",
-        lambda **_kwargs: fake_client,
+        google_survey_auth_service,
+        "get_http_client",
+        lambda: fake_client,
     )
 
     async def claims_override() -> AuthClaims:
@@ -531,9 +532,9 @@ async def test_attestation_rejects_wrong_google_audience_without_persisting_proo
 async def test_google_respondent_loads_without_a_local_portal_user(client, monkeypatch):
     fake_client = FakeGoogleClient()
     monkeypatch.setattr(
-        google_survey_auth_service.httpx,
-        "AsyncClient",
-        lambda **_kwargs: fake_client,
+        google_survey_auth_service,
+        "get_http_client",
+        lambda: fake_client,
     )
     session, generator = await _session()
     try:

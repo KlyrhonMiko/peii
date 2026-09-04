@@ -94,11 +94,12 @@ are still deployment responsibilities.
   and support only `submitted_from` and `submitted_before` filters. Deleted
   and expired rows remain excluded. Authorized reads, aggregates, and exports work for archived
   surveys.
-- CSV export is long-format, streamed in bounded partitions/chunks, and preflight-capped at
-  10,000 eligible responses. The accepted preflight count also bounds the deferred stream so
-  concurrent inserts cannot add exported records. It writes a correlated start audit before
-  streaming, then a success or best-effort aborted audit with the same export id and actual
-  traversed response count.
+- CSV export is long-format and preflight-capped at
+  10,000 eligible responses; preparation builds the artifact in bounded partitions, uploads it to
+  a private Supabase Storage bucket, and returns an expiring signed download URL. The accepted
+  preflight count also bounds the generated artifact so concurrent inserts cannot add exported
+  records. It writes a correlated start audit before generation, then a success or best-effort
+  aborted audit with the same export id and actual traversed response count.
 - Selected erasure is capped at 100 response ids. All-response erasure requires an archived
   survey and expected-count match. Both use UUID idempotency keys, explicit confirmation, atomic
   audits, and logical tombstones/receipts.

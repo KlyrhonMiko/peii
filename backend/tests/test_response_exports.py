@@ -1,7 +1,7 @@
 import csv
 import io
 import secrets
-from datetime import UTC, datetime, timedelta
+from datetime import datetime
 from typing import Any, cast
 from uuid import UUID, uuid4
 
@@ -18,6 +18,21 @@ from models.survey_response import SurveyResponse
 from services import response_export_service
 
 pytestmark = pytest.mark.anyio
+
+
+def _install_storage_fakes(monkeypatch) -> list[tuple[str, str, bytes]]:
+    """Captures uploaded CSV bytes and returns fake signed URLs."""
+    captured: list[tuple[str, str, bytes]] = []
+
+    async def upload(object_path: str, filename: str, content, **_kwargs: Any):
+        captured.append((object_path, filename, content.read()))
+
+    async def sign(object_path: str) -> str:
+        return f"https://storage.example.test/{object_path}"
+
+    monkeypatch.setattr(response_export_service, "upload_export_artifact", upload)
+    monkeypatch.setattr(response_export_service, "create_signed_export_url", sign)
+    return captured
 
 
 async def _create_export_survey(client):
@@ -121,9 +136,10 @@ async def test_disabled_export_returns_not_found_before_preparation_or_audit(
     assert audits == []
 
 
-async def test_export_permission_headers_and_correlated_start_success_audits(
-    client, csv_export_enabled
+async def test_export_permission_envelope_and_correlated_start_success_audits(
+    client, csv_export_enabled, monkeypatch
 ):
+    _install_storage_fakes(monkeypatch)
     survey, question_id, token = await _create_export_survey(client)
     assert (await _submit(client, token, question_id, "answer")).status_code == 201
     _override_permissions("surveys.manage")
@@ -133,15 +149,19 @@ async def test_export_permission_headers_and_correlated_start_success_audits(
     _override_permissions("survey_responses.export")
     exported = await client.get(f"/api/v1/surveys/{survey['id']}/responses/export")
     assert exported.status_code == 200
-    assert UUID(exported.headers["x-export-id"])
+    body = exported.json()
+    assert body["message"] == "Export prepared."
+    data = body["data"]
+    assert UUID(data["export_id"]) == UUID(exported.headers["x-export-id"])
+    assert data["response_count"] == 1
+    assert data["answer_row_count"] == 1
+    assert data["download_url"].startswith("https://storage.example.test/")
+    parsed_expiry = datetime.fromisoformat(data["expires_at"])
+    assert isinstance(parsed_expiry, datetime)
+    assert data["filename"] == f"survey-{survey['survey_id']}.csv"
     assert exported.headers["cache-control"] == "private, no-store, max-age=0"
     assert exported.headers["pragma"] == "no-cache"
-    assert exported.headers["expires"] == "0"
-    assert exported.headers["x-content-type-options"] == "nosniff"
-    assert exported.headers["referrer-policy"] == "no-referrer"
-    assert exported.headers["content-security-policy"] == "sandbox"
-    assert exported.headers["cross-origin-resource-policy"] == "same-origin"
-    assert exported.headers["x-accel-buffering"] == "no"
+    assert exported.headers["x-export-id"]
 
     session, generator = await _session()
     try:
@@ -159,15 +179,26 @@ async def test_export_permission_headers_and_correlated_start_success_audits(
     for audit in audits:
         assert audit.changes is not None
         assert audit.changes["export_id"] == exported.headers["x-export-id"]
-        assert set(audit.changes) <= {"export_id", "response_count", "answer_row_count"}
+        assert set(audit.changes) <= {
+            "export_id",
+            "response_count",
+            "answer_row_count",
+            "object_path",
+        }
 
 
-async def test_export_has_stable_long_form_columns_and_safety(client, csv_export_enabled):
+async def test_export_has_stable_long_form_columns_and_safety(
+    client, csv_export_enabled, monkeypatch
+):
+    captured = _install_storage_fakes(monkeypatch)
     survey, question_id, token = await _create_export_survey(client)
     response = await _submit(client, token, question_id, "=SUM(A1)\x00")
     assert response.status_code == 201
     exported = await client.get(f"/api/v1/surveys/{survey['id']}/responses/export")
-    rows = list(csv.DictReader(io.StringIO(exported.text)))
+    assert exported.status_code == 200
+    assert len(captured) == 1
+    content = captured[0][2].decode("utf-8")
+    rows = list(csv.DictReader(io.StringIO(content)))
     assert list(rows[0]) == [
         "response_id",
         "submitted_at",
@@ -177,12 +208,13 @@ async def test_export_has_stable_long_form_columns_and_safety(client, csv_export
         "answer_json",
     ]
     assert rows[0]["answer_json"] == '"=SUM(A1)\\u0000"'
-    assert "\x00" not in exported.text
+    assert "\x00" not in content
 
 
 async def test_export_excludes_expired_deleted_and_allows_archived_access(
-    client, csv_export_enabled
+    client, csv_export_enabled, monkeypatch
 ):
+    captured = _install_storage_fakes(monkeypatch)
     survey, question_id, token = await _create_export_survey(client)
     for answer in ("deleted", "expired", "live"):
         assert (await _submit(client, token, question_id, answer)).status_code == 201
@@ -204,12 +236,13 @@ async def test_export_excludes_expired_deleted_and_allows_archived_access(
     ).status_code == 200
     exported = await client.get(f"/api/v1/surveys/{survey['id']}/responses/export")
     assert exported.status_code == 200
-    assert "live" in exported.text
-    assert "deleted" not in exported.text
-    assert "expired" not in exported.text
+    content = captured[0][2].decode("utf-8")
+    assert "live" in content
+    assert "deleted" not in content
+    assert "expired" not in content
 
 
-async def test_export_cap_is_preflighted_before_stream_or_audit(monkeypatch):
+async def test_export_cap_is_preflighted_before_generation_or_audit(monkeypatch):
     class FakeSession:
         stream_called = False
 
@@ -234,7 +267,7 @@ async def test_export_cap_is_preflighted_before_stream_or_audit(monkeypatch):
     assert error.value.status_code == 413
 
 
-async def test_export_does_not_stream_responses_inserted_after_preflight(monkeypatch):
+async def test_export_does_not_generate_responses_inserted_after_preflight(monkeypatch):
     survey_id = uuid4()
     question_id = uuid4()
     initial_response_id = uuid4()
@@ -279,7 +312,7 @@ async def test_export_does_not_stream_responses_inserted_after_preflight(monkeyp
             return self.result
 
     async def resolve(_session, _survey_id, **_kwargs):
-        return type("Survey", (), {"survey_id": "SURV-1"})()
+        return type("Survey", (), {"survey_id": "SURV-1", "id": survey_id})()
 
     async def count(_session, _survey_id, _now):
         return 1
@@ -304,22 +337,34 @@ async def test_export_does_not_stream_responses_inserted_after_preflight(monkeyp
     monkeypatch.setattr(response_export_service, "_count_exportable_responses", count)
     monkeypatch.setattr(response_export_service, "_load_export_questions", questions)
     monkeypatch.setattr(response_export_service, "commit_with_audit", audit)
+    stored: dict[str, bytes] = {}
+
+    async def upload(object_path: str, _filename: str, content, **_kwargs: Any):
+        stored[object_path] = content.read()
+
+    async def sign(object_path: str) -> str:
+        return f"https://storage.example.test/{object_path}"
+
+    monkeypatch.setattr(response_export_service, "upload_export_artifact", upload)
+    monkeypatch.setattr(response_export_service, "create_signed_export_url", sign)
     session = FakeSession()
     prepared = await response_export_service.prepare_response_export(
         cast(AsyncSession, session), survey_id, actor_id=uuid4()
     )
-    chunks = [chunk async for chunk in prepared.content]
-    rows = list(csv.DictReader(io.StringIO(b"".join(chunks).decode("utf-8"))))
+    content = next(iter(stored.values())).decode("utf-8")
+    rows = list(csv.DictReader(io.StringIO(content)))
 
     assert len(rows) == 1
     assert rows[0]["response_id"] == str(initial_response_id)
-    assert str(inserted_response_id) not in b"".join(chunks).decode("utf-8")
+    assert str(inserted_response_id) not in content
+    assert prepared.response_count == 1
+    assert prepared.answer_row_count == 1
     assert [event.action for event in audits] == ["export_started", "export"]
     assert all(event.changes["response_count"] == 1 for event in audits)
     assert audits[-1].changes["answer_row_count"] == 1
 
 
-async def test_export_stream_selects_columns_and_yields_bounded_bytes(monkeypatch):
+async def test_export_stream_selects_columns_and_writes_rows(monkeypatch):
     survey_id = uuid4()
     response_id = uuid4()
     question_id = uuid4()
@@ -345,7 +390,7 @@ async def test_export_stream_selects_columns_and_yields_bounded_bytes(monkeypatc
             return self.result
 
     async def resolve(_session, _survey_id, **_kwargs):
-        return type("Survey", (), {"survey_id": "SURV-1"})()
+        return type("Survey", (), {"survey_id": "SURV-1", "id": survey_id})()
 
     async def count(_session, _survey_id, _now):
         return 1
@@ -370,12 +415,24 @@ async def test_export_stream_selects_columns_and_yields_bounded_bytes(monkeypatc
     monkeypatch.setattr(response_export_service, "_count_exportable_responses", count)
     monkeypatch.setattr(response_export_service, "_load_export_questions", questions)
     monkeypatch.setattr(response_export_service, "commit_with_audit", audit)
+    stored: dict[str, bytes] = {}
+
+    async def upload(object_path: str, _filename: str, content, **_kwargs: Any):
+        stored[object_path] = content.read()
+
+    async def sign(object_path: str) -> str:
+        return f"https://storage.example.test/{object_path}"
+
+    monkeypatch.setattr(response_export_service, "upload_export_artifact", upload)
+    monkeypatch.setattr(response_export_service, "create_signed_export_url", sign)
     session = FakeSession()
     prepared = await response_export_service.prepare_response_export(
         cast(AsyncSession, session), survey_id, actor_id=uuid4()
     )
-    chunks = [chunk async for chunk in prepared.content]
-    assert chunks and max(map(len, chunks)) <= response_export_service.EXPORT_CHUNK_SIZE
+    content = next(iter(stored.values())).decode("utf-8")
+    assert prepared.response_count == 1
+    assert prepared.answer_row_count == 1
+    assert "answer" in content
     assert session.result.closed is True
     assert session.statement is not None
     assert [column.key for column in session.statement.selected_columns] == [

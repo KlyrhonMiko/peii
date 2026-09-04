@@ -44,7 +44,7 @@ class FakeClient:
 
 async def test_recovery_sends_redirect_to_as_query_parameter(monkeypatch):
     client = FakeClient()
-    monkeypatch.setattr(supabase_auth_service.httpx, "AsyncClient", lambda **_: client)
+    monkeypatch.setattr(supabase_auth_service, "get_http_client", lambda: client)
 
     await supabase_auth_service.send_recovery_email(
         "user@example.com", "http://localhost:3000/auth/confirm?next=/reset-password"
@@ -58,7 +58,7 @@ async def test_recovery_sends_redirect_to_as_query_parameter(monkeypatch):
 
 async def test_invitation_sends_redirect_to_as_query_parameter(monkeypatch):
     client = FakeClient()
-    monkeypatch.setattr(supabase_auth_service.httpx, "AsyncClient", lambda **_: client)
+    monkeypatch.setattr(supabase_auth_service, "get_http_client", lambda: client)
 
     await supabase_auth_service.invite_user(
         "user@example.com", "http://localhost:3000/auth/confirm?next=/reset-password"
@@ -72,7 +72,7 @@ async def test_invitation_sends_redirect_to_as_query_parameter(monkeypatch):
 
 async def test_revoke_user_sessions_uses_supabase_admin_global_logout(monkeypatch):
     client = FakeClient()
-    monkeypatch.setattr(supabase_auth_service.httpx, "AsyncClient", lambda **_: client)
+    monkeypatch.setattr(supabase_auth_service, "get_http_client", lambda: client)
 
     await supabase_auth_service.revoke_user_sessions("00000000-0000-0000-0000-000000000003")
 
@@ -86,7 +86,7 @@ async def test_revoke_user_sessions_uses_supabase_admin_global_logout(monkeypatc
 
 async def test_logout_user_session_uses_the_callers_access_token(monkeypatch):
     client = FakeClient()
-    monkeypatch.setattr(supabase_auth_service.httpx, "AsyncClient", lambda **_: client)
+    monkeypatch.setattr(supabase_auth_service, "get_http_client", lambda: client)
 
     await supabase_auth_service.logout_user_session("user-access-token")
 
@@ -136,7 +136,7 @@ async def test_auth_user_lookup_scans_past_the_first_page(monkeypatch):
             ],
         ]
     )
-    monkeypatch.setattr(supabase_auth_service.httpx, "AsyncClient", lambda **_: client)
+    monkeypatch.setattr(supabase_auth_service, "get_http_client", lambda: client)
 
     result = await supabase_auth_service.get_auth_user_by_email(" target@example.com ")
 
@@ -148,7 +148,7 @@ async def test_auth_user_lookup_scans_past_the_first_page(monkeypatch):
 
 async def test_auth_user_lookup_stops_after_a_short_page(monkeypatch):
     client = FakeListClient([_bulk_users(1000), _bulk_users(10)])
-    monkeypatch.setattr(supabase_auth_service.httpx, "AsyncClient", lambda **_: client)
+    monkeypatch.setattr(supabase_auth_service, "get_http_client", lambda: client)
 
     result = await supabase_auth_service.get_auth_user_by_email("missing@example.com")
 
@@ -170,7 +170,7 @@ async def test_auth_user_lookup_fails_closed_on_non_200(monkeypatch):
             return FakeResponse(status_code=500)
 
     monkeypatch.setattr(
-        supabase_auth_service.httpx, "AsyncClient", lambda **_: FailingClient()
+        supabase_auth_service, "get_http_client", lambda: FailingClient()
     )
 
     with pytest.raises(AppError) as exc_info:
@@ -190,7 +190,7 @@ async def test_invite_maps_duplicate_auth_user_to_conflict(monkeypatch):
             return FakeResponse(status_code=400, payload={"message": "User already registered"})
 
     monkeypatch.setattr(
-        supabase_auth_service.httpx, "AsyncClient", lambda **_: DuplicateClient()
+        supabase_auth_service, "get_http_client", lambda: DuplicateClient()
     )
 
     with pytest.raises(AppError) as exc_info:
@@ -213,7 +213,7 @@ async def test_invite_keeps_generic_502_for_other_failures(monkeypatch):
             return FakeResponse(status_code=500, payload={"message": "boom"})
 
     monkeypatch.setattr(
-        supabase_auth_service.httpx, "AsyncClient", lambda **_: FailingClient()
+        supabase_auth_service, "get_http_client", lambda: FailingClient()
     )
 
     with pytest.raises(AppError) as exc_info:

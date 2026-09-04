@@ -196,3 +196,14 @@ class SurveyResponseWithdrawalRequest(BaseModel):
 
 class SurveyResponseWithdrawalResult(BaseModel):
     withdrawn: Literal[True]
+
+
+class ExportPreparationResponse(BaseModel):
+    """A prepared CSV export stored in the private export bucket."""
+
+    export_id: UUID
+    response_count: int
+    answer_row_count: int
+    download_url: str
+    expires_at: datetime
+    filename: str

@@ -12,7 +12,8 @@ This guide covers `src/lib/`.
   `audit.ts` maps the read-only audit trail list/detail endpoints through `/api/backend`;
   `surveys.ts`
   includes retention-aware survey settings, aggregate, paginated raw-response,
-  streamed export, and erasure operations; survey response idempotency is survey-scoped and
+  prepared export (returns a signed download URL that the browser opens), and erasure operations;
+  survey response idempotency is survey-scoped and
   there is no distribution feature.
 - `auth.ts` owns server-side current-user and permission guards.
 - `supabase/` owns the server client and cookie policy.

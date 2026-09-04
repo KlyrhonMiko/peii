@@ -5,7 +5,6 @@ const mockApi = vi.hoisted(() => ({
   post: vi.fn(),
   patch: vi.fn(),
   raw: { get: vi.fn() },
-  download: vi.fn(),
 }))
 
 vi.mock("@/lib/api", () => ({ api: mockApi }))
@@ -228,15 +227,23 @@ describe("response privacy API operations", () => {
     expect("email" in ({} as import("./surveys").SurveyResponse)).toBe(false)
   })
 
-  it("starts a native download through the same-origin proxy", async () => {
-    const createObjectURL = vi.fn(() => "blob:export")
-    Object.defineProperty(URL, "createObjectURL", { configurable: true, value: createObjectURL })
+  it("prepares an export and returns its signed download URL", async () => {
+    mockApi.get.mockResolvedValue({
+      data: {
+        export_id: "e1",
+        response_count: 1,
+        answer_row_count: 1,
+        download_url: "https://storage.example.test/x",
+        expires_at: "2026-09-04T00:00:00",
+        filename: "survey.csv",
+      },
+    })
 
-    await exportResponses("survey-id")
+    const result = await exportResponses("survey-id")
 
-    expect(mockApi.download).toHaveBeenCalledWith("/surveys/survey-id/responses/export")
+    expect(mockApi.get).toHaveBeenCalledWith("/surveys/survey-id/responses/export")
+    expect(result.download_url).toBe("https://storage.example.test/x")
     expect(mockApi.raw.get).not.toHaveBeenCalled()
-    expect(createObjectURL).not.toHaveBeenCalled()
   })
 
   it("uses the exact erase endpoint and forwards the idempotency key", async () => {

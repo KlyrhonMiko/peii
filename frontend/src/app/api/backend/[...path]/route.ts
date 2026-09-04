@@ -186,8 +186,10 @@ async function proxy(request: NextRequest, context: { params: Promise<{ path: st
   if (invalidContentLength) return invalidContentLength
 
   const supabase = await createSupabaseServerClient()
-  const claimsResult = await supabase.auth.getClaims()
-  const sessionResult = await supabase.auth.getSession()
+  const [claimsResult, sessionResult] = await Promise.all([
+    supabase.auth.getClaims(),
+    supabase.auth.getSession(),
+  ])
   if (request.signal.aborted) throw abortReason(request.signal)
 
   const headers = new Headers()

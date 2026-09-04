@@ -1,3 +1,4 @@
+import asyncio
 import atexit
 import json
 import logging
@@ -5,7 +6,15 @@ import os
 import re
 
 import torch
+from sqlmodel import select
 from transformers import pipeline
+
+from core.analytics_cache import invalidate_survey_analytics
+from core.config import settings
+from core.database import async_session_factory
+from models.survey_question import SurveyQuestion
+from models.survey_response import SurveyResponse
+from services.audit_service import AuditEvent, commit_with_audit
 
 logger = logging.getLogger(__name__)
 
@@ -364,16 +373,6 @@ class FeedbackAnalyzer:
             except Exception as e:
                 logger.error(f"Failed to write to training data: {e}")
 
-import asyncio
-
-from sqlmodel import select
-
-from core.config import settings
-from core.database import async_session_factory
-from models.survey_question import SurveyQuestion
-from models.survey_response import SurveyResponse
-from services.audit_service import AuditEvent, commit_with_audit
-
 
 async def analyze_response_background(response_id: str):
     """Background task to analyze survey response text and save to ml_sentiments column."""
@@ -434,6 +433,7 @@ async def analyze_response_background(response_id: str):
                     )
                 ],
             )
+            invalidate_survey_analytics(response.survey_id)
             logger.info(f"Successfully computed ML sentiments for response {response_id}")
 
     except Exception as e:

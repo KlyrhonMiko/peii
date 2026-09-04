@@ -108,7 +108,6 @@ async def replace_survey_structure(
     request: Request,
     principal: Principal = Depends(require_permissions("surveys.manage")),
 ) -> APIResponse[dict]:
-    await survey_service.resolve_survey(session, survey_id)
     ip_address = request.client.host if request.client else None
     survey = await survey_structure_service.replace_structure(
         session,
@@ -212,7 +211,6 @@ async def get_survey(
     session: AsyncDBSession,
     principal: Principal = Depends(require_permissions("surveys.read")),
 ) -> APIResponse[dict]:
-    await survey_service.resolve_survey(session, survey_id)
     survey, sections_with_questions = await survey_service.get_survey_with_sections(
         session, survey_id
     )
@@ -233,7 +231,6 @@ async def update_survey(
     request: Request,
     principal: Principal = Depends(require_permissions("surveys.manage")),
 ) -> APIResponse[SurveyRead]:
-    await survey_service.resolve_survey(session, survey_id)
     ip_address = request.client.host if request.client else None
     survey = await survey_service.update_survey(
         session, survey_id, payload, principal.user.id, ip_address=ip_address
@@ -256,7 +253,6 @@ async def delete_survey(
     request: Request,
     principal: Principal = Depends(require_permissions("surveys.manage")),
 ) -> APIResponse[SurveyRead]:
-    await survey_service.resolve_survey(session, survey_id)
     ip_address = request.client.host if request.client else None
     survey = await survey_service.soft_delete_survey(
         session, survey_id, payload, principal.user.id, ip_address=ip_address
@@ -279,7 +275,6 @@ async def restore_survey(
     request: Request,
     principal: Principal = Depends(require_permissions("surveys.manage")),
 ) -> APIResponse[SurveyRead]:
-    await survey_service.resolve_survey(session, survey_id, include_deleted=True)
     ip_address = request.client.host if request.client else None
     survey = await survey_service.restore_survey(
         session, survey_id, payload, principal.user.id, ip_address=ip_address

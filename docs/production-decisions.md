@@ -234,11 +234,12 @@ one participant row rather than two submissions.
 - Raw listing uses offset pagination (`limit` 50 by default, maximum 100) and only supports
   `submitted_from` (inclusive) and `submitted_before` (exclusive) filters.
   There is no `include_deleted` or answer-content escape hatch.
-- CSV export is long-format, streamed from the database, preflight-capped at 10,000 eligible
-  responses, and private/no-store. The accepted preflight count bounds the deferred stream, so
-  concurrent inserts cannot add records beyond that count. The start audit commits before
-  streaming; successful and aborted audits use the same export id and report the actual number
-  of response records traversed.
+- CSV export is long-format and preflight-capped at 10,000 eligible
+  responses; preparation uploads the artifact to a private Supabase Storage bucket and returns an
+  expiring signed download URL, with private/no-store on the preparation response. The accepted
+  preflight count bounds the generated artifact, so concurrent inserts cannot add records beyond
+  that count. The start audit commits before generation; successful and aborted audits use the
+  same export id and report the actual number of response records traversed.
 - Selected erasure accepts up to 100 response ids. All-response erasure requires an archived
   survey and an expected-count match. Both require a UUID `Idempotency-Key`, explicit
   confirmation, atomic audit, and retain only minimal tombstone/receipt state.
@@ -410,11 +411,11 @@ and application tests are not proof of provider behavior. Also configure provide
 tokenized URL paths, request bodies, auth/cookie headers, idempotency keys, withdrawal codes, and
 respondent identifiers. Keep the server-only
 `CSV_EXPORT_ENABLED` flag `false` for the initial deployment. Before a later release enables it,
-use a smoke request to verify the provider does not cache, index, persist, or unexpectedly buffer
-the streamed CSV; confirm `private, no-store` survives the CDN/edge path and that logs do not
-contain sensitive request or response data. Record provider, region, domains, runtime values,
-backup schedule, PITR procedure, purge schedule/owner, monitoring owner, and rollback owner in the
-production runbook.
+use a smoke request to verify the private Storage bucket, signed-URL expiry, and provider caching
+behavior; confirm `private, no-store` survives the CDN/edge path on the preparation response and
+that logs do not contain sensitive request, response, or signed URL data. Record provider, region,
+domains, runtime values, backup schedule, PITR procedure, purge schedule/owner, monitoring owner,
+and rollback owner in the production runbook.
 
 Required provider actions remain manual and are not claimed as completed here: rotate any
 credentials exposed during development; remove `public` from the Supabase Data API exposed

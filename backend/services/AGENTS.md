@@ -23,6 +23,16 @@ The generated Graduate Tracer questionnaire uses question `config.survey_phase`:
 one response row and Phase 2 locks and merges into that row. Surveys without phase metadata retain
 the single-submit path.
 
+- `rbac_service` owns the effective-permission/role-name short-TTL caches
+  (`effective_permissions_cached`/`effective_role_names_cached`, TTL from
+  `PERMISSION_CACHE_TTL_SECONDS`). Mutating and row-locking flows must keep using the
+  uncached functions so they observe fresh state, and every successful RBAC mutation
+  commits through `invalidate_permission_cache()`.
+- Response-write services (`response_service`, `false_positive_service`, `ml_service`,
+  `response_retention_service`) invalidate the survey analytics cache
+  (`core.analytics_cache.invalidate_survey_analytics`) after every mutation that changes
+  a survey's responses, so PEII/aggregate reads stay fresh.
+
 ## List Query Rules
 - For paginated list endpoints, return both the page of rows and the filtered total.
 - Apply the same filters to the data query and count query.

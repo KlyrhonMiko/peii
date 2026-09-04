@@ -1,9 +1,11 @@
+from typing import cast
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Request, Response
 from pydantic import BaseModel
 
-from core.deps import AsyncDBSession, CurrentPrincipal, require_permissions
+from core.analytics_cache import get_analytics_cached, set_analytics_cached
+from core.deps import AnalyticsAsyncDBSession, AsyncDBSession, CurrentPrincipal, require_permissions
 from core.responses import APIResponse, success_response
 from schemas.peii import PEIIAnalyticsResponse
 from schemas.survey_analytics import SurveyResponseAggregate
@@ -28,15 +30,18 @@ class FalsePositiveRequest(BaseModel):
 )
 async def aggregate_survey_responses(
     survey_id: UUID,
-    session: AsyncDBSession,
+    session: AnalyticsAsyncDBSession,
     http_response: Response,
     principal: CurrentPrincipal,
 ) -> APIResponse[list[SurveyResponseAggregate]]:
     http_response.headers["Cache-Control"] = "private, no-store, max-age=0"
     http_response.headers["Pragma"] = "no-cache"
-    return success_response(
-        await survey_analytics_service.aggregate_responses(session, survey_id)
-    )
+    cache_key = ("aggregates", str(survey_id))
+    cached = get_analytics_cached(cache_key)
+    if cached is None:
+        cached = await survey_analytics_service.aggregate_responses(session, survey_id)
+        set_analytics_cached(cache_key, cached)
+    return success_response(cast(list[SurveyResponseAggregate], cached))
 
 
 @router.get(
@@ -48,7 +53,7 @@ async def aggregate_survey_responses(
 )
 async def compute_peii(
     survey_id: UUID,
-    session: AsyncDBSession,
+    session: AnalyticsAsyncDBSession,
     http_response: Response,
     principal: CurrentPrincipal,
     batch: str | None = None,
@@ -56,14 +61,17 @@ async def compute_peii(
 ) -> APIResponse[PEIIAnalyticsResponse]:
     http_response.headers["Cache-Control"] = "private, no-store, max-age=0"
     http_response.headers["Pragma"] = "no-cache"
-    return success_response(
-        await survey_analytics_service.compute_peii_scores(
+    cache_key = ("peii", str(survey_id), batch or "", department or "")
+    cached = get_analytics_cached(cache_key)
+    if cached is None:
+        cached = await survey_analytics_service.compute_peii_scores(
             session=session,
             survey_ids=[survey_id],
             batch_year=batch,
-            department=department
+            department=department,
         )
-    )
+        set_analytics_cached(cache_key, cached)
+    return success_response(cast(PEIIAnalyticsResponse, cached))
 
 @router.post(
     "/peii/false-positive",
