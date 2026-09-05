@@ -600,9 +600,14 @@ async def compute_peii_scores(
         # Domains
         for domain_name in DOMAIN_WEIGHTS.keys():
             if domain_name in sec.title:
-                half = len(sec_qs) // 2
-                smap["domains"][domain_name]["pre"] = [str(q.id) for q in sec_qs[:half]]
-                smap["domains"][domain_name]["post"] = [str(q.id) for q in sec_qs[half:]]
+                if "II-A" in sec.title:
+                    smap["domains"][domain_name]["pre"] = [str(q.id) for q in sec_qs]
+                elif "II-B" in sec.title:
+                    smap["domains"][domain_name]["post"] = [str(q.id) for q in sec_qs]
+                else:
+                    half = len(sec_qs) // 2
+                    smap["domains"][domain_name]["pre"] = [str(q.id) for q in sec_qs[:half]]
+                    smap["domains"][domain_name]["post"] = [str(q.id) for q in sec_qs[half:]]
                 
         if "Feedback and Reflection" in sec.title:
             smap["feedback_qs"].extend([(str(q.id), q.question_text) for q in sec_qs])

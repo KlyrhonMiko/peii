@@ -39,8 +39,8 @@ def test_alumni_questionnaire_matches_canonical_graduate_tracer_definition() -> 
     assert seed.PEII_COMMON_DESCRIPTION == expected_common_description
     assert seed.GRADUATE_TRACER_STUDY_TARGET_COHORT == "All Alumni"
     assert seed.GRADUATE_TRACER_STUDY_STATUS == "Active"
-    assert len(sections) == 14
-    assert len(questions) == 67
+    assert len(sections) == 13
+    assert len(questions) == 64
     assert all(question["is_required"] is True for question in questions)
     assert all(
         isinstance(question["config"], dict)
@@ -128,7 +128,7 @@ def test_alumni_questionnaire_matches_canonical_graduate_tracer_definition() -> 
         "Intro",
         "SECTION I : RESPONDENT'S PROFILE",
     ]
-    assert [section["title"] for section in sections[2:8]] == [
+    assert [section["title"] for section in sections[2:7]] == [
         "SECTION II-A - PEII Core Impact Measurement: A. Employability and Economic Mobility",
         "SECTION II-A - PEII Core Impact Measurement: B. Family Upliftment and Financial Stability",
         "SECTION II-A - PEII Core Impact Measurement: C. Personal Development and Life Quality",
@@ -140,14 +140,15 @@ def test_alumni_questionnaire_matches_canonical_graduate_tracer_definition() -> 
             "SECTION II-A - PEII Core Impact Measurement: E. Government Trust and LGU Support "
             "Valuation"
         ),
-        "IV-A. Feedback and Reflection",
     ]
-    assert [section["title"] for section in sections[8:]] == [
-        title.replace("II-A", "II-B").replace("IV-A", "IV-B")
-        for title in [section["title"] for section in sections[2:8]]
+    assert [section["title"] for section in sections[7:12]] == [
+        title.replace("II-A", "II-B")
+        for title in [section["title"] for section in sections[2:7]]
     ]
-    assert [len(section["questions"]) for section in sections[:8]] == [1, 10, 5, 5, 5, 5, 5, 3]
-    assert [len(section["questions"]) for section in sections[8:]] == [5, 5, 5, 5, 5, 3]
+    assert sections[12]["title"] == "IV. Feedback and Reflection"
+    assert [len(section["questions"]) for section in sections[:7]] == [1, 10, 5, 5, 5, 5, 5]
+    assert [len(section["questions"]) for section in sections[7:12]] == [5, 5, 5, 5, 5]
+    assert len(sections[12]["questions"]) == 3
 
     for section, statements in zip(sections[2:7], expected_peii_statements):
         assert section["description"] == seed.PEII_COMMON_DESCRIPTION
@@ -161,13 +162,13 @@ def test_alumni_questionnaire_matches_canonical_graduate_tracer_definition() -> 
             for question in section["questions"]
         )
 
-    assert [question["text"] for question in sections[7]["questions"]] == [
+    assert [question["text"] for question in sections[12]["questions"]] == [
         "What specific technical or soft skills do you wish were given more focus at PLP?",
         "What improvements should PLP implement to better support students?",
         "What message would you like to share with Pasig City leaders regarding PLP?",
     ]
 
-    for phase_1_section, phase_2_section in zip(sections[2:8], sections[8:]):
+    for phase_1_section, phase_2_section in zip(sections[2:7], sections[7:12]):
         assert phase_2_section["description"] == phase_1_section["description"]
         assert [question["text"] for question in phase_2_section["questions"]] == [
             question["text"] for question in phase_1_section["questions"]
@@ -179,7 +180,7 @@ def test_alumni_questionnaire_matches_canonical_graduate_tracer_definition() -> 
             question["options"] for question in phase_1_section["questions"]
         ]
         assert all(
-            question["config"]["survey_phase"] == 2
+            question["config"] == {"min": 1, "max": 5, "survey_phase": 2}
             for question in phase_2_section["questions"]
         )
         assert [

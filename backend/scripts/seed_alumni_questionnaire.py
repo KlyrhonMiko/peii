@@ -243,7 +243,7 @@ SECTIONS: list[dict] = [
         ],
     },
     {
-        "title": "IV-A. Feedback and Reflection",
+        "title": "IV. Feedback and Reflection",
         "description": "",
         "questions": [
             _text_question(
@@ -260,8 +260,8 @@ SECTIONS: list[dict] = [
 
 def _duplicate_follow_up_sections() -> list[dict]:
     duplicated: list[dict] = []
-    for section in SECTIONS[2:8]:
-        title = section["title"].replace("II-A", "II-B").replace("IV-A", "IV-B")
+    for section in SECTIONS[2:7]:
+        title = section["title"].replace("II-A", "II-B")
         questions = []
         for question in section["questions"]:
             config = {**question["config"], "survey_phase": 2}
@@ -276,7 +276,9 @@ def _duplicate_follow_up_sections() -> list[dict]:
     return duplicated
 
 
+feedback = SECTIONS.pop()
 SECTIONS.extend(_duplicate_follow_up_sections())
+SECTIONS.append(feedback)
 
 GRADUATE_TRACER_STUDY_SURVEY = {
     "title": GRADUATE_TRACER_STUDY_SURVEY_TITLE,

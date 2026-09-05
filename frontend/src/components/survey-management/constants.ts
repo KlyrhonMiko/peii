@@ -180,7 +180,7 @@ function createPeiiSections(
   ]
 }
 
-function feedbackSection(survey_phase: SurveyPhase, sectionLabel: "IV-A" | "IV-B"): SurveySectionDefinition {
+function feedbackSection(survey_phase: SurveyPhase, sectionLabel: "IV-A" | "IV-B" | "IV"): SurveySectionDefinition {
   return {
     title: `${sectionLabel}. Feedback and Reflection`,
     description: "",
@@ -253,9 +253,8 @@ export const GRADUATE_TRACER_STUDY_SURVEY: {
       ],
     },
     ...createPeiiSections(1, "II-A"),
-    feedbackSection(1, "IV-A"),
     ...createPeiiSections(2, "II-B"),
-    feedbackSection(2, "IV-B"),
+    feedbackSection(1, "IV"),
   ],
 }
 

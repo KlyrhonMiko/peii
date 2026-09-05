@@ -26,7 +26,7 @@ describe("Graduate Tracer Study survey definition", () => {
   })
 
   it("contains the exact intro, profile, PEII, and feedback questions", () => {
-    expect(GRADUATE_TRACER_STUDY_SURVEY.sections).toHaveLength(14)
+    expect(GRADUATE_TRACER_STUDY_SURVEY.sections).toHaveLength(13)
     expect(GRADUATE_TRACER_STUDY_SURVEY.sections[0]).toMatchObject({
       title: "Intro",
       questions: [
@@ -65,7 +65,6 @@ describe("Graduate Tracer Study survey definition", () => {
             "Bachelor of Arts in Psychology",
             "Certificate in Teaching Program (CTP)",
           ],
-          config: { presentation: "dropdown" },
         },
         { question_text: "Sex Assigned At Birth:", question_type: "single_choice", options: ["Male", "Female"] },
         { question_text: "Civil Status:", question_type: "single_choice", options: ["Single", "Married", "Separated", "Widowed"] },
@@ -78,8 +77,9 @@ describe("Graduate Tracer Study survey definition", () => {
       ],
     })
 
-    const phaseOneSections = GRADUATE_TRACER_STUDY_SURVEY.sections.slice(0, 8)
-    const phaseTwoSections = GRADUATE_TRACER_STUDY_SURVEY.sections.slice(8)
+    const phaseOneSections = GRADUATE_TRACER_STUDY_SURVEY.sections.slice(0, 7)
+    const phaseTwoSections = GRADUATE_TRACER_STUDY_SURVEY.sections.slice(7, 12)
+    const feedbackSection = GRADUATE_TRACER_STUDY_SURVEY.sections[12]
     const peiiSections = phaseOneSections.slice(2, 7)
     expect(peiiSections.map(({ title }) => title)).toEqual([
       "SECTION II-A - PEII Core Impact Measurement: A. Employability and Economic Mobility",
@@ -144,8 +144,8 @@ describe("Graduate Tracer Study survey definition", () => {
       config.min_label === undefined && config.max_label === undefined,
     )).toBe(true)
 
-    expect(phaseOneSections[7]).toMatchObject({
-      title: "IV-A. Feedback and Reflection",
+    expect(feedbackSection).toMatchObject({
+      title: "IV. Feedback and Reflection",
       questions: [
         { question_text: "What specific technical or soft skills do you wish were given more focus at PLP?", question_type: "text", options: null },
         { question_text: "What improvements should PLP implement to better support students?", question_type: "text", options: null },
@@ -159,30 +159,29 @@ describe("Graduate Tracer Study survey definition", () => {
       "SECTION II-B - PEII Core Impact Measurement: C. Personal Development and Life Quality",
       "SECTION II-B - PEII Core Impact Measurement: D. Civic Engagement and Community Contribution",
       "SECTION II-B - PEII Core Impact Measurement: E. Government Trust and LGU Support Valuation",
-      "IV-B. Feedback and Reflection",
     ])
-    expect(phaseTwoSections.slice(0, 5).map(({ questions }) => questions.map(({ question_text }) => question_text))).toEqual(
+    expect(phaseTwoSections.map(({ questions }) => questions.map(({ question_text }) => question_text))).toEqual(
       peiiSections.map(({ questions }) => questions.map(({ question_text }) => question_text)),
-    )
-    expect(phaseTwoSections[5]?.questions.map(({ question_text }) => question_text)).toEqual(
-      phaseOneSections[7]?.questions.map(({ question_text }) => question_text),
     )
     expect(phaseOneSections.flatMap(({ questions }) => questions).every(({ config }) => config?.survey_phase === 1)).toBe(true)
     expect(phaseTwoSections.flatMap(({ questions }) => questions).every(({ config }) => config?.survey_phase === 2)).toBe(true)
   })
 
-  it("builds a fourteen-section, 67-question payload with 39 phase-one and 28 phase-two questions", () => {
+  it("builds a thirteen-section, 64-question payload with 39 phase-one and 25 phase-two questions", () => {
     const payload = createGraduateTracerStudySurveyPayload(() => "client-id")
     const questions = payload.sections.flatMap(({ questions: sectionQuestions }) => sectionQuestions)
 
     expect(payload.title).toBe(GRADUATE_TRACER_STUDY_SURVEY_TITLE)
     expect(payload.description).toBe(GRADUATE_TRACER_STUDY_SURVEY_DESCRIPTION)
-    expect(payload.sections).toHaveLength(14)
-    expect(questions).toHaveLength(67)
-    const phaseOneQuestions = payload.sections.slice(0, 8).flatMap(({ questions: sectionQuestions }) => sectionQuestions)
-    const phaseTwoQuestions = payload.sections.slice(8).flatMap(({ questions: sectionQuestions }) => sectionQuestions)
+    expect(payload.sections).toHaveLength(13)
+    expect(questions).toHaveLength(64)
+    const phaseOneQuestions = [
+      ...payload.sections.slice(0, 7).flatMap(({ questions: sectionQuestions }) => sectionQuestions),
+      ...(payload.sections[12]?.questions ?? []),
+    ]
+    const phaseTwoQuestions = payload.sections.slice(7, 12).flatMap(({ questions: sectionQuestions }) => sectionQuestions)
     expect(phaseOneQuestions).toHaveLength(39)
-    expect(phaseTwoQuestions).toHaveLength(28)
+    expect(phaseTwoQuestions).toHaveLength(25)
     expect(questions.every(({ is_required }) => is_required)).toBe(true)
     expect(phaseOneQuestions.every(({ config }) => config?.survey_phase === 1)).toBe(true)
     expect(phaseTwoQuestions.every(({ config }) => config?.survey_phase === 2)).toBe(true)
