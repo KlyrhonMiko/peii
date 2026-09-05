@@ -5,7 +5,16 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Button } from "@/components/ui/button"
 import { ChevronDown, Check, Filter } from "lucide-react"
 
-const departments = ["All Departments", "Business", "Education", "Science & Technology", "Arts & Humanities"]
+const departments = [
+  "All Departments",
+  "College of Engineering",
+  "College of Nursing",
+  "College of Education",
+  "College of Computer Studies",
+  "College of Hospitality Management",
+  "College of Business Administration",
+  "College of Arts and Sciences",
+]
 const batches = ["All Batches", "2024", "2023", "2022", "2021", "2020"]
 
 export interface DashboardFiltersProps {
