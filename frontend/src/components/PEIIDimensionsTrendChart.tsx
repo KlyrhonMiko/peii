@@ -2,22 +2,13 @@
 
 import { useMemo, useState } from "react"
 import { Line, LineChart, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts"
-import type { TooltipProps } from "recharts"
-import type { ValueType, NameType } from "recharts/types/component/DefaultTooltipContent"
 import type { PEIIHistoricalTrend } from "@/lib/surveys"
+import { getDimensionColor } from "@/lib/dimension-colors"
 
 export interface PEIIDimensionsTrendChartProps {
   data: PEIIHistoricalTrend[]
   isLoading?: boolean
 }
-
-const COLORS = [
-  "#3b82f6", // blue-500
-  "#8b5cf6", // violet-500
-  "#f43f5e", // rose-500
-  "#f59e0b", // amber-500
-  "#10b981", // emerald-500
-]
 
 function formatValue(val: number) {
   return val > 0 ? `+${val.toFixed(2)}` : val.toFixed(2)
@@ -57,7 +48,7 @@ function CustomTooltip({ active, payload, label, hoveredLine }: CustomTooltipPro
               <div key={index} className="flex items-start justify-between gap-6 text-sm">
                 <div className="flex items-start gap-2.5 flex-1">
                   <div 
-                    className="w-2 h-2 rounded-full mt-1.5 flex-shrink-0" 
+                    className="w-2.5 h-1 rounded-[1px] mt-2 flex-shrink-0" 
                     style={{ backgroundColor: entryColor }}
                   />
                   <span className="leading-tight text-slate-700 font-medium">
@@ -119,8 +110,9 @@ export function PEIIDimensionsTrendChart({ data, isLoading }: PEIIDimensionsTren
 
         {/* Custom Editorial Legend */}
         <div className="flex flex-wrap items-center gap-x-8 gap-y-4">
-          {dimensions.map((dim, i) => {
+          {dimensions.map((dim) => {
             const isFaded = hoveredLine !== null && hoveredLine !== dim
+            const color = getDimensionColor(dim).hex
             return (
               <div 
                 key={dim}
@@ -131,7 +123,7 @@ export function PEIIDimensionsTrendChart({ data, isLoading }: PEIIDimensionsTren
               >
                 <div 
                   className="w-3.5 h-[3px] rounded-full transition-transform duration-300 group-hover:scale-y-150" 
-                  style={{ backgroundColor: COLORS[i % COLORS.length] ?? "#3b82f6" }} 
+                  style={{ backgroundColor: color }} 
                 />
                 <span className="text-[13px] font-medium text-slate-600 tracking-wide">
                   {dim}
@@ -182,10 +174,10 @@ export function PEIIDimensionsTrendChart({ data, isLoading }: PEIIDimensionsTren
                 cursor={{ stroke: '#e2e8f0', strokeWidth: 2, strokeDasharray: 'none' }} 
               />
 
-              {dimensions.map((dim, i) => {
+              {dimensions.map((dim) => {
                 const isHovered = hoveredLine === dim
                 const isFaded = hoveredLine !== null && hoveredLine !== dim
-                const color = COLORS[i % COLORS.length] ?? "#3b82f6"
+                const color = getDimensionColor(dim).hex
                 return (
                   <Line
                     key={dim}

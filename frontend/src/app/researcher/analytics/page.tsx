@@ -18,6 +18,7 @@ import {
   fetchResponseAggregates,
   TRACER_STUDY_SURVEY_TITLE,
 } from "@/lib/surveys"
+import { getDimensionColor } from "@/lib/dimension-colors"
 import type { PEIIDomainScore } from "@/components/ClientDomainGainChart"
 import type { PEIIDemographics, PEIIHistoricalTrend, SurveyResponseAggregate, FeedbackClassification, QualitativeFeedback } from "@/lib/surveys"
 
@@ -99,21 +100,24 @@ function AnalyticsSkeleton() {
               <Skeleton className="h-[1.125rem] w-48" />
               <Skeleton className="h-3.5 w-64" />
             </div>
-            {/* Dimension filter pills */}
-            <div className="flex gap-2 flex-wrap">
+            {/* Dimension filter tab strip */}
+            <div className="flex gap-6 border-b border-slate-200 pb-3">
               {[...Array(5)].map((_, i) => (
-                <Skeleton key={i} className="h-7 w-24 rounded-full" />
+                <Skeleton key={i} className="h-4 w-20 rounded-none" />
               ))}
             </div>
-            <div className="space-y-3">
+            <div className="space-y-0 divide-y divide-slate-100">
               {[...Array(4)].map((_, i) => (
-                <div key={i} className="rounded-xl border border-slate-100 p-4 space-y-2.5">
-                  <div className="flex items-center gap-2">
-                    <Skeleton className="h-5 w-16 rounded-full" />
-                    <Skeleton className="h-3.5 w-28" />
+                <div key={i} className="py-6 space-y-3">
+                  <div className="flex justify-between items-center">
+                    <div className="flex items-center gap-2">
+                      <Skeleton className="h-3 w-1 rounded-[1px]" />
+                      <Skeleton className="h-3 w-24 rounded-none" />
+                    </div>
+                    <Skeleton className="h-4 w-20 rounded-none" />
                   </div>
-                  <Skeleton className="h-3.5 w-full" />
-                  <Skeleton className="h-3.5 w-4/5" />
+                  <Skeleton className="h-5 w-full rounded-none" />
+                  <Skeleton className="h-5 w-4/5 rounded-none" />
                 </div>
               ))}
             </div>
@@ -412,19 +416,29 @@ export default function AnalyticsPage() {
               
               {/* Insights Ledger stacked vertically */}
               <div className="flex flex-col gap-12 pb-16 border-b border-slate-200">
-                {analyticsMetrics.map((stat) => (
-                  <div key={stat.label} className="flex flex-col">
-                    <div className="flex items-center gap-2 mb-4">
-                      <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500">{stat.label}</span>
+                {analyticsMetrics.map((stat) => {
+                  const isDomain = stat.label === "Primary Driver" || stat.label === "Needs Attention"
+                  const dimColor = isDomain && stat.value !== "N/A" ? getDimensionColor(stat.value) : null
+
+                  return (
+                    <div key={stat.label} className="flex flex-col">
+                      <div className="mb-4">
+                        <span 
+                          className={`text-[10px] font-bold uppercase tracking-[0.2em] ${dimColor ? 'border-l-2 pl-2' : ''} text-slate-500`}
+                          style={dimColor ? { borderColor: dimColor.hex } : undefined}
+                        >
+                          {stat.label}
+                        </span>
+                      </div>
+                      <div className="text-5xl font-light tracking-tighter text-slate-900 mb-2 leading-[1.1] break-words">
+                        {stat.value}
+                      </div>
+                      <div className="text-sm font-medium text-slate-500 mt-1">
+                        {stat.subValue}
+                      </div>
                     </div>
-                    <div className="text-5xl font-light tracking-tighter text-slate-900 mb-2 leading-[1.1] break-words">
-                      {stat.value}
-                    </div>
-                    <div className="text-sm font-medium text-slate-500 mt-1">
-                      {stat.subValue}
-                    </div>
-                  </div>
-                ))}
+                  )
+                })}
               </div>
 
               {/* Demographics Overview stacked vertically */}

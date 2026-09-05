@@ -3,6 +3,7 @@
 import { useState, useMemo, useRef, useCallback } from "react"
 import { ThumbsDown, ThumbsUp, Minus, Flag } from "lucide-react"
 import { type QualitativeFeedback, markFalsePositive } from "@/lib/surveys"
+import { getDimensionColor } from "@/lib/dimension-colors"
 
 export interface ClientCurriculumFeedbackProps {
   surveyId: string | null
@@ -14,21 +15,21 @@ export interface ClientCurriculumFeedbackProps {
 function SentimentBadge({ score }: { score: number }) {
   if (score > 0.3) {
     return (
-      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-emerald-100 text-emerald-700">
-        <ThumbsUp className="w-3 h-3" /> Positive
+      <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-600">
+        <ThumbsUp className="w-3.5 h-3.5" /> Positive
       </span>
     )
   }
   if (score < -0.3) {
     return (
-      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-rose-100 text-rose-700">
-        <ThumbsDown className="w-3 h-3" /> Negative
+      <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-rose-600">
+        <ThumbsDown className="w-3.5 h-3.5" /> Needs Attention
       </span>
     )
   }
   return (
-    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-slate-100 text-slate-700">
-      <Minus className="w-3 h-3" /> Neutral
+    <span className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-400">
+      <Minus className="w-3.5 h-3.5" /> Neutral
     </span>
   )
 }
@@ -72,11 +73,11 @@ export function ClientCurriculumFeedback({ surveyId, feedbacks, isLoading, onRef
         }
         // Classic false-positive flip
         if (markedIds.has(key)) {
-          return { ...f, sentiment_score: Math.abs(f.sentiment_score) || 0.5, is_false_positive: true }
+          return { ...f, sentiment_score: Math.abs(f.sentiment_score ?? 0) || 0.5, is_false_positive: true }
         }
         return f
       })
-      .sort((a, b) => a.sentiment_score - b.sentiment_score)
+      .sort((a, b) => (a.sentiment_score ?? 0) - (b.sentiment_score ?? 0))
   }, [feedbacks, markedIds, polarityOverrides, selectedDimension])
 
   const handleMarkFalsePositive = useCallback((responseId: string, questionId: string, polarityOverride?: number) => {
@@ -102,13 +103,13 @@ export function ClientCurriculumFeedback({ surveyId, feedbacks, isLoading, onRef
 
   return (
     <div className="h-full flex flex-col">
-      <div className="mb-6 flex flex-col gap-4">
+      <div className="mb-8 flex flex-col gap-6">
         <div>
           <h3 className="font-semibold text-slate-900 flex items-center gap-2">
             Curriculum & Improvement Feedback
             {!isLoading && filteredFeedbacks.length > 0 && (
-              <span className="ml-1.5 px-2 py-0.5 rounded-full bg-slate-100 text-[11px] font-medium text-slate-600">
-                {filteredFeedbacks.length}
+              <span className="text-xs font-normal text-slate-400">
+                ({filteredFeedbacks.length})
               </span>
             )}
           </h3>
@@ -118,34 +119,40 @@ export function ClientCurriculumFeedback({ surveyId, feedbacks, isLoading, onRef
         </div>
 
         {!isLoading && dimensions.length > 0 && (
-          <div className="flex items-center gap-2 overflow-x-auto pb-1 -mx-2 px-2 no-scrollbar">
+          <div className="flex items-center gap-6 border-b border-slate-200 pb-0 overflow-x-auto no-scrollbar">
             <button
               onClick={() => setSelectedDimension(null)}
-              className={`whitespace-nowrap px-3 py-1.5 rounded-full text-[11px] font-medium transition-colors ${
+              className={`pb-3 text-xs font-medium border-b-2 transition-all whitespace-nowrap ${
                 selectedDimension === null 
-                  ? "bg-slate-900 text-white shadow-sm" 
-                  : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                  ? "border-slate-900 text-slate-900 font-semibold" 
+                  : "border-transparent text-slate-500 hover:text-slate-800"
               }`}
             >
-              All Categories
+              All Feedback
             </button>
             {dimensions.map(dim => {
               const isSelected = selectedDimension === dim
-              // Shorten names for pills to save space
-              let shortName = dim.split(" and ")[0]
-              if (shortName.includes("Government")) shortName = "Govt Trust"
+              const dimColor = getDimensionColor(dim)
+              const shortName = (dim.split(" and ")[0] ?? dim).replace(/Government.*/, "Govt Trust")
               
               return (
                 <button
                   key={dim}
                   onClick={() => setSelectedDimension(dim)}
-                  className={`whitespace-nowrap px-3 py-1.5 rounded-full text-[11px] font-medium transition-colors ${
+                  className={`pb-3 text-xs font-medium border-b-2 transition-all whitespace-nowrap flex items-center gap-2 ${
                     isSelected 
-                      ? "bg-slate-900 text-white shadow-sm" 
-                      : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                      ? "text-slate-900 font-semibold" 
+                      : "border-transparent text-slate-500 hover:text-slate-800"
                   }`}
+                  style={{
+                    borderBottomColor: isSelected ? dimColor.hex : "transparent"
+                  }}
                   title={dim}
                 >
+                  <span 
+                    className="w-2 h-1 rounded-[1px] shrink-0" 
+                    style={{ backgroundColor: dimColor.hex }} 
+                  />
                   {shortName}
                 </button>
               )
@@ -154,7 +161,7 @@ export function ClientCurriculumFeedback({ surveyId, feedbacks, isLoading, onRef
         )}
       </div>
 
-      <div className="flex-1 min-h-[300px] max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
+      <div className="flex-1 min-h-[300px] max-h-[440px] overflow-y-auto pr-2 custom-scrollbar">
         {isLoading ? (
           <div className="w-full h-full flex flex-col space-y-4">
             {[1, 2, 3].map(i => (
@@ -171,63 +178,88 @@ export function ClientCurriculumFeedback({ surveyId, feedbacks, isLoading, onRef
           </div>
         ) : (
           <div className="space-y-0">
-            {filteredFeedbacks.map((f, i) => (
-              <div key={i} className="py-6 border-b border-slate-200 last:border-0">
-                <div className="flex justify-between items-start mb-3 gap-4">
-                  <div className="text-[10px] font-bold tracking-[0.2em] text-slate-500 uppercase flex items-center gap-3">
-                    {f.dimension ? f.dimension.split(" and ")[0] : "General"}
-
-                    {/* Negative: offer false positive */}
-                    {f.sentiment_score < -0.3 && (
-                      <button
-                        onClick={() => handleMarkFalsePositive(f.response_id, f.question_id)}
-                        className="flex items-center gap-1.5 text-[10px] font-medium tracking-normal normal-case text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-all duration-200 ease-out active:scale-95 px-2 py-1 rounded-md -my-1"
-                        title="Mark as incorrectly negative"
-                      >
-                        <Flag className="w-3 h-3" />
-                        False positive
-                      </button>
-                    )}
-
-                    {/* Positive: offer false positive (mark as wrongly positive) */}
-                    {f.sentiment_score > 0.3 && (
-                      <button
-                        onClick={() => handleMarkFalsePositive(f.response_id, f.question_id, -0.5)}
-                        className="flex items-center gap-1.5 text-[10px] font-medium tracking-normal normal-case text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-all duration-200 ease-out active:scale-95 px-2 py-1 rounded-md -my-1"
-                        title="Mark as incorrectly positive"
-                      >
-                        <Flag className="w-3 h-3" />
-                        False positive
-                      </button>
-                    )}
-
-                    {/* Neutral: let user manually classify */}
-                    {f.sentiment_score >= -0.3 && f.sentiment_score <= 0.3 && (
-                      <span className="flex items-center gap-1 -my-1">
-                        <button
-                          onClick={() => handleMarkFalsePositive(f.response_id, f.question_id, 0.5)}
-                          className="flex items-center gap-1 text-[10px] font-medium tracking-normal normal-case text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 transition-all duration-200 ease-out active:scale-95 px-2 py-1 rounded-md"
-                          title="Mark as positive"
+            {filteredFeedbacks.map((f, i) => {
+              const score = f.sentiment_score ?? 0
+              return (
+                <div key={i} className="py-6 border-b border-slate-200 last:border-0">
+                  <div className="flex justify-between items-center mb-3 gap-4">
+                    <div className="flex items-center gap-3">
+                      {f.dimension ? (
+                        <div 
+                          className="border-l-2 pl-2 flex items-center"
+                          style={{ borderColor: getDimensionColor(f.dimension).hex }}
                         >
-                          <ThumbsUp className="w-3 h-3" />
-                        </button>
-                        <button
-                          onClick={() => handleMarkFalsePositive(f.response_id, f.question_id, -0.5)}
-                          className="flex items-center gap-1 text-[10px] font-medium tracking-normal normal-case text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-all duration-200 ease-out active:scale-95 px-2 py-1 rounded-md"
-                          title="Mark as negative"
-                        >
-                          <ThumbsDown className="w-3 h-3" />
-                        </button>
-                      </span>
-                    )}
+                          <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-600">
+                            {f.dimension.split(" and ")[0] ?? f.dimension}
+                          </span>
+                        </div>
+                      ) : (
+                        <span className="border-l-2 border-slate-300 pl-2 text-[10px] font-bold uppercase tracking-[0.2em] text-slate-400">
+                          General
+                        </span>
+                      )}
+
+                      {/* Negative: offer false positive */}
+                      {score < -0.3 && (
+                        <>
+                          <span className="h-2.5 w-px bg-slate-200" />
+                          <button
+                            onClick={() => handleMarkFalsePositive(f.response_id, f.question_id)}
+                            className="flex items-center gap-1 text-[10px] font-medium tracking-wide uppercase text-slate-400 hover:text-slate-700 transition-colors"
+                            title="Mark as incorrectly negative"
+                          >
+                            <Flag className="w-2.5 h-2.5" />
+                            False positive
+                          </button>
+                        </>
+                      )}
+
+                      {/* Positive: offer false positive (mark as wrongly positive) */}
+                      {score > 0.3 && (
+                        <>
+                          <span className="h-2.5 w-px bg-slate-200" />
+                          <button
+                            onClick={() => handleMarkFalsePositive(f.response_id, f.question_id, -0.5)}
+                            className="flex items-center gap-1 text-[10px] font-medium tracking-wide uppercase text-slate-400 hover:text-rose-600 transition-colors"
+                            title="Mark as incorrectly positive"
+                          >
+                            <Flag className="w-2.5 h-2.5" />
+                            False positive
+                          </button>
+                        </>
+                      )}
+
+                      {/* Neutral: let user manually classify */}
+                      {score >= -0.3 && score <= 0.3 && (
+                        <>
+                          <span className="h-2.5 w-px bg-slate-200" />
+                          <span className="flex items-center gap-1.5">
+                            <button
+                              onClick={() => handleMarkFalsePositive(f.response_id, f.question_id, 0.5)}
+                              className="flex items-center gap-1 text-[10px] font-medium text-slate-400 hover:text-emerald-600 transition-colors"
+                              title="Mark as positive"
+                            >
+                              <ThumbsUp className="w-2.5 h-2.5" />
+                            </button>
+                            <button
+                              onClick={() => handleMarkFalsePositive(f.response_id, f.question_id, -0.5)}
+                              className="flex items-center gap-1 text-[10px] font-medium text-slate-400 hover:text-rose-600 transition-colors"
+                              title="Mark as negative"
+                            >
+                              <ThumbsDown className="w-2.5 h-2.5" />
+                            </button>
+                          </span>
+                        </>
+                      )}
+                    </div>
+                    <SentimentBadge score={score} />
                   </div>
-                  <SentimentBadge score={f.sentiment_score} />
+                  <p className="text-xl font-light tracking-tight text-slate-900 leading-snug">
+                    &ldquo;{f.response_text}&rdquo;
+                  </p>
                 </div>
-                <p className="text-xl font-light tracking-tight text-slate-900 leading-snug">
-                  &ldquo;{f.response_text}&rdquo;
-                </p>
-              </div>
-            ))}
+              )
+            })}
           </div>
         )}
       </div>

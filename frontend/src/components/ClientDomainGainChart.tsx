@@ -1,6 +1,7 @@
 "use client"
 
 import { useMemo } from "react"
+import { getDimensionColor } from "@/lib/dimension-colors"
 
 export interface PEIIDomainScore {
   dimension: string
@@ -22,14 +23,6 @@ export function ClientDomainGainChart({ data, isLoading }: ClientDomainGainChart
       }))
       .sort((a, b) => b.gain - a.gain)
   }, [data])
-
-  const dimensionColors: Record<string, { pre: string, post: string }> = {
-    "Civic Engagement and Community Contribution": { pre: "bg-blue-200", post: "bg-blue-500" },
-    "Employability and Economic Mobility": { pre: "bg-purple-200", post: "bg-purple-500" },
-    "Family Upliftment and Financial Stability": { pre: "bg-rose-200", post: "bg-rose-500" },
-    "Government Trust and LGU Support Valuation": { pre: "bg-amber-200", post: "bg-amber-500" },
-    "Personal Development and Life Quality": { pre: "bg-emerald-200", post: "bg-emerald-500" },
-  }
 
   return (
     <div className="w-full flex flex-col">
@@ -81,7 +74,7 @@ export function ClientDomainGainChart({ data, isLoading }: ClientDomainGainChart
                   {/* Bars Container */}
                   <div className="absolute inset-0 flex justify-around items-end z-10">
                     {chartData.map((d, i) => {
-                      const color = dimensionColors[d.dimension] || { pre: "bg-slate-200", post: "bg-slate-500" }
+                      const color = getDimensionColor(d.dimension)
                       // Calculate height based on 0-5 scale
                       const preHeight = Math.max(0, (d.preGrad / 5) * 100)
                       const postHeight = Math.max(0, (d.postGrad / 5) * 100)
@@ -89,19 +82,22 @@ export function ClientDomainGainChart({ data, isLoading }: ClientDomainGainChart
                       return (
                         <div key={d.dimension} className="flex flex-col items-center justify-end h-full w-full group relative animate-in fade-in slide-in-from-bottom-2 duration-700 fill-mode-both" style={{ animationDelay: `${i * 100}ms` }}>
                           {/* Gain Label (Hover) */}
-                          <div className="absolute -top-6 opacity-0 group-hover:opacity-100 transition-opacity text-[10px] font-semibold text-slate-500 whitespace-nowrap bg-white px-2 py-1 rounded shadow-sm border border-slate-100 z-20">
+                          <div 
+                            className="absolute -top-7 opacity-0 group-hover:opacity-100 transition-opacity text-[10px] font-bold whitespace-nowrap bg-white px-2.5 py-1 rounded-md shadow-md border z-20"
+                            style={{ borderColor: color.hex, color: color.hex }}
+                          >
                             +{d.gain.toFixed(2)} gain
                           </div>
 
                           {/* Bar Pair */}
-                          <div className="flex items-end justify-center gap-1 w-full h-full relative px-1 md:px-2">
+                          <div className="flex items-end justify-center gap-1.5 w-full h-full relative px-1 md:px-2">
                              <div 
-                               className={`w-full max-w-[28px] ${color.pre} rounded-t-sm transition-all duration-700`}
+                               className={`w-full max-w-[28px] ${color.tailwindPre} rounded-t-sm transition-all duration-700`}
                                style={{ height: `${preHeight}%` }}
                                title={`Pre-Grad Baseline: ${d.preGrad.toFixed(2)}`}
                              ></div>
                              <div 
-                               className={`w-full max-w-[28px] ${color.post} rounded-t-sm transition-all duration-700 shadow-sm`}
+                               className={`w-full max-w-[28px] ${color.tailwindPost} rounded-t-sm transition-all duration-700 shadow-sm`}
                                style={{ height: `${postHeight}%` }}
                                title={`Post-Grad Outcome: ${d.postGrad.toFixed(2)}`}
                              ></div>
@@ -114,26 +110,33 @@ export function ClientDomainGainChart({ data, isLoading }: ClientDomainGainChart
 
                 {/* X-axis Labels Container */}
                 <div className="flex justify-around items-start pt-4 border-t border-slate-200">
-                  {chartData.map((d) => (
-                    <div key={d.dimension} className="w-full text-center px-1">
-                      <span className="text-[10px] sm:text-xs font-medium text-slate-600 leading-tight block break-words">
-                        {d.dimension}
-                      </span>
-                    </div>
-                  ))}
+                  {chartData.map((d) => {
+                    const color = getDimensionColor(d.dimension)
+                    return (
+                      <div key={d.dimension} className="w-full text-center px-1 flex flex-col items-center gap-2">
+                        <div 
+                          className="w-4 h-1 rounded-[1px] shrink-0" 
+                          style={{ backgroundColor: color.hex }} 
+                        />
+                        <span className="text-[10px] sm:text-xs font-medium text-slate-700 leading-tight block break-words">
+                          {d.dimension}
+                        </span>
+                      </div>
+                    )
+                  })}
                 </div>
               </div>
             </div>
 
             {/* Legend */}
-            <div className="flex items-center justify-center gap-6 mt-6 pt-6 text-xs text-slate-500 font-medium uppercase tracking-wider">
+            <div className="flex items-center justify-center gap-8 mt-6 pt-6 text-xs text-slate-500 font-medium uppercase tracking-wider">
               <div className="flex items-center gap-2">
-                <div className="w-4 h-4 rounded-sm bg-slate-200 border border-slate-300"></div>
-                <span>Pre-Grad (Lighter)</span>
+                <div className="w-4 h-1.5 rounded-[2px] bg-slate-200 border border-slate-300"></div>
+                <span className="text-slate-600">Pre-Grad (Lighter Tint)</span>
               </div>
               <div className="flex items-center gap-2">
-                <div className="w-4 h-4 rounded-sm bg-slate-500"></div>
-                <span>Post-Grad (Solid)</span>
+                <div className="w-4 h-1.5 rounded-[2px] bg-slate-700"></div>
+                <span className="text-slate-600">Post-Grad (Solid Dimension Color)</span>
               </div>
             </div>
           </div>

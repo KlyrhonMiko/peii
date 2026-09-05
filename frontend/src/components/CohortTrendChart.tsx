@@ -1,17 +1,28 @@
 "use client"
 
 import { Line, LineChart, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts"
-import type { TooltipProps } from "recharts"
-import type { ValueType, NameType } from "recharts/types/component/DefaultTooltipContent"
 import type { PEIIHistoricalTrend } from "@/lib/surveys"
 
-function CustomTooltip({ active, payload, label }: TooltipProps<ValueType, NameType>) {
+interface TooltipPayloadEntry {
+  value?: number | string
+  [key: string]: unknown
+}
+
+interface CustomTooltipProps {
+  active?: boolean
+  payload?: TooltipPayloadEntry[]
+  label?: string | number
+}
+
+function CustomTooltip({ active, payload, label }: CustomTooltipProps) {
   if (active && payload && payload.length) {
+    const first = payload[0]
+    const val = typeof first?.value === "number" ? first.value : Number(first?.value ?? 0)
     return (
       <div className="bg-white p-3 border border-slate-200 rounded-lg shadow-sm">
         <p className="font-semibold text-slate-900 mb-1">Batch {label}</p>
         <p className="text-emerald-600 font-medium text-sm">
-          PEII Score: {Number(payload[0].value).toFixed(2)}
+          PEII Score: {val.toFixed(2)}
         </p>
       </div>
     )
@@ -43,6 +54,15 @@ export function CohortTrendChart({ data }: CohortTrendChartProps) {
     <div className="h-full w-full min-w-0 relative">
       <ResponsiveContainer width="100%" height="100%" minWidth={0}>
         <LineChart data={chartData} margin={{ top: 20, right: 20, left: -10, bottom: 0 }}>
+          <defs>
+            <linearGradient id="cohortTrendStroke" x1="0" y1="0" x2="1" y2="0">
+              <stop offset="0%" stopColor="#3b82f6" />
+              <stop offset="25%" stopColor="#8b5cf6" />
+              <stop offset="50%" stopColor="#f43f5e" />
+              <stop offset="75%" stopColor="#f59e0b" />
+              <stop offset="100%" stopColor="#10b981" />
+            </linearGradient>
+          </defs>
           <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
           <XAxis
             dataKey="year"
@@ -62,10 +82,10 @@ export function CohortTrendChart({ data }: CohortTrendChartProps) {
           <Line
             type="monotone"
             dataKey="score"
-            stroke="#0f172a"
-            strokeWidth={3}
-            dot={{ r: 4, fill: "#0f172a", strokeWidth: 2, stroke: "#fff" }}
-            activeDot={{ r: 6, fill: "#334155", strokeWidth: 0 }}
+            stroke="url(#cohortTrendStroke)"
+            strokeWidth={3.5}
+            dot={{ r: 4.5, fill: "#10b981", strokeWidth: 2, stroke: "#fff" }}
+            activeDot={{ r: 7, fill: "#059669", strokeWidth: 2, stroke: "#fff" }}
           />
         </LineChart>
       </ResponsiveContainer>

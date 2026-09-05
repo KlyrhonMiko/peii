@@ -8,11 +8,11 @@ export interface ClientDegreeAlignmentProps {
   isLoading?: boolean
 }
 
-// Colors for the Likert scale segments
+// Colors for the Likert scale segments aligned with Employability dimension
 const SCALE_COLORS: Record<string, string> = {
-  "Strongly Agree": "bg-slate-900",
-  "Agree": "bg-slate-700",
-  "Neutral": "bg-slate-400",
+  "Strongly Agree": "bg-violet-600",
+  "Agree": "bg-violet-400",
+  "Neutral": "bg-violet-200",
   "Disagree": "bg-slate-300",
   "Strongly Disagree": "bg-slate-200"
 }
@@ -50,6 +50,11 @@ export function ClientDegreeAlignment({ aggregates, isLoading }: ClientDegreeAli
   return (
     <div className="flex flex-col">
       <div className="mb-6 flex flex-col">
+        <div className="mb-2">
+          <span className="border-l-2 border-violet-500 pl-2 text-[10px] font-bold uppercase tracking-[0.2em] text-violet-600">
+            Employability Domain
+          </span>
+        </div>
         <h3 className="font-semibold text-slate-900">Degree Alignment</h3>
         <p className="text-sm text-slate-500 mt-1">
           &ldquo;My job is aligned with my degree&rdquo; (Post-Grad)
@@ -89,10 +94,10 @@ export function ClientDegreeAlignment({ aggregates, isLoading }: ClientDegreeAli
               </div>
               
               {/* Legend */}
-              <div className="flex flex-wrap gap-x-4 gap-y-2 mt-2">
+              <div className="flex flex-wrap gap-x-5 gap-y-2 mt-2">
                 {chartData.data.map(segment => (
                   <div key={segment.name} className="flex items-center gap-1.5">
-                    <div className={`w-2.5 h-2.5 rounded-sm ${SCALE_COLORS[segment.name] || 'bg-slate-100'}`} />
+                    <div className={`w-3.5 h-1 rounded-[1px] ${SCALE_COLORS[segment.name] || 'bg-slate-100'}`} />
                     <span className="text-[10px] uppercase font-bold tracking-wider text-slate-500">
                       {segment.name}
                     </span>
