@@ -132,10 +132,15 @@ Compose defines frontend (`127.0.0.1:3000`), backend (`127.0.0.1:8000`), Postgre
 (`127.0.0.1:5432`), and an opt-in Adminer tool (`127.0.0.1:8080`). Adminer is excluded from the
 default graph; start it explicitly with `docker compose --profile tools up adminer`. Compose does
 not apply Alembic migrations automatically; initialize a new database before relying on the
-application services. The current Alembic head is `a8055c9859f5`, after `d5a4f7c91e2b`.
-`a8055c9859f5` adds short-lived Google survey auth proofs, nullable legacy-compatible response
-identity snapshots, survey-scoped dedupe uniqueness, `survey_responses.read_identity`, and
-proof-table ACL/RLS lockdown. Its downgrade is intentionally fail-closed and irreversible.
+application services. The current Alembic head is `a6c42481a0d9` (polarity override). The full
+canonical chain is `20260825_v1` -> `f77a807cf2f9` (SHA-256 token digests + 8-character prefixes,
+historical) -> `d1f9bad768ad` (nullable expiry, historical) -> `fb1c93d15474`
+(retention/withdrawal) -> `2bf09a6bc738` (drop plaintext token, historical) ->
+`d5a4f7c91e2b` (Supabase Data API RLS lockdown) -> `a8055c9859f5` (Google survey respondent
+identity + auth proofs, fail-closed irreversible downgrade) -> `b9055c9859f6` (`is_template`) ->
+`f88b9c1d0000` (drops `survey_distributions` and the response distribution link, switching
+response idempotency to a survey-scoped unique) -> `3aad20b0fc8a` (ML sentiments) ->
+`b0d864b9935b` (false-positive feedbacks) -> `a6c42481a0d9` (polarity override).
 
 ## Validation
 

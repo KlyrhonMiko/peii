@@ -146,6 +146,7 @@ def test_mutation_modules_do_not_commit_outside_audit_service():
     backend_dir = Path(__file__).resolve().parents[1]
     paths = [
         *backend_dir.joinpath("services").glob("*.py"),
+        *backend_dir.joinpath("routers").glob("*.py"),
         *backend_dir.joinpath("scripts").glob("*.py"),
     ]
 
@@ -153,10 +154,26 @@ def test_mutation_modules_do_not_commit_outside_audit_service():
         if path.name == "audit_service.py":
             continue
         tree = ast.parse(path.read_text(), filename=str(path))
+
+        def is_session_receiver(node: ast.Call) -> bool:
+            if not isinstance(node.func, ast.Attribute):
+                return False
+            if isinstance(node.func.value, ast.Name):
+                return node.func.value.id == "session"
+            if (
+                isinstance(node.func.value, ast.Attribute)
+                and isinstance(node.func.value.value, ast.Name)
+                and node.func.value.value.id == "self"
+                and node.func.value.attr == "session"
+            ):
+                return True
+            return False
+
         writes = [
             node
             for node in ast.walk(tree)
             if isinstance(node, ast.Call)
+            and is_session_receiver(node)
             and isinstance(node.func, ast.Attribute)
             and node.func.attr in {"add", "add_all", "delete", "execute"}
         ]
@@ -168,6 +185,7 @@ def test_mutation_modules_do_not_commit_outside_audit_service():
             node
             for node in ast.walk(tree)
             if isinstance(node, ast.Call)
+            and is_session_receiver(node)
             and isinstance(node.func, ast.Attribute)
             and node.func.attr == "commit"
         ]

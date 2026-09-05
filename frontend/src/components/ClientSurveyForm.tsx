@@ -49,7 +49,7 @@ interface ClientSurveyFormProps {
   description: string | null
   consent: PublicSurveyConsent
   sections: PublicSurveySection[]
-  submissionPhase?: 1 | 2
+  submissionPhase?: 1 | 2 | null
   token: string
   userEmail?: string | null
 }
@@ -101,7 +101,8 @@ export function ClientSurveyForm({
   token,
   userEmail,
 }: ClientSurveyFormProps) {
-  const isPhase1 = submissionPhase === 1
+  const isLegacy = submissionPhase === null
+  const isPhase1 = submissionPhase === 1 || isLegacy
   const [sectionIdx, setSectionIdx] = useState(0)
   const [answers, setAnswers] = useState<PublicAnswers>({})
   const [errors, setErrors] = useState<Record<string, string>>({})
@@ -109,6 +110,7 @@ export function ClientSurveyForm({
   const [submitting, setSubmitting] = useState(false)
   const [submitted, setSubmitted] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
+  const [needsReload, setNeedsReload] = useState(false)
   const [consentAccepted, setConsentAccepted] = useState(false)
   const [consentTouched, setConsentTouched] = useState(false)
   const [staleConsent, setStaleConsent] = useState(false)
@@ -116,7 +118,7 @@ export function ClientSurveyForm({
   const [now, setNow] = useState(() => Date.now())
   const [submittedWithdrawalCode, setSubmittedWithdrawalCode] = useState<string | null>(null)
   const [isTransitioning, setIsTransitioning] = useState(false)
-  const idempotencyKey = useRef<{ phase: 1 | 2; key: string } | null>(null)
+  const idempotencyKey = useRef<{ phase: 1 | 2 | null; key: string } | null>(null)
   const withdrawalCode = useRef<string | null>(null)
   const [codeCopied, setCodeCopied] = useState(false)
   const submittingRef = useRef(false)
@@ -208,11 +210,11 @@ export function ClientSurveyForm({
             <CheckCircle className="size-6 text-zinc-900" />
           </div>
           <h2 className="text-2xl font-semibold tracking-tight text-zinc-900">
-            {isPhase1 ? "Phase 1 submitted" : "Response Submitted"}
+            {isPhase1 && !isLegacy ? "Phase 1 submitted" : "Response Submitted"}
           </h2>
           <p className="mt-3 text-[15px] leading-relaxed text-zinc-500">
-            {isPhase1
-              ? "Your first set of answers has been recorded. Reload this page to continue with Phase 2."
+            {isPhase1 && !isLegacy
+              ? "Your first set of answers has been recorded. Continue with Phase 2."
               : "Thank you for completing the survey. Your feedback has been recorded."}
           </p>
           {isPhase1 && code && (
@@ -254,6 +256,18 @@ export function ClientSurveyForm({
                 </Button>
               </div>
             </section>
+          )}
+          {isPhase1 && !isLegacy && (
+            <div className="mt-8">
+              <Button
+                type="button"
+                onClick={() => window.location.reload()}
+                className="h-10 gap-2 rounded-lg bg-zinc-900 px-6 text-sm font-medium text-white shadow-sm transition-all hover:bg-zinc-800"
+              >
+                Continue to Phase 2
+                <ArrowRight className="size-4" data-icon="inline-end" />
+              </Button>
+            </div>
           )}
           {isPhase1 && (
             <p className="mt-6 text-sm text-zinc-600">
@@ -351,6 +365,7 @@ export function ClientSurveyForm({
     submittingRef.current = true
     setSubmitting(true)
     setSubmitError(null)
+    setNeedsReload(false)
     try {
       const submittedAnswers: PublicAnswers = { ...answers }
       for (const currentSection of sections) {
@@ -391,14 +406,27 @@ export function ClientSurveyForm({
           // Fall through to the generic status-specific message.
         }
         const errorCode = publicSurveyErrorCode(errorPayload)
-        if (response.status === 409 && errorCode === "stale_consent") {
+        if (response.status === 401) {
+          setSubmitError("Session expired. Reload and sign in with the same Google account again.")
+          setNeedsReload(true)
+        } else if (response.status === 409 && errorCode === "stale_consent") {
           idempotencyKey.current = null
           setStaleConsent(true)
           setSubmitError("This consent notice is out of date. Reload and review the notice before submitting again.")
         } else if (response.status === 409 && errorCode === "idempotency_conflict") {
           setSubmitError("We could not confirm whether your response was submitted. It may already be recorded; please do not create a duplicate response.")
         } else if (response.status === 409 && errorCode === "already_submitted") {
-          setSubmitError("This response has already been submitted. To withdraw it, use the private withdrawal code before trying again.")
+          setSubmitError("Phase 1 already recorded for this Google account. Reload to continue with Phase 2.")
+          setNeedsReload(true)
+        } else if (response.status === 409 && errorCode === "phase1_required") {
+          setSubmitError("No Phase 1 found for this Google account. Reload or switch to the account you used for Phase 1.")
+          setNeedsReload(true)
+        } else if (response.status === 409 && errorCode === "already_completed") {
+          setSubmitError("Follow-up already submitted. Reload to see status.")
+          setNeedsReload(true)
+        } else if (response.status === 409 && errorCode === "withdrawn") {
+          setSubmitError("This response has been withdrawn.")
+          setNeedsReload(true)
         } else if (response.status === 409) {
           setSubmitError("We could not confirm whether your response was submitted. Please do not create a duplicate response.")
         } else if (response.status === 429) {
@@ -542,9 +570,23 @@ export function ClientSurveyForm({
             )}
 
             {submitError && (
-              <div className="mt-6 flex items-center gap-2 text-[13.5px] font-medium text-red-500" role="alert" aria-live="assertive">
-                <AlertCircle className="size-4 shrink-0" />
-                <span>{submitError}</span>
+              <div className="mt-6 flex flex-col gap-3" role="alert" aria-live="assertive">
+                <div className="flex items-center gap-2 text-[13.5px] font-medium text-red-500">
+                  <AlertCircle className="size-4 shrink-0" />
+                  <span>{submitError}</span>
+                </div>
+                {needsReload && (
+                  <div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => window.location.reload()}
+                      className="h-9 gap-2 rounded-lg border-zinc-200 px-4 text-xs"
+                    >
+                      Reload
+                    </Button>
+                  </div>
+                )}
               </div>
             )}
 

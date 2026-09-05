@@ -37,8 +37,8 @@ async def get_user_by_auth_subject(session: AsyncSession, subject: UUID) -> User
 
 
 async def current_user_data(session: AsyncSession, user: User) -> tuple[list[str], list[str]]:
-    permissions = sorted(await rbac_service.effective_permissions(session, user.id))
-    roles = await rbac_service.effective_role_names(session, user.id)
+    permissions = sorted(await rbac_service.effective_permissions_cached(session, user.id))
+    roles = await rbac_service.effective_role_names_cached(session, user.id)
     return permissions, roles
 
 

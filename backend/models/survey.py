@@ -1,4 +1,4 @@
-from sqlalchemy import CheckConstraint
+from sqlalchemy import CheckConstraint, Index
 from sqlmodel import Field
 
 from models.base_model import BaseModel
@@ -15,6 +15,7 @@ class Survey(BaseModel, table=True):
             "retention_days >= 1",
             name="ck_surveys_retention_days_positive",
         ),
+        Index("ix_surveys_created_at", "created_at"),
     )
 
     survey_id: str = Field(unique=True, index=True, max_length=20)

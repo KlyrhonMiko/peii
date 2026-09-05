@@ -9,6 +9,8 @@ This guide covers `src/app/admin/` and nested admin routes.
   status, role, session, deletion, and restoration workflows.
 - `roles/page.tsx` requires `roles.read` and renders role, permission, and status
   management. User-role assignment remains in the user-management workflow.
+- `audit-logs/page.tsx` requires `audit_logs.read` and renders the read-only append-only
+  audit trail with resource/action/request-id filters and pagination.
 
 ## Admin Rules
 - Keep admin pages aligned with the shared portal chrome unless requirements clearly
@@ -23,8 +25,9 @@ This guide covers `src/app/admin/` and nested admin routes.
 
 ## Data And API Contracts
 - Keep frontend user/admin types aligned with backend schemas.
-- Admin routes authenticate through `requirePortalUser()`. Pages request `users.read` or
-  `roles.read`, and action availability derives from the returned permission set.
+- Admin routes authenticate through `requirePortalUser()`. Pages request `users.read`,
+  `roles.read`, or `audit_logs.read`, and action availability derives from the returned
+  permission set.
 - Frontend checks improve UX but do not replace backend permission enforcement.
 
 ## Styling

@@ -49,11 +49,10 @@ pre-commit configuration currently invokes them automatically.
 - For user/auth behavior, assert Supabase identity linkage, invitation timestamps, rejection
   of local password/scalar-role fields, and the absence of credentials in responses.
 - For survey capability behavior, cover the separate aggregate/raw/identity/export/erase
-  permissions, including both permissions required by the identity endpoint,
-  digest-only distribution storage, token-free list/revoke metadata, one-time create/rotate token
-  reveal, omitted-expiry default and explicit maximum, nullable legacy expiry behavior, exact
+  permissions, including both permissions required by the identity endpoint, exact
   0/1/4-response aggregates, separate `k=5` survey-list response-count projection, archive/restore,
   retention deadline/read-time expiry behavior, withdrawal, and idempotent selected/all erasure.
+  Response idempotency is survey-scoped via UNIQUE(survey_id, idempotency_key).
 - For RBAC role assignment, cover that an actor cannot grant permissions beyond the actor's
   effective permissions and that only an active Admin can assign the protected system Admin role.
 

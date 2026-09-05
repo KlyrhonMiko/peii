@@ -2,6 +2,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, Request, status
 
+from core.cache import cache_invalidate_prefix
 from core.deps import AsyncDBSession, Principal, require_permissions
 from core.responses import success_response
 from schemas.common import APIResponse
@@ -58,6 +59,7 @@ async def create_section(
         actor_id=principal.user.id,
         ip_address=ip_address,
     )
+    await cache_invalidate_prefix("surveys")
     return success_response(
         SurveySectionRead.model_validate(section),
         message="Section created.",
@@ -86,6 +88,7 @@ async def reorder_sections(
         actor_id=principal.user.id,
         ip_address=ip_address,
     )
+    await cache_invalidate_prefix("surveys")
     return success_response(
         [SurveySectionRead.model_validate(s) for s in sections],
         message="Sections reordered.",
@@ -139,6 +142,7 @@ async def update_section(
         actor_id=principal.user.id,
         ip_address=ip_address,
     )
+    await cache_invalidate_prefix("surveys")
     return success_response(
         SurveySectionRead.model_validate(section),
         message="Section updated.",
@@ -169,6 +173,7 @@ async def delete_section(
         cascade_questions=payload.cascade_questions if payload else False,
         ip_address=ip_address,
     )
+    await cache_invalidate_prefix("surveys")
     return success_response(
         SurveySectionRead.model_validate(section),
         message="Section deleted.",

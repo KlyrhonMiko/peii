@@ -33,7 +33,7 @@ export function SurveyDeleteConfirmModal({ store }: SurveyDeleteConfirmModalProp
           <DialogHeader className="flex flex-col items-center">
             <DialogTitle className="text-xl font-semibold text-slate-900 tracking-tight">Archive Survey</DialogTitle>
             <DialogDescription className="text-[15px] text-slate-500 mt-2 leading-relaxed max-w-[95%] text-center">
-              Are you sure you want to archive this survey? It will be hidden and all distribution links will be revoked. Collected responses will be retained.
+              Are you sure you want to archive this survey? It will be hidden. Collected responses will be retained.
             </DialogDescription>
           </DialogHeader>
         </div>

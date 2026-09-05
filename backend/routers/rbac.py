@@ -1,8 +1,9 @@
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Request, status
+from fastapi import APIRouter, Depends, Request, Response, status
 from sqlmodel import col, select
 
+from core.cache import build_cache_key, cache_get, cache_invalidate_prefix, cache_set
 from core.deps import AsyncDBSession, CurrentPrincipal, require_permissions
 from core.exceptions import AppError
 from core.responses import success_response
@@ -19,8 +20,7 @@ def _ip_address(request: Request) -> str | None:
     return request.client.host if request.client else None
 
 
-async def _role_read(session: AsyncDBSession, role: Role) -> RoleRead:
-    permissions = await rbac_service.get_role_permissions(session, role)
+def _role_read(role: Role, permissions: list[Permission]) -> RoleRead:
     return RoleRead(
         id=role.id,
         name=role.name,
@@ -31,6 +31,10 @@ async def _role_read(session: AsyncDBSession, role: Role) -> RoleRead:
     )
 
 
+async def _role_read_loaded(session: AsyncDBSession, role: Role) -> RoleRead:
+    return _role_read(role, await rbac_service.get_role_permissions(session, role))
+
+
 @router.get(
     "/permissions",
     response_model=APIResponse[list[PermissionRead]],
@@ -38,14 +42,33 @@ async def _role_read(session: AsyncDBSession, role: Role) -> RoleRead:
     summary="List permissions",
     description="List the immutable permission catalog.",
 )
-async def list_permissions(session: AsyncDBSession) -> APIResponse[list[PermissionRead]]:
+async def list_permissions(
+    session: AsyncDBSession, http_response: Response
+) -> APIResponse[list[PermissionRead]]:
+    http_response.headers["Cache-Control"] = "private, no-store, max-age=0"
+    http_response.headers["Pragma"] = "no-cache"
+    cache_key = build_cache_key("permissions")
+    redis_cached = await cache_get("rbac", cache_key)
+    if isinstance(redis_cached, list):
+        try:
+            http_response.headers["X-Cache"] = "HIT"
+            return success_response(
+                [PermissionRead.model_validate(item) for item in redis_cached]
+            )
+        except Exception:
+            pass
     statement = (
         select(Permission)
         .where(col(Permission.is_deleted).is_(False))
         .order_by(col(Permission.code))
     )
     result = await session.exec(statement)
-    return success_response([PermissionRead.model_validate(item) for item in result.all()])
+    response_permissions = [PermissionRead.model_validate(item) for item in result.all()]
+    await cache_set(
+        "rbac", cache_key, [item.model_dump(mode="json") for item in response_permissions]
+    )
+    http_response.headers["X-Cache"] = "MISS"
+    return success_response(response_permissions)
 
 
 @router.get(
@@ -55,10 +78,31 @@ async def list_permissions(session: AsyncDBSession) -> APIResponse[list[Permissi
     summary="List roles",
     description="List configurable roles and their permissions.",
 )
-async def list_roles(session: AsyncDBSession) -> APIResponse[list[RoleRead]]:
+async def list_roles(
+    session: AsyncDBSession, http_response: Response
+) -> APIResponse[list[RoleRead]]:
+    http_response.headers["Cache-Control"] = "private, no-store, max-age=0"
+    http_response.headers["Pragma"] = "no-cache"
+    cache_key = build_cache_key("roles")
+    redis_cached = await cache_get("rbac", cache_key)
+    if isinstance(redis_cached, list):
+        try:
+            http_response.headers["X-Cache"] = "HIT"
+            return success_response([RoleRead.model_validate(item) for item in redis_cached])
+        except Exception:
+            pass
     statement = select(Role).where(col(Role.is_deleted).is_(False)).order_by(col(Role.name))
     result = await session.exec(statement)
-    return success_response([await _role_read(session, role) for role in result.all()])
+    roles = list(result.all())
+    permissions_by_role = await rbac_service.get_role_permissions_map(
+        session, [role.id for role in roles]
+    )
+    response_roles = [_role_read(role, permissions_by_role.get(role.id, [])) for role in roles]
+    await cache_set(
+        "rbac", cache_key, [item.model_dump(mode="json") for item in response_roles]
+    )
+    http_response.headers["X-Cache"] = "MISS"
+    return success_response(response_roles)
 
 
 @router.post(
@@ -76,7 +120,8 @@ async def create_role(
     request: Request,
 ) -> APIResponse[RoleRead]:
     role = await rbac_service.create_role(session, payload, principal.user.id, _ip_address(request))
-    return success_response(await _role_read(session, role), message="Role created.")
+    await cache_invalidate_prefix("rbac")
+    return success_response(await _role_read_loaded(session, role), message="Role created.")
 
 
 @router.patch(
@@ -100,7 +145,8 @@ async def update_role(
     role = await rbac_service.update_role(
         session, role, payload, principal.user.id, _ip_address(request)
     )
-    return success_response(await _role_read(session, role), message="Role updated.")
+    await cache_invalidate_prefix("rbac")
+    return success_response(await _role_read_loaded(session, role), message="Role updated.")
 
 
 @router.put(
@@ -124,4 +170,6 @@ async def assign_user_roles(
     await rbac_service.set_user_roles(
         session, user, payload.role_ids, principal.user.id, _ip_address(request)
     )
+    await cache_invalidate_prefix("rbac")
+    await cache_invalidate_prefix("users")
     return success_response(None, message="User roles updated.")

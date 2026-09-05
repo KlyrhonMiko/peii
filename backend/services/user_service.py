@@ -1,3 +1,4 @@
+from typing import Any
 from uuid import UUID
 
 from fastapi import status
@@ -106,6 +107,29 @@ def _raise_username_conflict(existing_user: User) -> None:
     )
 
 
+async def _resolve_auth_user(email: str, redirect_to: str) -> dict[str, Any]:
+    """Find the Supabase Auth user for an email, linking an existing account.
+
+    When the invitation reports that the account already exists (a race between
+    lookup and invite, or a user created on a later page), re-list the Auth users
+    across all pages so the local user links to the existing Auth subject instead
+    of failing or creating a duplicate.
+    """
+    auth_user = await get_auth_user_by_email(email)
+    if auth_user is None:
+        try:
+            invitation = await invite_user(email, redirect_to)
+        except AppError as exc:
+            if exc.status_code != 409:
+                raise
+            auth_user = await get_auth_user_by_email(email)
+            if auth_user is None:
+                raise
+            return auth_user
+        return invitation.get("user", invitation)
+    return auth_user
+
+
 async def batch_create_users(
     session: AsyncSession,
     payloads: list[UserCreate],
@@ -137,10 +161,7 @@ async def batch_create_users(
 
     users = []
     for payload in payloads:
-        auth_user = await get_auth_user_by_email(str(payload.email))
-        if auth_user is None:
-            invitation = await invite_user(str(payload.email), redirect_to)
-            auth_user = invitation.get("user", invitation)
+        auth_user = await _resolve_auth_user(str(payload.email), redirect_to)
         user_data = payload.model_dump()
         user_data["user_id"] = generate_business_id("USER")
         user_data["auth_user_id"] = UUID(auth_user["id"])
@@ -186,10 +207,7 @@ async def create_user(
     if existing_username:
         _raise_username_conflict(existing_username)
 
-    auth_user = await get_auth_user_by_email(str(payload.email))
-    if auth_user is None:
-        invitation = await invite_user(str(payload.email), redirect_to)
-        auth_user = invitation.get("user", invitation)
+    auth_user = await _resolve_auth_user(str(payload.email), redirect_to)
     user_data = payload.model_dump()
     user_data["user_id"] = generate_business_id("USER")
     user_data["auth_user_id"] = UUID(auth_user["id"])

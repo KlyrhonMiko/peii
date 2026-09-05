@@ -12,10 +12,10 @@ SQLModel metadata changes into database schema changes.
 - Use the repo-local virtualenv dependencies; do not assume system Alembic is configured.
 - The canonical first-release baseline is `20260825_v1`; the forward revisions are
   `f77a807cf2f9_expand_distribution_security`, `d1f9bad768ad`, the Phase 3
-  `fb1c93d15474` retention/withdrawal revision, `2bf09a6bc738`, and the
-  `d5a4f7c91e2b` Supabase Data API lockdown revision, and
-  `a8055c9859f5` Google survey respondent identity/auth-proof revision.
-  `a8055c9859f5` is the current migration head.
+  `fb1c93d15474` retention/withdrawal revision, `2bf09a6bc738`, the
+  `d5a4f7c91e2b` Supabase Data API lockdown revision, `a8055c9859f5` Google survey respondent
+  identity/auth-proof revision, `b9055c9859f6`, `f88b9c1d0000`, `3aad20b0fc8a`,
+  `b0d864b9935b`, and `a6c42481a0d9`. `a6c42481a0d9` is the current migration head.
   That revision requires the migration identity to own every protected table before changing
   privileges or RLS, retains RLS on `alembic_version`, and `env.py` preflights owner-or-BYPASSRLS
   access plus effective CRUD privileges on that table for later migrations.
@@ -50,10 +50,10 @@ SQLModel metadata changes into database schema changes.
   compatibility. The reviewed `2bf09a6bc738` forward revision is the digest-only/drop gate: it
   reconciles existing digests and prefixes, makes the digest non-null, and drops the plaintext
   column. Its downgrade is intentionally irreversible.
-- The database expiry column remains nullable for compatibility with historical rows, but current
-  distribution create/rotate runtime behavior applies the configured default when expiry is
-  omitted (currently 30 days) and rejects explicit expiry beyond the configured maximum (currently
-  30 days).
+- The whole distribution feature was later removed by `f88b9c1d0000`, which drops
+  `survey_distributions` and `survey_responses.distribution_id` and switches response idempotency
+  to a survey-scoped unique. The digest/prefix storage and the 30-day default/maximum expiry
+  runtime contract are retired with it.
 - The Phase 3 revision adds per-survey retention settings, response deadline snapshots,
   withdrawal-code digests, and their indexes/constraint. It backfills existing surveys to
   enabled/1,825 days and existing response deadlines from submission timestamps. Review this

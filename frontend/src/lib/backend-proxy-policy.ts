@@ -96,12 +96,13 @@ export function isAllowedBackendRequest(method: string, path: string[]): boolean
         (path.length === 2 && path[0] === "rbac" && path[1] === "permissions") ||
         (path.length === 1 && path[0] === "surveys") ||
         matchesSurveyResource(path) ||
-        matchesSurveyChild(path, "distributions") ||
         matchesSurveyChild(path, "responses") ||
         matchesSurveyResponseAction(path, "aggregates") ||
         matchesSurveyResponseAction(path, "export") ||
         matchesSurveyResponseAction(path, "identity") ||
-        matchesSurveyResponseAction(path, "peii")
+        matchesSurveyResponseAction(path, "peii") ||
+        (path.length === 1 && path[0] === "audit-logs") ||
+        (path.length === 2 && path[0] === "audit-logs" && hasValue(path[1]))
       )
     case "POST":
       return (
@@ -115,10 +116,7 @@ export function isAllowedBackendRequest(method: string, path: string[]): boolean
         (path.length === 2 && path[0] === "surveys" && path[1] === "with-structure") ||
         matchesSurveyChild(path, "sections") ||
         matchesSurveyChild(path, "questions") ||
-        matchesSurveyChild(path, "distributions") ||
         (path.length === 3 && path[0] === "surveys" && hasValue(path[1]) && path[2] === "restore") ||
-         (path.length === 5 && path[0] === "surveys" && hasValue(path[1]) &&
-           path[2] === "distributions" && hasValue(path[3]) && path[4] === "rotate") ||
          matchesSurveyResponseAction(path, "erase") ||
          (path.length === 5 && path[0] === "surveys" && hasValue(path[1]) &&
            path[2] === "responses" && path[3] === "peii" && path[4] === "false-positive")
@@ -145,8 +143,7 @@ export function isAllowedBackendRequest(method: string, path: string[]): boolean
         matchesUserResource(path) ||
         matchesSurveyResource(path) ||
         matchesSurveyChildResource(path, "sections") ||
-        matchesSurveyChildResource(path, "questions") ||
-        matchesSurveyChildResource(path, "distributions")
+        matchesSurveyChildResource(path, "questions")
       )
   }
 }

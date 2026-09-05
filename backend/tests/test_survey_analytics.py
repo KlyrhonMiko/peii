@@ -156,3 +156,82 @@ def test_postgresql_analytics_query_is_set_based_and_not_raw() -> None:
 def test_aggregate_cell_cardinality_is_bounded() -> None:
     assert survey_analytics_service.MAX_AGGREGATE_CELLS_PER_QUESTION == 1000
     assert survey_analytics_service.MAX_AGGREGATE_CELLS_TOTAL == 10000
+
+
+async def test_aggregate_cache_invalidates_on_submit(client, monkeypatch) -> None:
+    from core.config import settings
+
+    monkeypatch.setattr(settings, "ANALYTICS_CACHE_TTL_SECONDS", 60)
+    _override_permissions(
+        "surveys.manage",
+        "surveys.read",
+        "survey_responses.read_aggregates",
+    )
+    survey, question_id, token = await _create_survey(client, "Active")
+
+    calls = {"n": 0}
+    real = survey_analytics_service.aggregate_responses
+
+    async def spy(session, survey_id):
+        calls["n"] += 1
+        return await real(session, survey_id)
+
+    monkeypatch.setattr(survey_analytics_service, "aggregate_responses", spy)
+    url = f"/api/v1/surveys/{survey['id']}/responses/aggregates"
+
+    first = await client.get(url)
+    assert first.status_code == 200
+    second = await client.get(url)
+    assert second.status_code == 200
+    assert calls["n"] == 1  # second read served from the analytics cache
+
+    submitted = await client.post(
+        f"/api/v1/survey/{token}/respond",
+        json={
+            "answers": {question_id: "A"},
+            "consent": CONSENT,
+            "withdrawal_code": secrets.token_urlsafe(32),
+        },
+        headers={"Idempotency-Key": str(uuid4())},
+    )
+    assert submitted.status_code == 201
+
+    third = await client.get(url)
+    assert third.status_code == 200
+    assert calls["n"] == 2  # submit invalidated the cached aggregate
+
+
+async def test_peii_cache_serves_repeat_reads_and_invalidates(client, monkeypatch) -> None:
+    from core.analytics_cache import invalidate_survey_analytics
+    from core.config import settings
+    from schemas.peii import PEIIAnalyticsResponse, PEIICohortResult
+
+    monkeypatch.setattr(settings, "ANALYTICS_CACHE_TTL_SECONDS", 60)
+    _override_permissions("surveys.manage", "survey_responses.read_aggregates")
+    survey, _, _ = await _create_survey(client, "Active")
+
+    canned = PEIIAnalyticsResponse(
+        cohort_result=PEIICohortResult(batch_year="2024", domains=[], peii_score=100.0)
+    )
+    calls = {"n": 0}
+
+    async def spy(**kwargs):
+        calls["n"] += 1
+        return canned
+
+    monkeypatch.setattr(survey_analytics_service, "compute_peii_scores", spy)
+    url = (
+        f"/api/v1/surveys/{survey['id']}/responses/peii"
+        "?batch=2024&department=Engineering"
+    )
+
+    first = await client.get(url)
+    assert first.status_code == 200
+    second = await client.get(url)
+    assert second.status_code == 200
+    assert calls["n"] == 1  # second read served from the analytics cache
+
+    invalidate_survey_analytics(survey["id"])
+    third = await client.get(url)
+    assert third.status_code == 200
+    assert calls["n"] == 2

@@ -1,3 +1,4 @@
+import time
 from collections.abc import Iterable
 from uuid import UUID
 
@@ -5,6 +6,7 @@ from fastapi import status
 from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from core.config import settings
 from core.exceptions import AppError
 from models.rbac import Permission, Role, RolePermission, UserRole
 from models.user import User
@@ -65,6 +67,18 @@ DEFAULT_ROLES: dict[str, set[str]] = {
 
 ADMIN_ROLE_NAME = "admin"
 
+# Short-TTL caches for read-hot permission resolution. Mutating/locked flows
+# (set_user_roles, role updates, permission-scope locks) keep using the uncached
+# functions so they always observe fresh rows; invalidate_permission_cache clears
+# these caches after every RBAC mutation.
+_PERMISSION_CACHE: dict[UUID, tuple[float, frozenset[str]]] = {}
+_ROLE_NAME_CACHE: dict[UUID, tuple[float, tuple[str, ...]]] = {}
+
+
+def invalidate_permission_cache() -> None:
+    _PERMISSION_CACHE.clear()
+    _ROLE_NAME_CACHE.clear()
+
 
 async def effective_permissions(session: AsyncSession, user_id: UUID) -> set[str]:
     result = await session.exec(
@@ -97,6 +111,56 @@ async def effective_role_names(session: AsyncSession, user_id: UUID) -> list[str
         .order_by(col(Role.name))
     )
     return list(result.all())
+
+
+async def effective_permissions_cached(session: AsyncSession, user_id: UUID) -> set[str]:
+    """Effective permissions with a short TTL cache for read-hot request paths."""
+    ttl = settings.PERMISSION_CACHE_TTL_SECONDS
+    if ttl <= 0:
+        return await effective_permissions(session, user_id)
+    cached = _PERMISSION_CACHE.get(user_id)
+    if cached is not None and cached[0] > time.monotonic():
+        return set(cached[1])
+    permissions = await effective_permissions(session, user_id)
+    _PERMISSION_CACHE[user_id] = (time.monotonic() + ttl, frozenset(permissions))
+    return permissions
+
+
+async def effective_role_names_cached(session: AsyncSession, user_id: UUID) -> list[str]:
+    """Effective role names with a short TTL cache for read-hot request paths."""
+    ttl = settings.PERMISSION_CACHE_TTL_SECONDS
+    if ttl <= 0:
+        return await effective_role_names(session, user_id)
+    cached = _ROLE_NAME_CACHE.get(user_id)
+    if cached is not None and cached[0] > time.monotonic():
+        return list(cached[1])
+    roles = await effective_role_names(session, user_id)
+    _ROLE_NAME_CACHE[user_id] = (time.monotonic() + ttl, tuple(roles))
+    return roles
+
+
+async def effective_role_names_map(
+    session: AsyncSession, user_ids: Iterable[UUID]
+) -> dict[UUID, list[str]]:
+    """Resolve active role names for many users in one query."""
+    ids = list(user_ids)
+    if not ids:
+        return {}
+    result = await session.exec(
+        select(UserRole.user_id, Role.name)
+        .join(Role, col(Role.id) == UserRole.role_id)
+        .where(
+            col(UserRole.user_id).in_(ids),
+            col(UserRole.is_deleted).is_(False),
+            col(Role.is_deleted).is_(False),
+            col(Role.is_active).is_(True),
+        )
+        .order_by(col(UserRole.user_id), col(Role.name))
+    )
+    roles_by_user: dict[UUID, list[str]] = {user_id: [] for user_id in ids}
+    for user_id, name in result.all():
+        roles_by_user[user_id].append(name)
+    return roles_by_user
 
 
 async def lock_admin_role(session: AsyncSession) -> Role:
@@ -202,6 +266,29 @@ async def get_role_permissions(session: AsyncSession, role: Role) -> list[Permis
         .order_by(col(Permission.code))
     )
     return list(result.all())
+
+
+async def get_role_permissions_map(
+    session: AsyncSession, role_ids: Iterable[UUID]
+) -> dict[UUID, list[Permission]]:
+    """Resolve active permissions for many roles in one query."""
+    ids = list(role_ids)
+    if not ids:
+        return {}
+    result = await session.exec(
+        select(RolePermission.role_id, Permission)
+        .join(Permission, col(Permission.id) == RolePermission.permission_id)
+        .where(
+            col(RolePermission.role_id).in_(ids),
+            col(RolePermission.is_deleted).is_(False),
+            col(Permission.is_deleted).is_(False),
+        )
+        .order_by(col(RolePermission.role_id), col(Permission.code))
+    )
+    permissions_by_role: dict[UUID, list[Permission]] = {role_id: [] for role_id in ids}
+    for role_id, permission in result.all():
+        permissions_by_role[role_id].append(permission)
+    return permissions_by_role
 
 
 async def _lock_role(session: AsyncSession, role_id: UUID) -> Role:
@@ -376,6 +463,7 @@ async def update_role(
     await commit_with_audit(
         session, [AuditEvent("update", "role", role.name, actor_id, ip_address=ip_address)]
     )
+    invalidate_permission_cache()
     await session.refresh(role)
     return role
 
@@ -427,6 +515,9 @@ async def set_user_roles(
             "One or more roles are unavailable.", status_code=status.HTTP_422_UNPROCESSABLE_CONTENT
         )
     actor_permissions = await effective_permissions(session, actor_id)
+    role_permissions_by_role = await get_role_permissions_map(
+        session, [role.id for role in roles]
+    )
     for role in roles:
         if role.id == admin_role.id and not await user_is_active_admin(
             session, actor_id, admin_role.id
@@ -436,7 +527,7 @@ async def set_user_roles(
                 status_code=status.HTTP_403_FORBIDDEN,
             )
         role_permissions = {
-            permission.code for permission in await get_role_permissions(session, role)
+            permission.code for permission in role_permissions_by_role.get(role.id, [])
         }
         if not role_permissions.issubset(actor_permissions):
             raise AppError(
@@ -462,3 +553,4 @@ async def set_user_roles(
     await commit_with_audit(
         session, [AuditEvent("assign_roles", "user", user.user_id, actor_id, ip_address=ip_address)]
     )
+    invalidate_permission_cache()

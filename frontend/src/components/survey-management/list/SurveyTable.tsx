@@ -37,13 +37,12 @@ export function SurveyTable({ store }: SurveyTableProps) {
     handleOpenView,
     handleEraseResponses,
     handleOpenEdit,
-    handleOpenDistribute,
+    handleOpenShareLink,
     setDeleteConfirmId,
   } = actions
 
   const {
     manage: canManage,
-    distributionManage: canManageDistribution,
     readAggregates: canReadAggregates,
     erase: canErase,
   } = capabilities
@@ -232,21 +231,17 @@ export function SurveyTable({ store }: SurveyTableProps) {
                             )}
                           </Button>
                         )}
-                        {canManageDistribution && (
+                        {canManage && (
                           <Button
                             type="button"
                             variant="ghost"
                             size="icon"
-                            onClick={() => handleOpenDistribute(survey.id)}
-                            disabled={interactionLocked || survey.status !== "Active"}
+                            onClick={() => handleOpenShareLink(survey.id)}
+                            disabled={interactionLocked}
                             className="text-zinc-400 hover:text-emerald-600 hover:bg-emerald-50"
-                            title={survey.status === "Active" ? "Distribute" : "Activate the survey before distributing"}
+                            title="Share link"
                           >
-                            {pendingAction?.type === "distribute" && pendingAction.surveyId === survey.id ? (
-                              <Loader2 className="size-4 animate-spin" />
-                            ) : (
-                              <Share2 className="size-4.5" />
-                            )}
+                            <Share2 className="size-4.5" />
                           </Button>
                         )}
                         {canManage && (

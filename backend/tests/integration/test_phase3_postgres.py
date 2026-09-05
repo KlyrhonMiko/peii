@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import json
 from datetime import datetime
 from typing import Any
@@ -28,7 +27,6 @@ ANALYTICS_SCALAR_ID = UUID("40000000-0000-0000-0000-000000000004")
 ANALYTICS_ARRAY_ID = UUID("40000000-0000-0000-0000-000000000005")
 ANALYTICS_MATRIX_ID = UUID("40000000-0000-0000-0000-000000000006")
 RETENTION_SURVEY_ID = UUID("40000000-0000-0000-0000-000000000007")
-RETENTION_DISTRIBUTION_ID = UUID("40000000-0000-0000-0000-000000000008")
 RETENTION_RESPONSE_ID = UUID("40000000-0000-0000-0000-000000000009")
 RETENTION_IDEMPOTENCY_KEY = UUID("40000000-0000-0000-0000-000000000010")
 RETENTION_CUTOFF = datetime(2026, 8, 27)
@@ -140,10 +138,10 @@ def _seed_analytics_fixture(database: PostgresTestDatabase) -> None:
             text(
                 "INSERT INTO survey_responses "
                 "(id, created_at, updated_at, is_deleted, deleted_at, performed_by, survey_id, "
-                "distribution_id, idempotency_key, idempotency_hash, consent_version, "
+                "idempotency_key, idempotency_hash, consent_version, "
                 "consented_at, retention_expires_at, withdrawal_credential_digest, "
                 "consent_notice_snapshot, answers) VALUES "
-                "(:id, :ts, :ts, false, NULL, :actor, :survey, NULL, NULL, NULL, NULL, NULL, "
+                "(:id, :ts, :ts, false, NULL, :actor, :survey, NULL, NULL, NULL, NULL, "
                 ":expires_at, NULL, NULL, CAST(:answers AS jsonb))"
             ),
             [
@@ -175,28 +173,12 @@ def _seed_retention_fixture(database: PostgresTestDatabase) -> None:
         )
         connection.execute(
             text(
-                "INSERT INTO survey_distributions "
-                "(id, created_at, updated_at, is_deleted, deleted_at, performed_by, survey_id, "
-                "token_digest, token_prefix, expires_at, revoked_at) VALUES "
-                "(:id, :ts, :ts, false, NULL, :actor, :survey, :digest, "
-                "'retentio', '2099-01-01 00:00:00', NULL)"
-            ),
-            {
-                "id": str(RETENTION_DISTRIBUTION_ID),
-                "ts": timestamp,
-                "actor": str(ACTOR_ID),
-                "survey": str(RETENTION_SURVEY_ID),
-                "digest": hashlib.sha256(b"retention-token").hexdigest(),
-            },
-        )
-        connection.execute(
-            text(
                 "INSERT INTO survey_responses "
                 "(id, created_at, updated_at, is_deleted, deleted_at, performed_by, survey_id, "
-                "distribution_id, idempotency_key, idempotency_hash, consent_version, "
+                "idempotency_key, idempotency_hash, consent_version, "
                 "consented_at, retention_expires_at, withdrawal_credential_digest, "
                 "consent_notice_snapshot, answers) VALUES "
-                "(:id, :ts, :ts, false, NULL, :actor, :survey, :distribution, :idempotency, "
+                "(:id, :ts, :ts, false, NULL, :actor, :survey, :idempotency, "
                 ":idempotency_hash, '2026-08-25', :consented_at, :expires_at, :withdrawal_digest, "
                 "CAST(:snapshot AS jsonb), CAST(:answers AS jsonb))"
             ),
@@ -205,7 +187,6 @@ def _seed_retention_fixture(database: PostgresTestDatabase) -> None:
                 "ts": timestamp,
                 "actor": str(ACTOR_ID),
                 "survey": str(RETENTION_SURVEY_ID),
-                "distribution": str(RETENTION_DISTRIBUTION_ID),
                 "idempotency": str(RETENTION_IDEMPOTENCY_KEY),
                 "idempotency_hash": "b" * 64,
                 "consented_at": timestamp,
@@ -345,7 +326,6 @@ async def test_concurrent_retention_purges_are_idempotent(
 
     assert response.is_deleted is True
     assert response.answers == {}
-    assert response.distribution_id is None
     assert response.idempotency_key is None
     assert response.idempotency_hash is None
     assert response.consent_version is None

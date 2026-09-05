@@ -1,7 +1,7 @@
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import JSON, Column
+from sqlalchemy import JSON, Column, Index
 from sqlmodel import Field, SQLModel
 from uuid6 import uuid7
 
@@ -10,6 +10,7 @@ from models.base_model import utc_now
 
 class AuditLog(SQLModel, table=True):
     __tablename__ = "audit_logs"
+    __table_args__ = (Index("ix_audit_logs_created_at", "created_at"),)
 
     id: UUID = Field(default_factory=uuid7, primary_key=True, index=True, nullable=False)
     action: str = Field(index=True, max_length=100)

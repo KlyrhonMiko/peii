@@ -1,5 +1,6 @@
 """Google identity attestation for identifiable survey respondents."""
 
+import asyncio
 import hashlib
 import hmac
 from collections.abc import Mapping
@@ -15,6 +16,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from core.auth import AuthClaims
 from core.config import settings
 from core.exceptions import AppError
+from core.http_client import get_http_client
 from models.google_survey_auth_proof import GoogleSurveyAuthProof
 from services.audit_service import AuditEvent, commit_with_audit
 from services.base_service import utc_now
@@ -127,24 +129,25 @@ async def _fetch_google_payloads(
     provider_token: str,
 ) -> tuple[Mapping[str, object], Mapping[str, object]]:
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            tokeninfo_response = await client.get(
-                GOOGLE_TOKENINFO_URL,
-                params={"access_token": provider_token},
-            )
-            if tokeninfo_response.status_code != status.HTTP_200_OK:
-                raise _attestation_error()
-            tokeninfo = _json_object(tokeninfo_response)
-            if tokeninfo.get("aud") != settings.GOOGLE_OAUTH_CLIENT_ID:
-                raise _attestation_error()
+        client = get_http_client()
+        tokeninfo_response, userinfo_response = await asyncio.gather(
+            client.get(GOOGLE_TOKENINFO_URL, params={"access_token": provider_token}),
+            client.get(
+                GOOGLE_USERINFO_URL, headers={"Authorization": f"Bearer {provider_token}"}
+            ),
+            return_exceptions=True,
+        )
+        tokeninfo_response = _expect_google_response(tokeninfo_response)
+        if tokeninfo_response.status_code != status.HTTP_200_OK:
+            raise _attestation_error()
+        tokeninfo = _json_object(tokeninfo_response)
+        if tokeninfo.get("aud") != settings.GOOGLE_OAUTH_CLIENT_ID:
+            raise _attestation_error()
 
-            userinfo_response = await client.get(
-                GOOGLE_USERINFO_URL,
-                headers={"Authorization": f"Bearer {provider_token}"},
-            )
-            if userinfo_response.status_code != status.HTTP_200_OK:
-                raise _attestation_error()
-            userinfo = _json_object(userinfo_response)
+        userinfo_response = _expect_google_response(userinfo_response)
+        if userinfo_response.status_code != status.HTTP_200_OK:
+            raise _attestation_error()
+        userinfo = _json_object(userinfo_response)
     except AppError:
         raise
     except (httpx.HTTPError, ValueError, TypeError):
@@ -153,21 +156,30 @@ async def _fetch_google_payloads(
     return tokeninfo, userinfo
 
 
+def _expect_google_response(outcome: object) -> httpx.Response:
+    """Lift an awaitable outcome from gather(return_exceptions=True) into a response."""
+    if isinstance(outcome, BaseException):
+        raise outcome
+    if not isinstance(outcome, httpx.Response):
+        raise TypeError("unexpected upstream outcome")
+    return outcome
+
+
 async def _fetch_supabase_user(claims: AuthClaims) -> Mapping[str, object]:
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            supabase_response = await client.get(
-                f"{settings.SUPABASE_URL}/auth/v1/user",
-                headers={
-                    "apikey": settings.SUPABASE_PUBLISHABLE_KEY,
-                    "Authorization": f"Bearer {claims.access_token}",
-                },
-            )
-            if supabase_response.status_code != status.HTTP_200_OK:
-                if supabase_response.status_code in {401, 403}:
-                    raise _attestation_error()
-                raise _unavailable_error()
-            return _json_object(supabase_response)
+        client = get_http_client()
+        supabase_response = await client.get(
+            f"{settings.SUPABASE_URL}/auth/v1/user",
+            headers={
+                "apikey": settings.SUPABASE_PUBLISHABLE_KEY,
+                "Authorization": f"Bearer {claims.access_token}",
+            },
+        )
+        if supabase_response.status_code != status.HTTP_200_OK:
+            if supabase_response.status_code in {401, 403}:
+                raise _attestation_error()
+            raise _unavailable_error()
+        return _json_object(supabase_response)
     except AppError:
         raise
     except (httpx.HTTPError, ValueError, TypeError):

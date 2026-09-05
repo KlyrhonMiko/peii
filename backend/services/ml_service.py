@@ -1,10 +1,20 @@
-import logging
-import re
-import torch
-from transformers import pipeline
-import json
-import os
+import asyncio
 import atexit
+import json
+import logging
+import os
+import re
+
+import torch
+from sqlmodel import select
+from transformers import pipeline
+
+from core.analytics_cache import ainvalidate_survey_analytics
+from core.config import settings
+from core.database import async_session_factory
+from models.survey_question import SurveyQuestion
+from models.survey_response import SurveyResponse
+from services.audit_service import AuditEvent, commit_with_audit
 
 logger = logging.getLogger(__name__)
 
@@ -184,7 +194,7 @@ def _load_cache() -> dict:
     if not os.path.exists(CACHE_FILE):
         return {"__version__": CACHE_VERSION}
     try:
-        with open(CACHE_FILE, "r") as f:
+        with open(CACHE_FILE) as f:
             data = json.load(f)
         if not isinstance(data, dict):
             return {"__version__": CACHE_VERSION}
@@ -331,7 +341,7 @@ class FeedbackAnalyzer:
             
             # 2. Append to a JSONL file for future model fine-tuning
             try:
-                import os, json
+                import json
                 training_file = "ml_training_data.jsonl"
                 with open(training_file, "a") as f:
                     entry = {
@@ -348,7 +358,7 @@ class FeedbackAnalyzer:
             logger.warning(f"      -> No original result found in cache or model for text: {text[:50]}...")
             # Still append to the training data file so the model can learn from its blind spots!
             try:
-                import os, json
+                import json
                 training_file = "ml_training_data.jsonl"
                 with open(training_file, "a") as f:
                     entry = {
@@ -362,12 +372,6 @@ class FeedbackAnalyzer:
                 logger.warning(f"      -> Appended heuristic fallback to training data file: {training_file}")
             except Exception as e:
                 logger.error(f"Failed to write to training data: {e}")
-
-import asyncio
-from sqlmodel import select
-from models.survey_response import SurveyResponse
-from models.survey_question import SurveyQuestion
-from core.database import async_session_factory
 
 
 async def analyze_response_background(response_id: str):
@@ -415,10 +419,21 @@ async def analyze_response_background(response_id: str):
             # Execute the CPU-bound inference in a separate thread
             sentiments = await asyncio.to_thread(compute_sentiments, response.answers, questions)
 
-            # Save back to database
+            # Save back to database (audited as a system-actor background write)
             response.ml_sentiments = sentiments
             session.add(response)
-            await session.commit()
+            await commit_with_audit(
+                session,
+                [
+                    AuditEvent(
+                        action="ml_sentiments_computed",
+                        resource_type="survey_response",
+                        resource_id=str(response.id),
+                        performed_by=settings.SYSTEM_ACTOR_ID,
+                    )
+                ],
+            )
+            await ainvalidate_survey_analytics(response.survey_id)
             logger.info(f"Successfully computed ML sentiments for response {response_id}")
 
     except Exception as e:

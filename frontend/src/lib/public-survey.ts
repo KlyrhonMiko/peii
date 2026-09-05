@@ -43,7 +43,7 @@ export interface PublicSurvey {
   questions: PublicSurveyQuestion[]
   sections: PublicSurveySection[]
   consent: PublicSurveyConsent
-  collection_state: PublicSurveyCollectionState
+  collection_state: PublicSurveyCollectionState | null
   submission_phase: PublicSurveySubmissionPhase | null
 }
 
@@ -190,14 +190,16 @@ export function parsePublicSurvey(value: unknown): PublicSurvey | null {
   const surveyId = stringValue(value.survey_id)
   const title = stringValue(value.title)
   const description = value.description === null ? null : stringValue(value.description)
-  const legacyState = value.collection_state === undefined || value.collection_state === null
-  const collectionState = legacyState
+  // Absent fields mean an old backend: fall back to Phase 1. Explicit nulls
+  // mean a legacy single-submit survey: preserve them so the UI does not
+  // misrepresent it as "Phase 1 of 2".
+  const collectionState = value.collection_state === undefined
     ? "phase1"
     : collectionStateValue(value.collection_state)
   const submissionPhase = value.submission_phase === undefined
     ? 1
     : value.submission_phase === null
-      ? legacyState ? 1 : null
+      ? null
       : submissionPhaseValue(value.submission_phase)
   const questions = value.questions
   const sections = value.sections
@@ -206,8 +208,9 @@ export function parsePublicSurvey(value: unknown): PublicSurvey | null {
     surveyId === null ||
     title === null ||
     description === null && value.description !== null ||
-    collectionState === null ||
+    collectionState === null && value.collection_state !== null ||
     value.submission_phase !== undefined && value.submission_phase !== null && submissionPhase === null ||
+    collectionState === null && submissionPhase !== null ||
     !Array.isArray(questions) ||
     !Array.isArray(sections) ||
     consent === null

@@ -5,7 +5,7 @@ import { SurveyEditorModal } from "./survey-management/SurveyEditorModal"
 import { SurveyViewModal } from "./survey-management/SurveyViewModal"
 import { SurveyGeneratePreviewModal } from "./survey-management/SurveyGeneratePreviewModal"
 import { SurveyDeleteConfirmModal } from "./survey-management/SurveyDeleteConfirmModal"
-import { SurveyDistributionManager } from "./SurveyDistributionManager"
+import { SurveyShareLinkDialog } from "./SurveyShareLinkDialog"
 import { useSurveyManagement } from "./survey-management/useSurveyManagement"
 export * from "./survey-management/utils"
 
@@ -17,9 +17,8 @@ export interface SurveyManagementProps {
 export function SurveyManagement({ permissions, csvExportEnabled }: SurveyManagementProps) {
   const store = useSurveyManagement({ permissions: permissions ?? [], csvExportEnabled })
   const { state, actions } = store
-  const { distributeSurveyId } = state
-  const { setDistributeSurveyId } = actions
-  const canManageDistribution = state.capabilities.distributionManage
+  const { shareLinkSurveyId } = state
+  const { setShareLinkSurveyId } = actions
 
   return (
     <>
@@ -29,17 +28,11 @@ export function SurveyManagement({ permissions, csvExportEnabled }: SurveyManage
       <SurveyGeneratePreviewModal store={store} />
       <SurveyDeleteConfirmModal store={store} />
 
-      <SurveyDistributionManager
-        survey={state.surveys.find((s) => s.id === distributeSurveyId) ?? null}
-        open={distributeSurveyId !== null}
-        canManage={canManageDistribution}
+      <SurveyShareLinkDialog
+        survey={state.surveys.find((s) => s.id === shareLinkSurveyId) ?? null}
+        open={shareLinkSurveyId !== null}
         onOpenChange={(open) => {
-          if (!open) setDistributeSurveyId(null)
-        }}
-        onSurveyUpdate={(updatedSurvey) => {
-          actions.setSurveys((prev) =>
-            prev.map((s) => (s.id === updatedSurvey.id ? updatedSurvey : s))
-          )
+          if (!open) setShareLinkSurveyId(null)
         }}
       />
     </>
