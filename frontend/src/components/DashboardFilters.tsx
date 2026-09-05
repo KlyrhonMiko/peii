@@ -5,7 +5,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Button } from "@/components/ui/button"
 import { ChevronDown, Check, Filter } from "lucide-react"
 
-const departments = [
+const defaultDepartments = [
   "All Departments",
   "College of Engineering",
   "College of Nursing",
@@ -15,7 +15,7 @@ const departments = [
   "College of Business Administration",
   "College of Arts and Sciences",
 ]
-const departmentDegrees: Record<string, string[]> = {
+export const departmentDegrees: Record<string, string[]> = {
   "College of Engineering": [
     "Bachelor of Science in Electronics Engineering"
   ],
@@ -46,13 +46,15 @@ const departmentDegrees: Record<string, string[]> = {
     "Bachelor of Arts in Psychology"
   ]
 }
-const batches = ["All Batches", "2024", "2023", "2022", "2021", "2020"]
+const defaultBatches = ["All Batches", "2024", "2023", "2022", "2021", "2020"]
 
 export interface DashboardFiltersProps {
   onFilterChange: (filters: { department: string; degree: string; batch: string }) => void
+  availableBatches?: string[]
+  availableDepartments?: string[]
 }
 
-export function DashboardFilters({ onFilterChange }: DashboardFiltersProps) {
+export function DashboardFilters({ onFilterChange, availableBatches, availableDepartments }: DashboardFiltersProps) {
   const [department, setDepartment] = useState("All Departments")
   const [degree, setDegree] = useState("All Degrees")
   const [batch, setBatch] = useState("All Batches")
@@ -83,6 +85,14 @@ export function DashboardFilters({ onFilterChange }: DashboardFiltersProps) {
   const availableDegrees = department !== "All Departments" && departmentDegrees[department] 
     ? ["All Degrees", ...departmentDegrees[department]]
     : ["All Degrees"]
+
+  const batches = availableBatches && availableBatches.length > 0 
+    ? ["All Batches", ...availableBatches] 
+    : defaultBatches
+
+  const departments = availableDepartments && availableDepartments.length > 0
+    ? ["All Departments", ...availableDepartments]
+    : defaultDepartments
 
   return (
     <div className="flex items-center gap-2">

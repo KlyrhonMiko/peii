@@ -9,7 +9,7 @@ import { ClientKeyOutcomes } from "@/components/ClientKeyOutcomes"
 import { ClientDegreeAlignment } from "@/components/ClientDegreeAlignment"
 import { ClientCurriculumFeedback } from "@/components/ClientCurriculumFeedback"
 import { ClientPEIIDimensionsTrendChart } from "@/components/ClientPEIIDimensionsTrendChart"
-import { DashboardFilters } from "@/components/DashboardFilters"
+import { DashboardFilters, departmentDegrees } from "@/components/DashboardFilters"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Target, AlertTriangle, Database, Users, TrendingUp } from "lucide-react"
 import {
@@ -208,6 +208,9 @@ export default function AnalyticsPage() {
   const [surveyId, setSurveyId] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [refreshKey, setRefreshKey] = useState(0)
+  const [availableBatches, setAvailableBatches] = useState<string[]>([])
+  const [availableDepartments, setAvailableDepartments] = useState<string[]>([])
+  const [isInitialDataLoaded, setIsInitialDataLoaded] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -238,6 +241,27 @@ export default function AnalyticsPage() {
 
         if (cancelled) return
         setAggregates(aggData || [])
+
+        if (!isInitialDataLoaded) {
+          if (data.historical_trend) {
+            const batches = Array.from(new Set(data.historical_trend.map(t => t.batch_year))).sort().reverse()
+            setAvailableBatches(batches)
+          }
+          if (data.demographics?.department_distribution) {
+            const returnedDegrees = Object.keys(data.demographics.department_distribution)
+            const activeDepartments = new Set<string>()
+            for (const degree of returnedDegrees) {
+              for (const [dept, degrees] of Object.entries(departmentDegrees)) {
+                if (degrees.includes(degree) || degrees.includes(degree.trim())) {
+                  activeDepartments.add(dept)
+                }
+              }
+            }
+            const depts = Array.from(activeDepartments).sort()
+            setAvailableDepartments(depts)
+          }
+          setIsInitialDataLoaded(true)
+        }
 
         if (data.cohort_result && data.cohort_result.domains) {
           setChartData(data.cohort_result.domains.map(d => ({
@@ -282,7 +306,7 @@ export default function AnalyticsPage() {
 
     void fetchData()
     return () => { cancelled = true }
-  }, [filters, refreshKey])
+  }, [filters, refreshKey, isInitialDataLoaded])
 
   const analyticsMetrics = useMemo(() => {
     if (!demographics) return []
@@ -362,7 +386,11 @@ export default function AnalyticsPage() {
         </div>
         {/* Only hide filters if the database is completely empty (no active filters and 0 results) */}
         {(!isLoading && (!demographics || demographics.total_responses === 0) && filters.department === "All Departments" && filters.batch === "All Batches") ? null : (
-          <DashboardFilters onFilterChange={setFilters} />
+          <DashboardFilters 
+            onFilterChange={setFilters} 
+            availableBatches={availableBatches}
+            availableDepartments={availableDepartments}
+          />
         )}
       </div>
 
