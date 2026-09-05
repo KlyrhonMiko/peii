@@ -75,15 +75,16 @@ async def compute_peii(
     principal: CurrentPrincipal,
     batch: str | None = None,
     department: str | None = None,
+    degree: str | None = None,
 ) -> APIResponse[PEIIAnalyticsResponse]:
     http_response.headers["Cache-Control"] = "private, no-store, max-age=0"
     http_response.headers["Pragma"] = "no-cache"
-    l1_key = ("peii", str(survey_id), batch or "", department or "")
+    l1_key = ("peii", str(survey_id), batch or "", department or "", degree or "")
     cached = get_analytics_cached(l1_key)
     if cached is not None:
         http_response.headers["X-Cache"] = "HIT"
         return success_response(cast(PEIIAnalyticsResponse, cached))
-    redis_key = build_cache_key(survey_id, batch or "", department or "")
+    redis_key = build_cache_key(survey_id, batch or "", department or "", degree or "")
     redis_cached = await cache_get("peii", redis_key)
     if isinstance(redis_cached, dict):
         try:
@@ -98,6 +99,7 @@ async def compute_peii(
         survey_ids=[survey_id],
         batch_year=batch,
         department=department,
+        degree=degree,
     )
     set_analytics_cached(l1_key, peii)
     await cache_set("peii", redis_key, peii.model_dump(mode="json"))

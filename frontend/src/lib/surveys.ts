@@ -610,11 +610,12 @@ export async function fetchResponseAggregates(
 
 export async function fetchPEII(
   surveyUuid: string,
-  options: { batch?: string; department?: string } = {},
+  options: { batch?: string; department?: string; degree?: string } = {},
 ): Promise<PEIIAnalyticsResponse> {
   const query = new URLSearchParams()
   if (options.batch && options.batch !== "All Batches") query.set("batch", options.batch)
   if (options.department && options.department !== "All Departments") query.set("department", options.department)
+  if (options.degree && options.degree !== "All Degrees") query.set("degree", options.degree)
   
   const queryString = query.toString() ? `?${query.toString()}` : ""
   const res = await api.get<PEIIAnalyticsResponse>(

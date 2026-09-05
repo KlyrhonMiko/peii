@@ -91,7 +91,7 @@ function DashboardSkeleton() {
 }
 
 export default function DashboardPage() {
-  const [filters, setFilters] = useState({ department: "All Departments", batch: "All Batches" })
+  const [filters, setFilters] = useState({ department: "All Departments", degree: "All Degrees", batch: "All Batches" })
   const [demographics, setDemographics] = useState<PEIIDemographics | null>(null)
   const [chartData, setChartData] = useState<PEIIDomainScore[]>([])
   const [peiiScore, setPeiiScore] = useState<number | null>(null)
@@ -119,6 +119,7 @@ export default function DashboardPage() {
         const data = await fetchPEII(activeTracerSurvey.id, {
           batch: filters.batch,
           department: filters.department,
+          degree: filters.degree,
         })
 
         if (cancelled) return

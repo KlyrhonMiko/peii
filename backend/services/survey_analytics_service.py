@@ -506,6 +506,7 @@ DEPARTMENT_MAPPING = {
     ],
     "College of Education": [
         "Bachelor of Elementary Education",
+        "Bachelor of Secondary Education",
         "Bachelor of Secondary Education - Major in English",
         "Bachelor of Secondary Education - Major in Filipino",
         "Bachelor of Secondary Education - Major in Mathematics",
@@ -539,6 +540,7 @@ async def compute_peii_scores(
     exclude_survey_ids: list[UUID] | None = None,
     batch_year: str | None = None,
     department: str | None = None,
+    degree: str | None = None,
 ) -> PEIIAnalyticsResponse:
     # 1. Find target surveys
     query = select(Survey).where(col(Survey.title) == "GRADUATE TRACER STUDY SURVEY", col(Survey.status) == "Active")
@@ -661,6 +663,8 @@ async def compute_peii_scores(
                 allowed_degrees = DEPARTMENT_MAPPING.get(department, [])
                 if resp_deg not in allowed_degrees:
                     continue # Filtered out
+            if degree and degree != "All Degrees" and resp_deg != degree:
+                continue # Filtered out
 
             if resp_year not in cohort_stats:
                 cohort_stats[resp_year] = {

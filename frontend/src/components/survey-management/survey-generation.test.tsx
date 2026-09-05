@@ -53,6 +53,7 @@ describe("Graduate Tracer Study survey definition", () => {
             "Bachelor of Science in Business Administration - Major in Marketing Management",
             "Bachelor of Science in Entrepreneurship",
             "Bachelor of Elementary Education",
+            "Bachelor of Secondary Education",
             "Bachelor of Secondary Education - Major in English",
             "Bachelor of Secondary Education - Major in Filipino",
             "Bachelor of Secondary Education - Major in Mathematics",

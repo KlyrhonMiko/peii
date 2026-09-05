@@ -200,7 +200,7 @@ function AnalyticsSkeleton() {
 }
 
 export default function AnalyticsPage() {
-  const [filters, setFilters] = useState({ department: "All Departments", batch: "All Batches" })
+  const [filters, setFilters] = useState({ department: "All Departments", degree: "All Degrees", batch: "All Batches" })
   const [chartData, setChartData] = useState<PEIIDomainScore[]>([])
   const [demographics, setDemographics] = useState<PEIIDemographics | null>(null)
   const [classificationData, setClassificationData] = useState<FeedbackClassification[]>([])
@@ -234,7 +234,8 @@ export default function AnalyticsPage() {
         const [data, aggData] = await Promise.all([
           fetchPEII(activeTracerSurvey.id, {
             batch: filters.batch,
-            department: filters.department
+            department: filters.department,
+            degree: filters.degree
           }),
           fetchResponseAggregates(activeTracerSurvey.id)
         ])
