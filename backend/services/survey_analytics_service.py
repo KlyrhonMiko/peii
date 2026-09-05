@@ -887,7 +887,8 @@ async def compute_peii_scores(
             if year_result and year_result.peii_score > 0:
                 historical_trend.append(PEIIHistoricalTrend(
                     batch_year=year,
-                    peii_score=year_result.peii_score
+                    peii_score=year_result.peii_score,
+                    domains=year_result.domains
                 ))
 
     # Sort feedbacks: lowest sentiment (most negative/critical) first, as requested by user for actionable insights

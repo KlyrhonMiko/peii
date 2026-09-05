@@ -56,7 +56,7 @@ export function PEIIHistoricalTrendChart({ data, isLoading }: PEIIHistoricalTren
           </div>
         ) : (
           <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={chartData} margin={{ top: 20, right: 20, left: -10, bottom: 0 }}>
+            <LineChart data={chartData} margin={{ top: 20, right: 20, left: -10, bottom: 25 }}>
               <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
               <XAxis 
                 dataKey="batch_year" 

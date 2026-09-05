@@ -9,7 +9,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { TrendingUp, Users, Sparkles, Database } from "lucide-react"
 import { fetchSurveys, fetchPEII, TRACER_STUDY_SURVEY_TITLE } from "@/lib/surveys"
 import type { PEIIDemographics, PEIIHistoricalTrend } from "@/lib/surveys"
-import type { PEIIDomainScore } from "@/components/PEIIDimensionsChart"
+import type { PEIIDomainScore } from "@/components/ClientDomainGainChart"
 
 function DashboardSkeleton() {
   return (

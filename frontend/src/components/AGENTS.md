@@ -12,7 +12,7 @@ Follow `ui/AGENTS.md` when editing primitive building blocks under `src/componen
   sentiment-analysis utility surfaced only in non-production builds.
 - `DashboardFilters.tsx`, `ProgramFilter.tsx`, and `SurveySelect.tsx` provide product
   filtering and selection controls.
-- `ClientCohortTrendChart.tsx`, `ClientPEIIDimensionsChart.tsx`,
+- `ClientCohortTrendChart.tsx`, `ClientPEIIDimensionsTrendChart.tsx`,
   `ClientPEIIHistoricalTrendChart.tsx`, and `ClientSentimentDivergenceChart.tsx` isolate
   client-only dynamic chart imports.
 - `ClientSurveyForm.tsx` renders the Google-authenticated identified survey intake with
@@ -25,7 +25,7 @@ Follow `ui/AGENTS.md` when editing primitive building blocks under `src/componen
 - `SurveyShareLinkDialog.tsx` (formerly `SurveyDistributionManager.tsx`) shows the public
   shareable survey link (`/survey/{surveyId}`); the distribution feature was removed.
 - `CohortTrendChart.tsx` contains a filter-aware Recharts bar chart;
-  `PEIIDimensionsChart.tsx`, `PEIIHistoricalTrendChart.tsx`, and `SentimentDivergenceChart.tsx`
+  `PEIIDimensionsTrendChart.tsx`, `PEIIHistoricalTrendChart.tsx`, and `SentimentDivergenceChart.tsx`
   contain analytics charts.
 
 ## Component Rules

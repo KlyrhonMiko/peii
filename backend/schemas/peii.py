@@ -41,6 +41,7 @@ class PEIIHistoricalTrend(BaseModel):
 
     batch_year: str
     peii_score: float
+    domains: list[PEIIDomainScore] = []
 
 
 class QualitativeFeedback(BaseModel):

@@ -1,7 +1,6 @@
 "use client"
 
 import { useState, useEffect, useMemo } from "react"
-import { ClientPEIIDimensionsChart } from "@/components/ClientPEIIDimensionsChart"
 import { ClientFeedbackClassificationChart } from "@/components/ClientFeedbackClassificationChart"
 import { ClientDemographicsOverview } from "@/components/ClientDemographicsOverview"
 import { ClientPEIIHistoricalTrendChart } from "@/components/ClientPEIIHistoricalTrendChart"
@@ -9,6 +8,7 @@ import { ClientDomainGainChart } from "@/components/ClientDomainGainChart"
 import { ClientKeyOutcomes } from "@/components/ClientKeyOutcomes"
 import { ClientDegreeAlignment } from "@/components/ClientDegreeAlignment"
 import { ClientCurriculumFeedback } from "@/components/ClientCurriculumFeedback"
+import { ClientPEIIDimensionsTrendChart } from "@/components/ClientPEIIDimensionsTrendChart"
 import { DashboardFilters } from "@/components/DashboardFilters"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Target, AlertTriangle, Database, Users, TrendingUp } from "lucide-react"
@@ -18,7 +18,7 @@ import {
   fetchResponseAggregates,
   TRACER_STUDY_SURVEY_TITLE,
 } from "@/lib/surveys"
-import type { PEIIDomainScore } from "@/components/PEIIDimensionsChart"
+import type { PEIIDomainScore } from "@/components/ClientDomainGainChart"
 import type { PEIIDemographics, PEIIHistoricalTrend, SurveyResponseAggregate, FeedbackClassification, QualitativeFeedback } from "@/lib/surveys"
 
 function AnalyticsSkeleton() {
@@ -70,14 +70,6 @@ function AnalyticsSkeleton() {
             </div>
           </div>
 
-          {/* Radar Chart — h-[400px] */}
-          <div className="pb-16 border-b border-slate-200 space-y-6">
-            <div className="space-y-1.5">
-              <Skeleton className="h-[1.125rem] w-52" />
-              <Skeleton className="h-3.5 w-56" />
-            </div>
-            <Skeleton className="h-[400px] w-full rounded-xl" />
-          </div>
 
           {/* Feedback Sentiment — ~6 dimension rows with h-3 bar */}
           <div className="pb-16 border-b border-slate-200 space-y-6">
@@ -391,16 +383,17 @@ export default function AnalyticsPage() {
               <div className="pb-16 border-b border-slate-200">
                 <ClientPEIIHistoricalTrendChart data={historicalTrend} isLoading={isLoading} />
               </div>
+              
+              {/* Dimension Trend Chart spans full 8 cols */}
+              <div className="pb-16 border-b border-slate-200">
+                <ClientPEIIDimensionsTrendChart data={historicalTrend} isLoading={isLoading} />
+              </div>
 
               {/* Domain Gain spans full 8 cols */}
               <div className="pb-16 border-b border-slate-200">
                 <ClientDomainGainChart data={chartData} isLoading={isLoading} />
               </div>
 
-              {/* Radar Chart */}
-              <div className="pb-16 border-b border-slate-200">
-                <ClientPEIIDimensionsChart data={chartData} isLoading={isLoading} />
-              </div>
 
               {/* Feedback Sentiment Chart */}
               <div className="pb-16 border-b border-slate-200">

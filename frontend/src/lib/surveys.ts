@@ -202,6 +202,7 @@ export interface FeedbackClassificationData {
 export interface PEIIHistoricalTrend {
   batch_year: string
   peii_score: number
+  domains?: PEIIDomainScore[]
 }
 
 export interface QualitativeFeedback {
