@@ -177,6 +177,9 @@ export default function DashboardPage() {
     })
     if (highestGain === -999) highestGain = 0
 
+    const isAllBatches = filters.batch === "All Batches"
+    const batchIndicator = isAllBatches ? "Average of all previous changes" : `Batch ${filters.batch}`
+
     return [
       {
         label: "Total Responses",
@@ -188,22 +191,25 @@ export default function DashboardPage() {
         label: "PEII Score",
         value: peiiScore !== null ? peiiScore.toFixed(2) : "—",
         subValue: "Weighted cohort score",
+        indicator: peiiScore !== null ? batchIndicator : undefined,
         icon: TrendingUp,
       },
       {
         label: "Transformative Gain",
         value: chartData.length > 0 ? `+${avgGain.toFixed(2)}` : "—",
         subValue: "Avg pre→post domain gap",
+        indicator: chartData.length > 0 ? batchIndicator : undefined,
         icon: Sparkles,
       },
       {
         label: "Primary Driver",
         value: highestGainDomain,
         subValue: chartData.length > 0 ? `+${highestGain.toFixed(2)} gain` : "No domain data",
+        indicator: chartData.length > 0 && highestGainDomain !== "No data" ? batchIndicator : undefined,
         icon: TrendingUp,
       },
     ]
-  }, [demographics, chartData, peiiScore])
+  }, [demographics, chartData, peiiScore, filters.batch])
 
   return (
     <div className="space-y-12 animate-in fade-in duration-500 max-w-6xl mx-auto pb-12">
@@ -255,7 +261,7 @@ export default function DashboardPage() {
                 </div>
               </div>
 
-              {/* Domain Improvement — professional dumbbell chart */}
+              {/* Domain Improvement — paired bar chart */}
               <div className="pb-16">
                 <ClientDomainGainChart data={chartData} isLoading={isLoading} />
               </div>
@@ -276,8 +282,15 @@ export default function DashboardPage() {
                     <div className="text-5xl font-light tracking-tighter text-slate-900 mb-2 leading-[1.1] break-words">
                       {stat.value}
                     </div>
-                    <div className="text-sm font-medium text-slate-500 mt-1">
-                      {stat.subValue}
+                    <div className="mt-1 space-y-0.5">
+                      <div className="text-sm font-medium text-slate-700">
+                        {stat.subValue}
+                      </div>
+                      {stat.indicator && (
+                        <div className="text-xs text-slate-400 font-normal">
+                          {stat.indicator}
+                        </div>
+                      )}
                     </div>
                   </div>
                 ))}

@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo } from "react"
+import { useMemo, useState } from "react"
 import { getDimensionColor } from "@/lib/dimension-colors"
 
 export interface PEIIDomainScore {
@@ -14,7 +14,45 @@ export interface ClientDomainGainChartProps {
   isLoading?: boolean
 }
 
+interface DomainTooltipProps {
+  data: PEIIDomainScore & { gain: number }
+}
+
+function DomainTooltip({ data }: DomainTooltipProps) {
+  const color = getDimensionColor(data.dimension)
+
+  return (
+    <div className="bg-white/95 backdrop-blur-md px-3 py-2 border border-slate-200 shadow-sm text-left w-max">
+      <div className="flex items-center gap-2 mb-1.5">
+        <div className="w-2 h-0.5 shrink-0" style={{ backgroundColor: color.hex }} />
+        <span className="font-semibold text-slate-900 text-[10px] uppercase tracking-wider leading-none">
+          {data.dimension}
+        </span>
+      </div>
+      <div className="flex items-center gap-3 text-[11px] leading-none">
+        <div className="flex items-center gap-1.5">
+          <span className="text-slate-500">Pre</span>
+          <span className="font-mono font-medium text-slate-700">{data.preGrad.toFixed(2)}</span>
+        </div>
+        <span className="text-slate-300">→</span>
+        <div className="flex items-center gap-1.5">
+          <span className="text-slate-500">Post</span>
+          <span className="font-mono font-medium text-slate-900">{data.postGrad.toFixed(2)}</span>
+        </div>
+        <div className="flex items-center gap-1.5 ml-1 pl-3 border-l border-slate-200">
+          <span className="text-slate-500">Gain</span>
+          <span className="font-mono font-semibold" style={{ color: color.hex }}>
+            +{data.gain.toFixed(2)}
+          </span>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export function ClientDomainGainChart({ data, isLoading }: ClientDomainGainChartProps) {
+  const [hoveredIndex, setHoveredIndex] = useState<number | null>(null)
+
   const chartData = useMemo(() => {
     return data
       .map(d => ({
@@ -24,13 +62,16 @@ export function ClientDomainGainChart({ data, isLoading }: ClientDomainGainChart
       .sort((a, b) => b.gain - a.gain)
   }, [data])
 
+  const activeData = hoveredIndex !== null ? chartData[hoveredIndex] ?? null : null
+
   return (
     <div className="w-full flex flex-col">
+      {/* Editorial Header */}
       <div className="mb-8 flex items-start justify-between">
         <div>
           <h3 className="font-semibold text-slate-900">Domain Improvement</h3>
           <p className="text-sm text-slate-500 mt-1">
-            Cohort average scores (1-5 scale): Pre-grad baseline vs. post-grad outcome
+            Cohort average scores (1–5 scale): Pre-grad baseline vs. post-grad outcome
           </p>
         </div>
       </div>
@@ -51,7 +92,7 @@ export function ClientDomainGainChart({ data, isLoading }: ClientDomainGainChart
         ) : (
           <div className="flex flex-col h-[460px]">
             {/* Chart Area */}
-            <div className="flex-1 flex mt-2">
+            <div className="flex-1 flex mt-2 relative">
               {/* Y-axis */}
               <div className="w-8 flex flex-col justify-between text-[10px] font-bold text-slate-400 text-right pr-4 py-0">
                 {[5, 4, 3, 2, 1, 0].map(tick => (
@@ -71,36 +112,57 @@ export function ClientDomainGainChart({ data, isLoading }: ClientDomainGainChart
                     ))}
                   </div>
 
+                  {/* Floating Editorial Tooltip */}
+                  {activeData && (
+                    <div 
+                      className="absolute z-30 pointer-events-none transition-all duration-200 top-2 animate-in fade-in zoom-in-95"
+                      style={{
+                        left: hoveredIndex === 0 
+                          ? '8px' 
+                          : hoveredIndex === chartData.length - 1 
+                            ? 'auto' 
+                            : `${((hoveredIndex ?? 0) + 0.5) * (100 / chartData.length)}%`,
+                        right: hoveredIndex === chartData.length - 1 ? '8px' : 'auto',
+                        transform: (hoveredIndex === 0 || hoveredIndex === chartData.length - 1) 
+                          ? 'none' 
+                          : 'translateX(-50%)',
+                      }}
+                    >
+                      <DomainTooltip data={activeData} />
+                    </div>
+                  )}
+
                   {/* Bars Container */}
                   <div className="absolute inset-0 flex justify-around items-end z-10">
-                    {chartData.map((d, i) => {
+                    {chartData.map((d, index) => {
                       const color = getDimensionColor(d.dimension)
+                      const isHovered = hoveredIndex === index
+                      const isFaded = hoveredIndex !== null && !isHovered
+
                       // Calculate height based on 0-5 scale
                       const preHeight = Math.max(0, (d.preGrad / 5) * 100)
                       const postHeight = Math.max(0, (d.postGrad / 5) * 100)
 
                       return (
-                        <div key={d.dimension} className="flex flex-col items-center justify-end h-full w-full group relative animate-in fade-in slide-in-from-bottom-2 duration-700 fill-mode-both" style={{ animationDelay: `${i * 100}ms` }}>
-                          {/* Gain Label (Hover) */}
-                          <div 
-                            className="absolute -top-7 opacity-0 group-hover:opacity-100 transition-opacity text-[10px] font-bold whitespace-nowrap bg-white px-2.5 py-1 rounded-md shadow-md border z-20"
-                            style={{ borderColor: color.hex, color: color.hex }}
-                          >
-                            +{d.gain.toFixed(2)} gain
-                          </div>
-
+                        <div 
+                          key={d.dimension} 
+                          className="flex flex-col items-center justify-end h-full w-full relative cursor-pointer transition-opacity duration-300"
+                          style={{ opacity: isFaded ? 0.35 : 1 }}
+                          onMouseEnter={() => setHoveredIndex(index)}
+                          onMouseLeave={() => setHoveredIndex(null)}
+                        >
                           {/* Bar Pair */}
-                          <div className="flex items-end justify-center gap-1.5 w-full h-full relative px-1 md:px-2">
+                          <div className={`flex items-end justify-center gap-1.5 w-full h-full relative px-1 md:px-2 transition-transform duration-300 ${isHovered ? 'scale-[1.02]' : ''}`}>
                              <div 
                                className={`w-full max-w-[28px] ${color.tailwindPre} rounded-t-sm transition-all duration-700`}
                                style={{ height: `${preHeight}%` }}
                                title={`Pre-Grad Baseline: ${d.preGrad.toFixed(2)}`}
-                             ></div>
+                             />
                              <div 
                                className={`w-full max-w-[28px] ${color.tailwindPost} rounded-t-sm transition-all duration-700 shadow-sm`}
                                style={{ height: `${postHeight}%` }}
                                title={`Post-Grad Outcome: ${d.postGrad.toFixed(2)}`}
-                             ></div>
+                             />
                           </div>
                         </div>
                       )
@@ -110,15 +172,21 @@ export function ClientDomainGainChart({ data, isLoading }: ClientDomainGainChart
 
                 {/* X-axis Labels Container */}
                 <div className="flex justify-around items-start pt-4 border-t border-slate-200">
-                  {chartData.map((d) => {
+                  {chartData.map((d, index) => {
                     const color = getDimensionColor(d.dimension)
+                    const isHovered = hoveredIndex === index
                     return (
-                      <div key={d.dimension} className="w-full text-center px-1 flex flex-col items-center gap-2">
+                      <div 
+                        key={d.dimension} 
+                        className="w-full text-center px-1 flex flex-col items-center gap-2 cursor-pointer select-none"
+                        onMouseEnter={() => setHoveredIndex(index)}
+                        onMouseLeave={() => setHoveredIndex(null)}
+                      >
                         <div 
-                          className="w-4 h-1 rounded-[1px] shrink-0" 
+                          className={`w-4 h-1 rounded-[1px] shrink-0 transition-transform duration-300 ${isHovered ? 'scale-y-150' : ''}`}
                           style={{ backgroundColor: color.hex }} 
                         />
-                        <span className="text-[10px] sm:text-xs font-medium text-slate-700 leading-tight block break-words">
+                        <span className={`text-[10px] sm:text-xs leading-tight block break-words transition-colors duration-200 ${isHovered ? 'text-slate-900 font-semibold' : 'text-slate-600 font-medium'}`}>
                           {d.dimension}
                         </span>
                       </div>

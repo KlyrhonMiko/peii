@@ -40,7 +40,7 @@ function AnalyticsSkeleton() {
             <Skeleton className="w-full aspect-[21/9] min-h-[400px] rounded-xl" />
           </div>
 
-          {/* Domain Gain — axis header + 6 dumbbell rows */}
+          {/* Domain Gain — skeleton */}
           <div className="pb-16 border-b border-slate-200 space-y-8">
             <div className="space-y-1.5">
               <Skeleton className="h-[1.125rem] w-44" />
@@ -307,6 +307,9 @@ export default function AnalyticsPage() {
     if (highestGain === -999) highestGain = 0
     if (lowestGain === 999) lowestGain = 0
 
+    const isAllBatches = filters.batch === "All Batches"
+    const batchIndicator = isAllBatches ? "Average of all previous changes" : `Batch ${filters.batch}`
+
     return [
       {
         label: "Total Responses",
@@ -321,6 +324,7 @@ export default function AnalyticsPage() {
         label: "PEII Improvement Score",
         value: peiiScore !== null ? `${peiiScore > 0 ? '+' : ''}${peiiScore.toFixed(2)}` : "0.00",
         subValue: peiiIndex !== null ? `${peiiIndex.toFixed(1)}% vs Baseline` : "Overall Weighted Gain",
+        indicator: peiiScore !== null ? batchIndicator : undefined,
         icon: Target,
         color: "text-emerald-600",
         bgColor: "bg-emerald-50",
@@ -330,6 +334,7 @@ export default function AnalyticsPage() {
         label: "Primary Driver",
         value: highestGainDomain,
         subValue: `+${highestGain.toFixed(2)} Gain`,
+        indicator: highestGainDomain !== "N/A" ? batchIndicator : undefined,
         icon: TrendingUp,
         color: "text-indigo-600",
         bgColor: "bg-indigo-50",
@@ -339,10 +344,11 @@ export default function AnalyticsPage() {
         label: "Needs Attention",
         value: lowestGainDomain,
         subValue: `${lowestGain > 0 ? '+' : ''}${lowestGain.toFixed(2)} Gain`,
+        indicator: lowestGainDomain !== "N/A" ? batchIndicator : undefined,
         icon: AlertTriangle,
       },
     ]
-  }, [demographics, chartData, peiiScore, peiiIndex])
+  }, [demographics, chartData, peiiScore, peiiIndex, filters.batch])
 
   return (
     <div className="space-y-12 animate-in fade-in duration-500 max-w-6xl mx-auto pb-12">
@@ -433,8 +439,15 @@ export default function AnalyticsPage() {
                       <div className="text-5xl font-light tracking-tighter text-slate-900 mb-2 leading-[1.1] break-words">
                         {stat.value}
                       </div>
-                      <div className="text-sm font-medium text-slate-500 mt-1">
-                        {stat.subValue}
+                      <div className="mt-1 space-y-0.5">
+                        <div className="text-sm font-medium text-slate-700">
+                          {stat.subValue}
+                        </div>
+                        {stat.indicator && (
+                          <div className="text-xs text-slate-400 font-normal">
+                            {stat.indicator}
+                          </div>
+                        )}
                       </div>
                     </div>
                   )
