@@ -22,7 +22,9 @@ import { getDimensionColor } from "@/lib/dimension-colors"
 import type { PEIIDomainScore } from "@/components/ClientDomainGainChart"
 import type { PEIIDemographics, PEIIHistoricalTrend, SurveyResponseAggregate, FeedbackClassification, QualitativeFeedback } from "@/lib/surveys"
 
-function AnalyticsSkeleton() {
+function AnalyticsSkeleton({ filters }: { filters?: { batch: string } }) {
+  const showTrends = !filters || filters.batch === "All Batches"
+
   return (
     <div className="pb-12">
       {/* Main Asymmetric Grid Skeleton — header is already rendered above */}
@@ -32,13 +34,15 @@ function AnalyticsSkeleton() {
         <div className="lg:col-span-8 flex flex-col gap-24">
 
           {/* Historical Trend — aspect-[21/9] min-h-[400px] */}
-          <div className="pb-16 border-b border-slate-200 space-y-6">
-            <div className="space-y-1.5">
-              <Skeleton className="h-[1.125rem] w-48" />
-              <Skeleton className="h-3.5 w-60" />
+          {showTrends && (
+            <div className="pb-16 border-b border-slate-200 space-y-6">
+              <div className="space-y-1.5">
+                <Skeleton className="h-[1.125rem] w-48" />
+                <Skeleton className="h-3.5 w-60" />
+              </div>
+              <Skeleton className="w-full aspect-[21/9] min-h-[400px] rounded-xl" />
             </div>
-            <Skeleton className="w-full aspect-[21/9] min-h-[400px] rounded-xl" />
-          </div>
+          )}
 
           {/* Domain Gain — skeleton */}
           <div className="pb-16 border-b border-slate-200 space-y-8">
@@ -396,7 +400,7 @@ export default function AnalyticsPage() {
 
       {/* Main Content Area */}
       {isLoading ? (
-        <AnalyticsSkeleton />
+        <AnalyticsSkeleton filters={filters} />
       ) : (!demographics || demographics.total_responses === 0) ? (
         <div className="mt-8 flex flex-col items-center justify-center py-32 text-center border border-dashed border-slate-300 rounded-2xl bg-slate-50/50">
           <div className="w-16 h-16 bg-white rounded-2xl shadow-sm border border-slate-100 flex items-center justify-center mb-6">
@@ -418,14 +422,18 @@ export default function AnalyticsPage() {
             <div className="lg:col-span-8 flex flex-col gap-24">
               
               {/* Historical Trend spans full 8 cols */}
-              <div className="pb-16 border-b border-slate-200">
-                <ClientPEIIHistoricalTrendChart data={historicalTrend} isLoading={isLoading} />
-              </div>
+              {filters.batch === "All Batches" && (
+                <div className="pb-16 border-b border-slate-200">
+                  <ClientPEIIHistoricalTrendChart data={historicalTrend} isLoading={isLoading} />
+                </div>
+              )}
               
               {/* Dimension Trend Chart spans full 8 cols */}
-              <div className="pb-16 border-b border-slate-200">
-                <ClientPEIIDimensionsTrendChart data={historicalTrend} isLoading={isLoading} />
-              </div>
+              {filters.batch === "All Batches" && (
+                <div className="pb-16 border-b border-slate-200">
+                  <ClientPEIIDimensionsTrendChart data={historicalTrend} isLoading={isLoading} />
+                </div>
+              )}
 
               {/* Domain Gain spans full 8 cols */}
               <div className="pb-16 border-b border-slate-200">
