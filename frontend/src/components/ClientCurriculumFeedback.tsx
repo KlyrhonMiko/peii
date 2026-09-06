@@ -178,7 +178,7 @@ export function ClientCurriculumFeedback({ surveyId, feedbacks, isLoading, onRef
           </div>
         ) : (
           <div className="space-y-0">
-            {filteredFeedbacks.map((f, i) => {
+            {filteredFeedbacks.slice(0, 30).map((f, i) => {
               const score = f.sentiment_score ?? 0
               return (
                 <div key={i} className="py-6 border-b border-slate-200 last:border-0">
@@ -260,6 +260,12 @@ export function ClientCurriculumFeedback({ surveyId, feedbacks, isLoading, onRef
                 </div>
               )
             })}
+            
+            {filteredFeedbacks.length > 30 && (
+              <div className="py-6 text-center text-xs font-medium text-slate-400 uppercase tracking-widest border-t border-slate-200">
+                Showing top 30 critical feedbacks
+              </div>
+            )}
           </div>
         )}
       </div>

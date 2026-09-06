@@ -11,7 +11,9 @@ import { ClientCurriculumFeedback } from "@/components/ClientCurriculumFeedback"
 import { ClientPEIIDimensionsTrendChart } from "@/components/ClientPEIIDimensionsTrendChart"
 import { DashboardFilters, departmentDegrees } from "@/components/DashboardFilters"
 import { Skeleton } from "@/components/ui/skeleton"
-import { Target, AlertTriangle, Database, Users, TrendingUp } from "lucide-react"
+import { Button } from "@/components/ui/button"
+import { toast } from "sonner"
+import { Target, AlertTriangle, Database, Users, TrendingUp, Download, Loader2 } from "lucide-react"
 import {
   fetchSurveys,
   fetchPEII,
@@ -199,6 +201,69 @@ function AnalyticsSkeleton({ filters }: { filters?: { batch: string } }) {
   )
 }
 
+function ExportableSection({ id, name, children, filters }: { id: string, name: string, children: React.ReactNode, filters: { batch: string, department: string } }) {
+  const handleExport = async () => {
+    try {
+      const exportPromise = new Promise<void>(async (resolve, reject) => {
+        try {
+          await new Promise(r => setTimeout(r, 150))
+          const { toPng } = await import('html-to-image')
+          const el = document.getElementById(id)
+          if (!el) throw new Error("Element not found")
+          
+          // Add 48px padding to all sides for a nice breathing room
+          const width = el.offsetWidth + 96
+          const height = el.offsetHeight + 96
+
+          const dataUrl = await toPng(el, { 
+            pixelRatio: 2, 
+            backgroundColor: '#f8fafc',
+            width: width,
+            height: height,
+            style: {
+              padding: '48px',
+              margin: '0',
+              borderRadius: '0px'
+            }
+          })
+          const link = document.createElement('a')
+          link.href = dataUrl
+          const date = new Date().toISOString().split('T')[0]
+          link.download = `peii-${name.toLowerCase().replace(/\s+/g, '-')}-${filters.batch}-${filters.department}-${date}.png`
+          link.click()
+          resolve()
+        } catch (error) {
+          reject(error)
+        }
+      })
+
+      toast.promise(exportPromise, {
+        loading: `Exporting ${name}...`,
+        success: `${name} exported successfully`,
+        error: `Failed to export ${name}`
+      })
+      await exportPromise
+    } catch(e) {
+      console.error(e)
+    }
+  }
+
+  return (
+    <div className="relative group/export w-full">
+      <button 
+        onClick={handleExport}
+        title={`Export ${name} as Image`}
+        className="absolute top-2 right-2 z-20 opacity-0 group-hover/export:opacity-100 transition-opacity duration-300 p-2 rounded-lg text-slate-400 hover:text-slate-900 hover:bg-slate-100/80"
+      >
+        <Download className="w-4 h-4" />
+      </button>
+      <div id={id} className="w-full">
+        {children}
+      </div>
+    </div>
+  )
+}
+
 export default function AnalyticsPage() {
   const [filters, setFilters] = useState({ department: "All Departments", degree: "All Degrees", batch: "All Batches" })
   const [chartData, setChartData] = useState<PEIIDomainScore[]>([])
@@ -215,6 +280,58 @@ export default function AnalyticsPage() {
   const [availableBatches, setAvailableBatches] = useState<string[]>([])
   const [availableDepartments, setAvailableDepartments] = useState<string[]>([])
   const [isInitialDataLoaded, setIsInitialDataLoaded] = useState(false)
+  const [isExporting, setIsExporting] = useState(false)
+
+  const handleExportDashboard = async () => {
+    try {
+      setIsExporting(true)
+      
+      const exportPromise = new Promise<void>(async (resolve, reject) => {
+        try {
+          // Yield to let the toast render before freezing
+          await new Promise(r => setTimeout(r, 150))
+          
+          const { toPng } = await import('html-to-image')
+          const dashboardElement = document.getElementById('analytics-dashboard')
+          if (!dashboardElement) throw new Error("Dashboard element not found")
+
+          const dataUrl = await toPng(dashboardElement, {
+            pixelRatio: 2,
+            backgroundColor: '#ffffff',
+            // adding a little extra padding for the whole dashboard export too
+            width: dashboardElement.offsetWidth + 64,
+            height: dashboardElement.offsetHeight + 64,
+            style: {
+              padding: '32px'
+            }
+          })
+
+          const link = document.createElement('a')
+          link.href = dataUrl
+          
+          const date = new Date().toISOString().split('T')[0]
+          link.download = `peii-analytics-${filters.batch}-${filters.department}-${date}.png`
+          link.click()
+          
+          resolve()
+        } catch (error) {
+          reject(error)
+        }
+      })
+
+      toast.promise(exportPromise, {
+        loading: 'Generating high-resolution export...',
+        success: 'Dashboard exported successfully',
+        error: 'Failed to export dashboard'
+      })
+
+      await exportPromise
+    } catch (error) {
+      console.error('Failed to export dashboard', error)
+    } finally {
+      setIsExporting(false)
+    }
+  }
 
   useEffect(() => {
     let cancelled = false
@@ -390,11 +507,23 @@ export default function AnalyticsPage() {
         </div>
         {/* Only hide filters if the database is completely empty (no active filters and 0 results) */}
         {(!isLoading && (!demographics || demographics.total_responses === 0) && filters.department === "All Departments" && filters.batch === "All Batches") ? null : (
-          <DashboardFilters 
-            onFilterChange={setFilters} 
-            availableBatches={availableBatches}
-            availableDepartments={availableDepartments}
-          />
+          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 sm:gap-6">
+            <DashboardFilters 
+              onFilterChange={setFilters} 
+              availableBatches={availableBatches}
+              availableDepartments={availableDepartments}
+            />
+            <div className="hidden sm:block w-px h-6 bg-slate-200" />
+            <Button 
+              variant="ghost"
+              onClick={handleExportDashboard}
+              disabled={isExporting || isLoading || !demographics || demographics.total_responses === 0}
+              className="hidden md:flex h-8 text-[13px] font-medium text-slate-500 hover:text-slate-900 hover:bg-slate-100 px-3 items-center gap-2 transition-colors disabled:opacity-50"
+            >
+              {isExporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4 opacity-70" />}
+              <span>{isExporting ? "Exporting..." : "Export"}</span>
+            </Button>
+          </div>
         )}
       </div>
 
@@ -416,7 +545,7 @@ export default function AnalyticsPage() {
       ) : (
         <>
           {/* Main Asymmetric Grid */}
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-16 mt-12">
+          <div id="analytics-dashboard" className="grid grid-cols-1 lg:grid-cols-12 gap-16 mt-12 pb-8">
             
             {/* LEFT COLUMN (8 cols): Canvas for macro-charts */}
             <div className="lg:col-span-8 flex flex-col gap-24">
@@ -424,31 +553,41 @@ export default function AnalyticsPage() {
               {/* Historical Trend spans full 8 cols */}
               {filters.batch === "All Batches" && (
                 <div className="pb-16 border-b border-slate-200">
-                  <ClientPEIIHistoricalTrendChart data={historicalTrend} isLoading={isLoading} />
+                  <ExportableSection id="chart-historical-trend" name="Historical Trend" filters={filters}>
+                    <ClientPEIIHistoricalTrendChart data={historicalTrend} isLoading={isLoading} />
+                  </ExportableSection>
                 </div>
               )}
               
               {/* Dimension Trend Chart spans full 8 cols */}
               {filters.batch === "All Batches" && (
                 <div className="pb-16 border-b border-slate-200">
-                  <ClientPEIIDimensionsTrendChart data={historicalTrend} isLoading={isLoading} />
+                  <ExportableSection id="chart-dimension-trend" name="Dimension Trend" filters={filters}>
+                    <ClientPEIIDimensionsTrendChart data={historicalTrend} isLoading={isLoading} />
+                  </ExportableSection>
                 </div>
               )}
 
               {/* Domain Gain spans full 8 cols */}
               <div className="pb-16 border-b border-slate-200">
-                <ClientDomainGainChart data={chartData} isLoading={isLoading} />
+                <ExportableSection id="chart-domain-gain" name="Domain Gain" filters={filters}>
+                  <ClientDomainGainChart data={chartData} isLoading={isLoading} />
+                </ExportableSection>
               </div>
 
 
               {/* Feedback Sentiment Chart */}
               <div className="pb-16 border-b border-slate-200">
-                <ClientFeedbackClassificationChart data={classificationData} />
+                <ExportableSection id="chart-feedback-sentiment" name="Feedback Sentiment" filters={filters}>
+                  <ClientFeedbackClassificationChart data={classificationData} />
+                </ExportableSection>
               </div>
 
               {/* Curriculum Feedback */}
               <div className="pb-16">
-                <ClientCurriculumFeedback surveyId={surveyId} feedbacks={qualitativeFeedback} isLoading={isLoading} onRefresh={() => setRefreshKey(k => k + 1)} />
+                <ExportableSection id="chart-curriculum-feedback" name="Curriculum Feedback" filters={filters}>
+                  <ClientCurriculumFeedback surveyId={surveyId} feedbacks={qualitativeFeedback} isLoading={isLoading} onRefresh={() => setRefreshKey(k => k + 1)} />
+                </ExportableSection>
               </div>
 
             </div>
@@ -458,51 +597,61 @@ export default function AnalyticsPage() {
               
               {/* Insights Ledger stacked vertically */}
               <div className="flex flex-col gap-12 pb-16 border-b border-slate-200">
-                {analyticsMetrics.map((stat) => {
-                  const isDomain = stat.label === "Primary Driver" || stat.label === "Needs Attention"
-                  const dimColor = isDomain && stat.value !== "N/A" ? getDimensionColor(stat.value) : null
+                <ExportableSection id="chart-metrics-ledger" name="Key Metrics" filters={filters}>
+                  <div className="flex flex-col gap-12">
+                    {analyticsMetrics.map((stat) => {
+                      const isDomain = stat.label === "Primary Driver" || stat.label === "Needs Attention"
+                      const dimColor = isDomain && stat.value !== "N/A" ? getDimensionColor(stat.value) : null
 
-                  return (
-                    <div key={stat.label} className="flex flex-col">
-                      <div className="mb-4">
-                        <span 
-                          className={`text-[10px] font-bold uppercase tracking-[0.2em] ${dimColor ? 'border-l-2 pl-2' : ''} text-slate-500`}
-                          style={dimColor ? { borderColor: dimColor.hex } : undefined}
-                        >
-                          {stat.label}
-                        </span>
-                      </div>
-                      <div className="text-5xl font-light tracking-tighter text-slate-900 mb-2 leading-[1.1] break-words">
-                        {stat.value}
-                      </div>
-                      <div className="mt-1 space-y-0.5">
-                        <div className="text-sm font-medium text-slate-700">
-                          {stat.subValue}
-                        </div>
-                        {stat.indicator && (
-                          <div className="text-xs text-slate-400 font-normal">
-                            {stat.indicator}
+                      return (
+                        <div key={stat.label} className="flex flex-col">
+                          <div className="mb-4">
+                            <span 
+                              className={`text-[10px] font-bold uppercase tracking-[0.2em] ${dimColor ? 'border-l-2 pl-2' : ''} text-slate-500`}
+                              style={dimColor ? { borderColor: dimColor.hex } : undefined}
+                            >
+                              {stat.label}
+                            </span>
                           </div>
-                        )}
-                      </div>
-                    </div>
-                  )
-                })}
+                          <div className="text-5xl font-light tracking-tighter text-slate-900 mb-2 leading-[1.1] break-words">
+                            {stat.value}
+                          </div>
+                          <div className="mt-1 space-y-0.5">
+                            <div className="text-sm font-medium text-slate-700">
+                              {stat.subValue}
+                            </div>
+                            {stat.indicator && (
+                              <div className="text-xs text-slate-400 font-normal">
+                                {stat.indicator}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </ExportableSection>
               </div>
 
               {/* Demographics Overview stacked vertically */}
               <div className="pb-16 border-b border-slate-200">
-                 <ClientDemographicsOverview demographics={demographics} isLoading={isLoading} />
+                <ExportableSection id="chart-demographics" name="Demographics" filters={filters}>
+                  <ClientDemographicsOverview demographics={demographics} isLoading={isLoading} />
+                </ExportableSection>
               </div>
 
               {/* Key Outcomes in sidebar */}
               <div className="pb-16 border-b border-slate-200">
-                <ClientKeyOutcomes aggregates={aggregates} isLoading={isLoading} />
+                <ExportableSection id="chart-key-outcomes" name="Key Outcomes" filters={filters}>
+                  <ClientKeyOutcomes aggregates={aggregates} isLoading={isLoading} />
+                </ExportableSection>
               </div>
 
               {/* Degree Alignment in sidebar */}
               <div className="pb-16">
-                <ClientDegreeAlignment aggregates={aggregates} isLoading={isLoading} />
+                <ExportableSection id="chart-degree-alignment" name="Degree Alignment" filters={filters}>
+                  <ClientDegreeAlignment aggregates={aggregates} isLoading={isLoading} />
+                </ExportableSection>
               </div>
 
             </div>
