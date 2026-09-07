@@ -204,38 +204,33 @@ function AnalyticsSkeleton({ filters }: { filters?: { batch: string } }) {
 function ExportableSection({ id, name, children, filters }: { id: string, name: string, children: React.ReactNode, filters: { batch: string, department: string } }) {
   const handleExport = async () => {
     try {
-      const exportPromise = new Promise<void>(async (resolve, reject) => {
-        try {
-          await new Promise(r => setTimeout(r, 150))
-          const { toPng } = await import('html-to-image')
-          const el = document.getElementById(id)
-          if (!el) throw new Error("Element not found")
-          
-          // Add 48px padding to all sides for a nice breathing room
-          const width = el.offsetWidth + 96
-          const height = el.offsetHeight + 96
+      const exportPromise = (async () => {
+        await new Promise(r => setTimeout(r, 150))
+        const { toPng } = await import('html-to-image')
+        const el = document.getElementById(id)
+        if (!el) throw new Error("Element not found")
+        
+        // Add 48px padding to all sides for a nice breathing room
+        const width = el.offsetWidth + 96
+        const height = el.offsetHeight + 96
 
-          const dataUrl = await toPng(el, { 
-            pixelRatio: 2, 
-            backgroundColor: '#f8fafc',
-            width: width,
-            height: height,
-            style: {
-              padding: '48px',
-              margin: '0',
-              borderRadius: '0px'
-            }
-          })
-          const link = document.createElement('a')
-          link.href = dataUrl
-          const date = new Date().toISOString().split('T')[0]
-          link.download = `peii-${name.toLowerCase().replace(/\s+/g, '-')}-${filters.batch}-${filters.department}-${date}.png`
-          link.click()
-          resolve()
-        } catch (error) {
-          reject(error)
-        }
-      })
+        const dataUrl = await toPng(el, { 
+          pixelRatio: 2, 
+          backgroundColor: '#f8fafc',
+          width: width,
+          height: height,
+          style: {
+            padding: '48px',
+            margin: '0',
+            borderRadius: '0px'
+          }
+        })
+        const link = document.createElement('a')
+        link.href = dataUrl
+        const date = new Date().toISOString().split('T')[0]
+        link.download = `peii-${name.toLowerCase().replace(/\s+/g, '-')}-${filters.batch}-${filters.department}-${date}.png`
+        link.click()
+      })();
 
       toast.promise(exportPromise, {
         loading: `Exporting ${name}...`,
@@ -286,43 +281,45 @@ export default function AnalyticsPage() {
     try {
       setIsExporting(true)
       
-      const exportPromise = new Promise<void>(async (resolve, reject) => {
-        try {
-          // Yield to let the toast render before freezing
-          await new Promise(r => setTimeout(r, 150))
-          
-          const { toPng } = await import('html-to-image')
-          const dashboardElement = document.getElementById('analytics-dashboard')
-          if (!dashboardElement) throw new Error("Dashboard element not found")
-
-          const dataUrl = await toPng(dashboardElement, {
-            pixelRatio: 2,
-            backgroundColor: '#ffffff',
-            // adding a little extra padding for the whole dashboard export too
-            width: dashboardElement.offsetWidth + 64,
-            height: dashboardElement.offsetHeight + 64,
-            style: {
-              padding: '32px'
-            }
-          })
-
-          const link = document.createElement('a')
-          link.href = dataUrl
-          
-          const date = new Date().toISOString().split('T')[0]
-          link.download = `peii-analytics-${filters.batch}-${filters.department}-${date}.png`
-          link.click()
-          
-          resolve()
-        } catch (error) {
-          reject(error)
+      const exportPromise = (async () => {
+        // Yield to let the toast render and the hidden layout mount/animate
+        await new Promise(r => setTimeout(r, 1500))
+        
+        const { toPng } = await import('html-to-image')
+        const deptSuffix = filters.department === "All Departments" ? "" : ` - ${filters.department}`
+        const baseFilename = `PEII Poster - ${filters.batch}${deptSuffix}`
+        
+        const pages = [
+          { id: 'social-export-dashboard-1', suffix: '1-Scorecard' },
+          { id: 'social-export-dashboard-2', suffix: '2-Outcomes' }
+        ]
+        
+        if (filters.batch === "All Batches") {
+          pages.push({ id: 'social-export-dashboard-3', suffix: '3-Trends' })
         }
-      })
+        
+        for (const page of pages) {
+          const el = document.getElementById(page.id)
+          if (el) {
+            const dataUrl = await toPng(el, {
+              pixelRatio: 2,
+              backgroundColor: '#ffffff',
+              style: { margin: '0' }
+            })
+            const link = document.createElement('a')
+            link.href = dataUrl
+            link.download = `${baseFilename} - ${page.suffix}.png`
+            link.click()
+            // Delay to prevent browser blocking
+            await new Promise(r => setTimeout(r, 500))
+          }
+        }
+      })();
 
       toast.promise(exportPromise, {
-        loading: 'Generating high-resolution export...',
-        success: 'Dashboard exported successfully',
-        error: 'Failed to export dashboard'
+        loading: 'Generating statistical posters...',
+        success: 'Posters exported successfully',
+        error: 'Failed to export posters'
       })
 
       await exportPromise
@@ -658,6 +655,101 @@ export default function AnalyticsPage() {
           </div>
         </>
       )}
+
+      {/* Hidden off-screen export layout (Social Media Posters) */}
+      <div className="fixed top-[-9999px] left-[-9999px] w-[1080px] z-[-1] pointer-events-none">
+        {isExporting && (
+          <div className="flex flex-col gap-[2000px]">
+            
+            {/* PAGE 1: Scorecard */}
+            <div id="social-export-dashboard-1" className="w-[1080px] bg-white p-16 flex flex-col font-sans border border-slate-100">
+              <div className="flex justify-between items-end pb-8 border-b-2 border-slate-900">
+                <div className="space-y-2">
+                  <h2 className="text-4xl font-bold tracking-tight text-slate-900">Pasig Education Impact Index</h2>
+                  <p className="text-xl text-slate-500 font-medium uppercase tracking-widest">Impact Scorecard</p>
+                </div>
+                <div className="text-right flex flex-col items-end gap-1">
+                  <div className="text-2xl font-bold text-slate-900">{filters.batch}</div>
+                  <div className="text-lg text-slate-500">{filters.department}</div>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-12 py-12 border-b-2 border-slate-100">
+                {analyticsMetrics.map((stat, i) => {
+                  const dimColor = (stat.label === "Primary Driver" || stat.label === "Needs Attention") && stat.value !== "N/A" ? getDimensionColor(stat.value) : null
+                  const isNumeric = /^[+-]?[\d.]+$/.test(stat.value) || stat.value === "N/A"
+                  return (
+                    <div key={i} className="flex flex-col">
+                      <div className="mb-4 flex items-center justify-between">
+                        <span className={`text-sm font-bold uppercase tracking-[0.2em] ${dimColor ? 'border-l-4 pl-3' : ''} text-slate-500`} style={dimColor ? { borderColor: dimColor.hex } : undefined}>{stat.label}</span>
+                      </div>
+                      <div className={`font-light tracking-tight text-slate-900 mb-2 leading-[1.1] break-words ${isNumeric ? 'text-[6rem]' : 'text-[2.75rem]'}`}>{stat.value}</div>
+                      <div className="mt-auto space-y-1">
+                        <div className="text-lg font-medium text-slate-700">{stat.subValue}</div>
+                        {stat.indicator && <div className="text-sm text-slate-400 font-normal">{stat.indicator}</div>}
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+              <div className="pt-12 pb-4 flex flex-col gap-6">
+                <ClientDomainGainChart data={chartData} isLoading={false} />
+              </div>
+            </div>
+
+            {/* PAGE 2: Outcomes & Demographics */}
+            <div id="social-export-dashboard-2" className="w-[1080px] bg-white p-16 flex flex-col font-sans border border-slate-100">
+              <div className="flex justify-between items-end pb-8 border-b-2 border-slate-900">
+                <div className="space-y-2">
+                  <h2 className="text-4xl font-bold tracking-tight text-slate-900">Pasig Education Impact Index</h2>
+                  <p className="text-xl text-slate-500 font-medium uppercase tracking-widest">Graduate Outcomes</p>
+                </div>
+                <div className="text-right flex flex-col items-end gap-1">
+                  <div className="text-2xl font-bold text-slate-900">{filters.batch}</div>
+                  <div className="text-lg text-slate-500">{filters.department}</div>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-16 py-12 border-b-2 border-slate-100">
+                <div className="flex flex-col gap-12">
+                  <ClientKeyOutcomes aggregates={aggregates} isLoading={false} />
+                  <ClientDegreeAlignment aggregates={aggregates} isLoading={false} />
+                </div>
+                <div className="flex flex-col gap-12 border-l-2 border-slate-100 pl-16">
+                  <ClientDemographicsOverview demographics={demographics} isLoading={false} />
+                </div>
+              </div>
+              <div className="pt-12 pb-4">
+                <ClientFeedbackClassificationChart data={classificationData} />
+              </div>
+            </div>
+
+            {/* PAGE 3: Trends (Only for All Batches) */}
+            {filters.batch === "All Batches" && (
+              <div id="social-export-dashboard-3" className="w-[1080px] bg-white p-16 flex flex-col font-sans border border-slate-100">
+                <div className="flex justify-between items-end pb-8 border-b-2 border-slate-900">
+                  <div className="space-y-2">
+                    <h2 className="text-4xl font-bold tracking-tight text-slate-900">Pasig Education Impact Index</h2>
+                    <p className="text-xl text-slate-500 font-medium uppercase tracking-widest">Longitudinal Trends</p>
+                  </div>
+                  <div className="text-right flex flex-col items-end gap-1">
+                    <div className="text-2xl font-bold text-slate-900">{filters.batch}</div>
+                    <div className="text-lg text-slate-500">{filters.department}</div>
+                  </div>
+                </div>
+                <div className="flex flex-col gap-16 pt-12">
+                  <div className="pb-12 border-b-2 border-slate-100">
+                    <ClientPEIIHistoricalTrendChart data={historicalTrend} isLoading={false} />
+                  </div>
+                  <div className="pb-4">
+                    <ClientPEIIDimensionsTrendChart data={historicalTrend} isLoading={false} />
+                  </div>
+                </div>
+              </div>
+            )}
+
+          </div>
+        )}
+      </div>
+
     </div>
   )
 }
