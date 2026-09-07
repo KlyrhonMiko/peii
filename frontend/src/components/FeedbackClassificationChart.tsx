@@ -43,12 +43,17 @@ export function FeedbackClassificationChart({ data }: { data?: FeedbackClassific
                   <span className="text-xs font-semibold text-emerald-600">
                     {posPct.toFixed(0)}% Pos
                   </span>
+                  {neuPct > 0 && (
+                    <span className="text-xs font-semibold text-slate-500">
+                      {neuPct.toFixed(0)}% Neu
+                    </span>
+                  )}
                   {negPct > 0 && (
                     <span className="text-xs font-semibold text-rose-600">
                       {negPct.toFixed(0)}% Neg
                     </span>
                   )}
-                  <span className="text-xs font-medium text-slate-400 opacity-60 group-hover:opacity-100 transition-opacity">
+                  <span className="text-xs font-medium text-slate-400 opacity-60 group-hover:opacity-100 transition-opacity ml-1">
                     {total} {total === 1 ? 'Comment' : 'Comments'}
                   </span>
                 </div>

@@ -253,7 +253,7 @@ function ExportableSection({ id, name, children, filters }: { id: string, name: 
       <button 
         onClick={handleExport}
         title={`Export ${name} as Image`}
-        className="absolute top-2 right-2 z-20 opacity-0 group-hover/export:opacity-100 transition-opacity duration-300 p-2 rounded-lg text-slate-400 hover:text-slate-900 hover:bg-slate-100/80"
+        className="absolute top-2 right-2 z-20 transition-colors duration-300 p-2 rounded-lg text-slate-400 hover:text-slate-900 hover:bg-slate-100/80"
       >
         <Download className="w-4 h-4" />
       </button>

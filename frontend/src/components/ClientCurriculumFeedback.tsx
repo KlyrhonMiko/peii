@@ -105,11 +105,11 @@ export function ClientCurriculumFeedback({ surveyId, feedbacks, isLoading, onRef
     <div className="h-full flex flex-col">
       <div className="mb-8 flex flex-col gap-6">
         <div>
-          <h3 className="font-semibold text-slate-900 flex items-center gap-2">
+          <h3 className="font-semibold text-slate-900 flex items-baseline gap-3">
             Curriculum & Improvement Feedback
             {!isLoading && filteredFeedbacks.length > 0 && (
-              <span className="text-xs font-normal text-slate-400">
-                ({filteredFeedbacks.length})
+              <span className="text-[13px] font-normal text-slate-400">
+                {filteredFeedbacks.length} responses
               </span>
             )}
           </h3>

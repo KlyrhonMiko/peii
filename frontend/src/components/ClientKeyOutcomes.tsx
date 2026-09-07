@@ -75,9 +75,14 @@ export function ClientKeyOutcomes({ aggregates, isLoading }: ClientKeyOutcomesPr
               <span className="text-5xl font-light tracking-tighter text-slate-900 leading-[1.1] break-words">
                 {Math.round(chartData.positivePct)}%
               </span>
-              <span className="text-sm font-medium text-slate-500 mt-2">
-                Report Stable Employment
-              </span>
+              <div className="flex items-baseline gap-3 mt-2">
+                <span className="text-sm font-medium text-slate-500">
+                  Report Stable Employment
+                </span>
+                <span className="text-[13px] font-normal text-slate-400 tabular-nums">
+                  {chartData.total} responses
+                </span>
+              </div>
             </div>
 
             {/* Segmented Bar */}

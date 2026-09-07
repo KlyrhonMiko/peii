@@ -75,9 +75,14 @@ export function ClientDegreeAlignment({ aggregates, isLoading }: ClientDegreeAli
               <span className="text-5xl font-light tracking-tighter text-slate-900 leading-[1.1] break-words">
                 {Math.round(chartData.positivePct)}%
               </span>
-              <span className="text-sm font-medium text-slate-500 mt-2">
-                Report Job Alignment
-              </span>
+              <div className="flex items-baseline gap-3 mt-2">
+                <span className="text-sm font-medium text-slate-500">
+                  Report Job Alignment
+                </span>
+                <span className="text-[13px] font-normal text-slate-400 tabular-nums">
+                  {chartData.total} responses
+                </span>
+              </div>
             </div>
 
             {/* Segmented Bar */}
