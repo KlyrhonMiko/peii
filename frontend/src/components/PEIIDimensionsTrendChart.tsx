@@ -110,10 +110,10 @@ export function PEIIDimensionsTrendChart({ data, isLoading, isExport }: PEIIDime
   return (
     <div className="h-full flex flex-col">
       <div className={isExport ? "mb-8" : "mb-6"}>
-        <h3 className={isExport ? "text-3xl font-bold tracking-tight text-slate-900" : "text-2xl font-bold tracking-tight text-slate-900"}>
+        <h3 className={isExport ? "text-4xl font-bold tracking-tight text-slate-900" : "text-2xl font-bold tracking-tight text-slate-900"}>
           Dimension Trend Comparison
         </h3>
-        <p className={isExport ? "text-base text-slate-500 mt-2 mb-6 max-w-3xl" : "text-sm text-slate-500 mt-1 mb-5 max-w-3xl"}>
+        <p className={isExport ? "text-xl text-slate-500 mt-3 mb-8 max-w-4xl" : "text-sm text-slate-500 mt-1 mb-5 max-w-3xl"}>
           Cohort net competency gain per dimension (1–5 scale): Measures graduate skill growth from college baseline to workplace outcome (Post-Grad − Pre-Grad) across cohorts.
         </p>
 
@@ -131,10 +131,10 @@ export function PEIIDimensionsTrendChart({ data, isLoading, isExport }: PEIIDime
                 onMouseLeave={() => setHoveredLine(null)}
               >
                 <div 
-                  className={`rounded-full transition-transform duration-300 group-hover:scale-y-150 ${isExport ? 'w-4 h-[4px]' : 'w-3.5 h-[3px]'}`} 
+                  className={`rounded-full transition-transform duration-300 group-hover:scale-y-150 ${isExport ? 'w-6 h-[6px]' : 'w-3.5 h-[3px]'}`} 
                   style={{ backgroundColor: color }} 
                 />
-                <span className={`font-medium tracking-wide ${isExport ? 'text-sm text-slate-700 font-semibold' : 'text-[13px] text-slate-600'}`}>
+                <span className={`font-medium tracking-wide ${isExport ? 'text-lg text-slate-700 font-semibold' : 'text-[13px] text-slate-600'}`}>
                   {dim}
                 </span>
               </div>
@@ -168,14 +168,14 @@ export function PEIIDimensionsTrendChart({ data, isLoading, isExport }: PEIIDime
                 dataKey="batch_year" 
                 axisLine={false}
                 tickLine={false}
-                tick={{ fill: '#64748b', fontSize: isExport ? 13 : 12, fontWeight: 500 }}
+                tick={{ fill: '#64748b', fontSize: isExport ? 16 : 12, fontWeight: 500 }}
                 dy={10}
               />
               <YAxis 
                 domain={[(dataMin: number) => Math.min(0, dataMin), 'auto']}
                 axisLine={false}
                 tickLine={false}
-                tick={{ fill: '#64748b', fontSize: isExport ? 13 : 12, fontWeight: 500 }}
+                tick={{ fill: '#64748b', fontSize: isExport ? 16 : 12, fontWeight: 500 }}
                 tickFormatter={(val) => val > 0 ? `+${val.toFixed(1)}` : val.toFixed(1)}
                 dx={-15}
               />
@@ -187,7 +187,7 @@ export function PEIIDimensionsTrendChart({ data, isLoading, isExport }: PEIIDime
                   value: "0.00 Baseline (No Change)", 
                   position: "insideBottomRight", 
                   fill: "#94a3b8", 
-                  fontSize: isExport ? 12 : 10,
+                  fontSize: isExport ? 16 : 10,
                   fontWeight: 500
                 }} 
               />
@@ -207,10 +207,10 @@ export function PEIIDimensionsTrendChart({ data, isLoading, isExport }: PEIIDime
                     dataKey={dim}
                     name={dim}
                     stroke={color}
-                    strokeWidth={isHovered ? 4 : 2.5}
+                    strokeWidth={isExport ? (isHovered ? 6 : 4.5) : (isHovered ? 4 : 2.5)}
                     strokeOpacity={isFaded ? 0.15 : 1}
-                    dot={isFaded ? false : { r: 4, fill: color, strokeWidth: 2, stroke: "#fff" }}
-                    activeDot={isFaded ? false : { r: 6, fill: color, strokeWidth: 0 }}
+                    dot={isFaded ? false : { r: isExport ? 7 : 4, fill: color, strokeWidth: isExport ? 3 : 2, stroke: "#fff" }}
+                    activeDot={isFaded ? false : { r: isExport ? 10 : 6, fill: color, strokeWidth: 0 }}
                     onMouseEnter={() => setHoveredLine(dim)}
                     style={{ transition: 'all 0.3s ease' }}
                   />
@@ -222,7 +222,7 @@ export function PEIIDimensionsTrendChart({ data, isLoading, isExport }: PEIIDime
       </div>
 
       {/* Editorial Legend */}
-      <div className="flex items-center gap-6 mt-6 pt-4 border-t border-slate-100 text-xs text-slate-500">
+      <div className={`flex items-center gap-6 mt-6 pt-4 border-t border-slate-100 ${isExport ? 'text-base text-slate-500' : 'text-xs text-slate-500'}`}>
         <div className="flex items-center gap-2.5">
           <div className="w-5 h-0.5 border-b-2 border-dashed border-slate-400" />
           <span className="font-medium text-slate-500">0.00 Baseline (No Change)</span>

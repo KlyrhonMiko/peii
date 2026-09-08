@@ -103,7 +103,7 @@ export function ClientKeyOutcomes({ aggregates, isLoading, isExport }: ClientKey
                   <Tooltip 
                     contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 12px -2px rgb(0 0 0 / 0.1)', fontSize: '13px' }}
                     itemStyle={{ color: '#334155' }}
-                    formatter={(value: any, name: any) => [`${value} responses (${Math.round((Number(value) / chartData.total) * 100)}%)`, name]}
+                    formatter={(value: unknown, name: unknown) => [`${String(value)} responses (${Math.round((Number(value) / chartData.total) * 100)}%)`, String(name)]}
                   />
                 </PieChart>
               </ResponsiveContainer>

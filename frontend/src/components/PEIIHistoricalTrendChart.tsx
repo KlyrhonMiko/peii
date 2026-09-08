@@ -50,7 +50,7 @@ interface PointLabelProps {
   x?: number
   y?: number
   value?: number | string
-  isExport?: boolean
+  isExport?: boolean | undefined
 }
 
 function PointLabel({ x, y, value, isExport }: PointLabelProps) {
@@ -66,7 +66,7 @@ function PointLabel({ x, y, value, isExport }: PointLabelProps) {
       y={y - 10}
       textAnchor="middle"
       fill="#334155"
-      fontSize={isExport ? 12 : 11}
+      fontSize={isExport ? 16 : 11}
       fontWeight={600}
       fontFamily="ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace"
       style={{
@@ -93,10 +93,10 @@ export function PEIIHistoricalTrendChart({ data, isLoading, isExport }: PEIIHist
       {/* Editorial Header */}
       <div className={isExport ? "mb-8 flex items-start justify-between" : "mb-6 flex items-start justify-between"}>
         <div>
-          <h3 className={isExport ? "text-3xl font-bold tracking-tight text-slate-900" : "text-2xl font-bold tracking-tight text-slate-900"}>
+          <h3 className={isExport ? "text-4xl font-bold tracking-tight text-slate-900" : "text-2xl font-bold tracking-tight text-slate-900"}>
             Historical PEII Trend
           </h3>
-          <p className={isExport ? "text-base text-slate-500 mt-2" : "text-sm text-slate-500 mt-1"}>
+          <p className={isExport ? "text-xl text-slate-500 mt-3" : "text-sm text-slate-500 mt-1"}>
             Cohort average value-added score (1–5 scale): Net competency gain from college baseline to workplace outcome (Post-Grad − Pre-Grad)
           </p>
         </div>
@@ -132,14 +132,14 @@ export function PEIIHistoricalTrendChart({ data, isLoading, isExport }: PEIIHist
                 dataKey="batch_year" 
                 axisLine={false}
                 tickLine={false}
-                tick={{ fill: '#64748b', fontSize: isExport ? 13 : 11, fontWeight: 500 }}
+                tick={{ fill: '#64748b', fontSize: isExport ? 16 : 11, fontWeight: 500 }}
                 dy={10}
               />
               <YAxis 
                 domain={[(dataMin: number) => Math.min(0, dataMin), 'auto']}
                 axisLine={false}
                 tickLine={false}
-                tick={{ fill: '#64748b', fontSize: isExport ? 13 : 11, fontWeight: 500 }}
+                tick={{ fill: '#64748b', fontSize: isExport ? 16 : 11, fontWeight: 500 }}
                 tickFormatter={(val) => val > 0 ? `+${val.toFixed(1)}` : val.toFixed(1)}
                 dx={-10}
               />
@@ -151,7 +151,7 @@ export function PEIIHistoricalTrendChart({ data, isLoading, isExport }: PEIIHist
                   value: "0.00 Baseline (No Change)", 
                   position: "insideBottomRight", 
                   fill: "#94a3b8", 
-                  fontSize: isExport ? 12 : 10,
+                  fontSize: isExport ? 16 : 10,
                   fontWeight: 500
                 }} 
               />
@@ -160,9 +160,9 @@ export function PEIIHistoricalTrendChart({ data, isLoading, isExport }: PEIIHist
                 type="monotone" 
                 dataKey="peii_score" 
                 stroke="url(#peiiTrendStroke)" 
-                strokeWidth={3.5}
-                dot={{ r: 5, fill: "#10b981", strokeWidth: 2.5, stroke: "#fff" }}
-                activeDot={{ r: 7.5, fill: "#059669", strokeWidth: 2.5, stroke: "#fff" }}
+                strokeWidth={isExport ? 5 : 3.5}
+                dot={{ r: isExport ? 8 : 5, fill: "#10b981", strokeWidth: isExport ? 4 : 2.5, stroke: "#fff" }}
+                activeDot={{ r: isExport ? 10 : 7.5, fill: "#059669", strokeWidth: isExport ? 4 : 2.5, stroke: "#fff" }}
               >
                 <LabelList
                   dataKey="peii_score"
@@ -175,7 +175,7 @@ export function PEIIHistoricalTrendChart({ data, isLoading, isExport }: PEIIHist
       </div>
 
       {/* Editorial Legend */}
-      <div className="flex items-center gap-6 mt-6 pt-4 border-t border-slate-100 text-xs">
+      <div className={`flex items-center gap-6 mt-6 pt-4 border-t border-slate-100 ${isExport ? 'text-base' : 'text-xs'}`}>
         <div className="flex items-center gap-2.5">
           <div className="w-5 h-1 rounded-full bg-gradient-to-r from-blue-500 via-rose-500 to-emerald-500" />
           <span className="font-semibold text-slate-700">Cohort PEII Value-Add</span>
