@@ -708,17 +708,18 @@ export default function AnalyticsPage() {
                   <div className="text-xl text-slate-500 font-medium">{filters.department}</div>
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-16 py-12 border-b-2 border-slate-100">
-                <div className="flex flex-col gap-12">
-                  <ClientKeyOutcomes aggregates={aggregates} isLoading={false} isExport={true} />
-                  <ClientDegreeAlignment aggregates={aggregates} isLoading={false} isExport={true} />
-                </div>
-                <div className="flex flex-col gap-12 border-l-2 border-slate-100 pl-16">
+              <div className="flex flex-col gap-16 py-12 border-b-2 border-slate-100">
+                <div className="w-full pb-8 border-b border-slate-100">
                   <ClientDemographicsOverview demographics={demographics} isLoading={false} isExport={true} />
                 </div>
-              </div>
-              <div className="pt-12 pb-4">
-                <ClientFeedbackClassificationChart data={classificationData} isExport={true} />
+                <div className="grid grid-cols-2 gap-16">
+                  <div className="flex flex-col">
+                    <ClientKeyOutcomes aggregates={aggregates} isLoading={false} isExport={true} />
+                  </div>
+                  <div className="flex flex-col">
+                    <ClientDegreeAlignment aggregates={aggregates} isLoading={false} isExport={true} />
+                  </div>
+                </div>
               </div>
             </div>
 

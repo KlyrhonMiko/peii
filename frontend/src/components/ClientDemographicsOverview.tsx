@@ -38,7 +38,7 @@ export function ClientDemographicsOverview({
   const labelClass = `font-bold uppercase tracking-[0.2em] text-slate-500 ${isExport ? 'text-xs' : 'text-[10px]'}`
 
   return (
-    <div className="flex flex-col gap-12 animate-in fade-in slide-in-from-bottom-4 duration-700 fill-mode-both">
+    <div className={isExport ? "flex flex-row items-start justify-between w-full" : "flex flex-col gap-12 animate-in fade-in slide-in-from-bottom-4 duration-700 fill-mode-both"}>
       
       {/* Total Responses */}
       <div className="flex flex-col">

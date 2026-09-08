@@ -57,7 +57,7 @@ export function ClientDegreeAlignment({ aggregates, isLoading, isExport }: Clien
 
   return (
     <div className="flex flex-col">
-      <div className={isExport ? "mb-8 flex flex-col" : "mb-6 flex flex-col"}>
+      <div className={isExport ? "mb-4 flex flex-col min-h-[130px]" : "mb-6 flex flex-col"}>
         <div className="mb-2">
           <span className={`border-l-2 border-violet-500 pl-2 font-bold uppercase tracking-[0.2em] text-violet-600 ${isExport ? 'text-xs' : 'text-[10px]'}`}>
             Employability Domain
@@ -71,7 +71,7 @@ export function ClientDegreeAlignment({ aggregates, isLoading, isExport }: Clien
         </p>
       </div>
 
-      <div className="flex flex-col mt-2">
+      <div className="flex flex-col">
         {isLoading ? (
           <div className="animate-pulse flex flex-col gap-4">
             <div className="h-12 w-24 bg-slate-100 rounded"></div>
@@ -119,12 +119,12 @@ export function ClientDegreeAlignment({ aggregates, isLoading, isExport }: Clien
             </div>
             
             {/* Info Text and Legend */}
-            <div className="flex flex-col w-full max-w-sm mt-10">
-              <div className="flex flex-col items-center text-center mb-6">
-                <span className="text-base font-medium text-slate-800 leading-snug">
+            <div className={`flex flex-col w-full max-w-sm mt-10`}>
+              <div className="flex flex-col mb-6 items-center text-center">
+                <span className={`${isExport ? 'text-lg' : 'text-base'} font-medium text-slate-800 leading-snug`}>
                   Report Job Alignment
                 </span>
-                <span className="text-sm font-normal text-slate-500 mt-1.5 leading-snug">
+                <span className={`${isExport ? 'text-base' : 'text-sm'} font-normal text-slate-500 mt-1.5 leading-snug`}>
                   Based on {chartData.total} responses
                 </span>
               </div>
@@ -135,11 +135,11 @@ export function ClientDegreeAlignment({ aggregates, isLoading, isExport }: Clien
                   <div key={segment.name} className="flex items-center justify-between gap-4">
                     <div className="flex items-center gap-3.5">
                       <div className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: SCALE_COLORS_HEX[segment.name] || '#cbd5e1' }} />
-                      <span className="text-sm font-medium text-slate-600 truncate">
+                      <span className={`${isExport ? 'text-base' : 'text-sm'} font-medium text-slate-600 truncate`}>
                         {segment.name}
                       </span>
                     </div>
-                    <span className="text-sm font-semibold text-slate-900 tabular-nums shrink-0">
+                    <span className={`${isExport ? 'text-base' : 'text-sm'} font-semibold text-slate-900 tabular-nums shrink-0`}>
                       {segment.pct}%
                     </span>
                   </div>
