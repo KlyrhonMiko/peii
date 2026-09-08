@@ -8,6 +8,7 @@ import { getDimensionColor } from "@/lib/dimension-colors"
 export interface PEIIDimensionsTrendChartProps {
   data: PEIIHistoricalTrend[]
   isLoading?: boolean
+  isExport?: boolean
 }
 
 function formatValue(val: number) {
@@ -25,7 +26,7 @@ interface CustomTooltipProps {
   active?: boolean
   payload?: TooltipPayloadEntry[]
   label?: string | number
-  hoveredLine: string | null
+  hoveredLine?: string | null
 }
 
 function CustomTooltip({ active, payload, label, hoveredLine }: CustomTooltipProps) {
@@ -49,7 +50,7 @@ function CustomTooltip({ active, payload, label, hoveredLine }: CustomTooltipPro
                 <div className="flex items-start gap-2.5 flex-1">
                   <div 
                     className="w-2.5 h-1 rounded-[1px] mt-2 flex-shrink-0" 
-                    style={{ backgroundColor: entryColor }}
+                    style={{ backgroundColor: entryColor }} 
                   />
                   <span className="leading-tight text-slate-700 font-medium">
                     {entry.name}
@@ -71,7 +72,7 @@ function CustomTooltip({ active, payload, label, hoveredLine }: CustomTooltipPro
   return null
 }
 
-export function PEIIDimensionsTrendChart({ data, isLoading }: PEIIDimensionsTrendChartProps) {
+export function PEIIDimensionsTrendChart({ data, isLoading, isExport }: PEIIDimensionsTrendChartProps) {
   const chartData = useMemo(() => {
     const sorted = [...data].sort((a, b) => a.batch_year.localeCompare(b.batch_year))
     return sorted.map(d => {
@@ -102,9 +103,11 @@ export function PEIIDimensionsTrendChart({ data, isLoading }: PEIIDimensionsTren
 
   return (
     <div className="h-full flex flex-col">
-      <div className="mb-10">
-        <h3 className="font-semibold text-slate-900 text-lg">Dimension Trend Comparison</h3>
-        <p className="text-sm text-slate-500 mt-1 mb-8 max-w-3xl">
+      <div className={isExport ? "mb-10" : "mb-8"}>
+        <h3 className={isExport ? "text-3xl font-bold tracking-tight text-slate-900" : "text-2xl font-bold tracking-tight text-slate-900"}>
+          Dimension Trend Comparison
+        </h3>
+        <p className={isExport ? "text-base text-slate-500 mt-2 mb-8 max-w-3xl" : "text-sm text-slate-500 mt-1 mb-6 max-w-3xl"}>
           Compare the trajectories of all 5 dimensions. Hover over a line or legend item to isolate it and resolve overlapping.
         </p>
 
@@ -122,10 +125,10 @@ export function PEIIDimensionsTrendChart({ data, isLoading }: PEIIDimensionsTren
                 onMouseLeave={() => setHoveredLine(null)}
               >
                 <div 
-                  className="w-3.5 h-[3px] rounded-full transition-transform duration-300 group-hover:scale-y-150" 
+                  className={`rounded-full transition-transform duration-300 group-hover:scale-y-150 ${isExport ? 'w-4 h-[4px]' : 'w-3.5 h-[3px]'}`} 
                   style={{ backgroundColor: color }} 
                 />
-                <span className="text-[13px] font-medium text-slate-600 tracking-wide">
+                <span className={`font-medium tracking-wide ${isExport ? 'text-sm text-slate-700 font-semibold' : 'text-[13px] text-slate-600'}`}>
                   {dim}
                 </span>
               </div>
@@ -159,13 +162,13 @@ export function PEIIDimensionsTrendChart({ data, isLoading }: PEIIDimensionsTren
                 dataKey="batch_year" 
                 axisLine={false}
                 tickLine={false}
-                tick={{ fill: '#94a3b8', fontSize: 12, fontWeight: 500 }}
+                tick={{ fill: '#64748b', fontSize: isExport ? 13 : 12, fontWeight: 500 }}
                 dy={10}
               />
               <YAxis 
                 axisLine={false}
                 tickLine={false}
-                tick={{ fill: '#94a3b8', fontSize: 12, fontWeight: 500 }}
+                tick={{ fill: '#64748b', fontSize: isExport ? 13 : 12, fontWeight: 500 }}
                 tickFormatter={(val) => val > 0 ? `+${val.toFixed(1)}` : val.toFixed(1)}
                 dx={-15}
               />

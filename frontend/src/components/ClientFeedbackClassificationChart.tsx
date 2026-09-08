@@ -11,6 +11,12 @@ const DynamicChart = dynamic(
   { ssr: false }
 )
 
-export function ClientFeedbackClassificationChart({ data }: { data?: FeedbackClassification[] }) {
-  return <DynamicChart data={data} />
+export function ClientFeedbackClassificationChart({ 
+  data, 
+  isExport 
+}: { 
+  data?: FeedbackClassification[] | undefined
+  isExport?: boolean | undefined 
+}) {
+  return <DynamicChart data={data} isExport={isExport} />
 }

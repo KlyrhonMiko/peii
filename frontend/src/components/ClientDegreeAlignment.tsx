@@ -6,6 +6,7 @@ import type { SurveyResponseAggregate } from "@/lib/surveys"
 export interface ClientDegreeAlignmentProps {
   aggregates: SurveyResponseAggregate[]
   isLoading?: boolean
+  isExport?: boolean
 }
 
 // Colors for the Likert scale segments aligned with Employability dimension
@@ -17,7 +18,7 @@ const SCALE_COLORS: Record<string, string> = {
   "Strongly Disagree": "bg-slate-200"
 }
 
-export function ClientDegreeAlignment({ aggregates, isLoading }: ClientDegreeAlignmentProps) {
+export function ClientDegreeAlignment({ aggregates, isLoading, isExport }: ClientDegreeAlignmentProps) {
   const chartData = useMemo(() => {
     if (!aggregates || aggregates.length === 0) return null
     
@@ -49,14 +50,16 @@ export function ClientDegreeAlignment({ aggregates, isLoading }: ClientDegreeAli
 
   return (
     <div className="flex flex-col">
-      <div className="mb-6 flex flex-col">
+      <div className={isExport ? "mb-8 flex flex-col" : "mb-6 flex flex-col"}>
         <div className="mb-2">
-          <span className="border-l-2 border-violet-500 pl-2 text-[10px] font-bold uppercase tracking-[0.2em] text-violet-600">
+          <span className={`border-l-2 border-violet-500 pl-2 font-bold uppercase tracking-[0.2em] text-violet-600 ${isExport ? 'text-xs' : 'text-[10px]'}`}>
             Employability Domain
           </span>
         </div>
-        <h3 className="font-semibold text-slate-900">Degree Alignment</h3>
-        <p className="text-sm text-slate-500 mt-1">
+        <h3 className={isExport ? "text-2xl font-bold tracking-tight text-slate-900" : "text-xl font-bold tracking-tight text-slate-900"}>
+          Degree Alignment
+        </h3>
+        <p className={isExport ? "text-base text-slate-500 mt-1.5" : "text-sm text-slate-500 mt-1"}>
           &ldquo;My job is aligned with my degree&rdquo; (Post-Grad)
         </p>
       </div>

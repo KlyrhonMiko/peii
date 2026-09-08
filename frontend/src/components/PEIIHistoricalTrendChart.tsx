@@ -7,6 +7,7 @@ import type { PEIIHistoricalTrend } from "@/lib/surveys"
 export interface PEIIHistoricalTrendChartProps {
   data: PEIIHistoricalTrend[]
   isLoading?: boolean
+  isExport?: boolean
 }
 
 interface TooltipPayloadEntry {
@@ -21,12 +22,12 @@ interface CustomTooltipProps {
 }
 
 function CustomTooltip({ active, payload, label }: CustomTooltipProps) {
-  if (active && payload && payload.length) {
+  if (active && payload && payload.length > 0 && payload[0]) {
     const first = payload[0]
-    const val = typeof first?.value === "number" ? first.value : Number(first?.value ?? 0)
+    const val = typeof first.value === "number" ? first.value : Number(first.value ?? 0)
     return (
-      <div className="bg-white p-3 border border-slate-200 rounded-lg shadow-sm">
-        <p className="font-semibold text-slate-900 mb-1">Batch {label}</p>
+      <div className="bg-white/95 backdrop-blur-md px-3 py-2 border border-slate-200 shadow-sm text-left">
+        <p className="text-xs font-semibold text-slate-700">Batch {label}</p>
         <p className="text-emerald-600 font-medium text-sm">
           PEII Score: +{val.toFixed(2)}
         </p>
@@ -36,17 +37,19 @@ function CustomTooltip({ active, payload, label }: CustomTooltipProps) {
   return null
 }
 
-export function PEIIHistoricalTrendChart({ data, isLoading }: PEIIHistoricalTrendChartProps) {
+export function PEIIHistoricalTrendChart({ data, isLoading, isExport }: PEIIHistoricalTrendChartProps) {
   const chartData = useMemo(() => {
     return [...data].sort((a, b) => a.batch_year.localeCompare(b.batch_year))
   }, [data])
 
   return (
     <div className="h-full flex flex-col">
-      <div className="mb-6 flex items-start justify-between">
+      <div className={isExport ? "mb-8 flex items-start justify-between" : "mb-6 flex items-start justify-between"}>
         <div>
-          <h3 className="font-semibold text-slate-900">Historical PEII Trend</h3>
-          <p className="text-sm text-slate-500 mt-1">
+          <h3 className={isExport ? "text-3xl font-bold tracking-tight text-slate-900" : "text-2xl font-bold tracking-tight text-slate-900"}>
+            Historical PEII Trend
+          </h3>
+          <p className={isExport ? "text-base text-slate-500 mt-2" : "text-sm text-slate-500 mt-1"}>
             Year-over-year impact score tracking
           </p>
         </div>
@@ -82,13 +85,13 @@ export function PEIIHistoricalTrendChart({ data, isLoading }: PEIIHistoricalTren
                 dataKey="batch_year" 
                 axisLine={false}
                 tickLine={false}
-                tick={{ fill: '#64748b', fontSize: 11, fontWeight: 500 }}
+                tick={{ fill: '#64748b', fontSize: isExport ? 13 : 11, fontWeight: 500 }}
                 dy={10}
               />
               <YAxis 
                 axisLine={false}
                 tickLine={false}
-                tick={{ fill: '#64748b', fontSize: 11, fontWeight: 500 }}
+                tick={{ fill: '#64748b', fontSize: isExport ? 13 : 11, fontWeight: 500 }}
                 tickFormatter={(val) => `+${val.toFixed(1)}`}
                 dx={-10}
               />

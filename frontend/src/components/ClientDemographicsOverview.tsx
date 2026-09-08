@@ -6,10 +6,12 @@ import type { PEIIDemographics } from "@/lib/surveys"
 
 export function ClientDemographicsOverview({
   demographics,
-  isLoading
+  isLoading,
+  isExport
 }: {
   demographics: PEIIDemographics | null
   isLoading?: boolean
+  isExport?: boolean
 }) {
   if (isLoading) {
     return (
@@ -33,13 +35,15 @@ export function ClientDemographicsOverview({
   const topLocation = getTop(demographics.location_distribution)
   const topDept = getTop(demographics.department_distribution)
 
+  const labelClass = `font-bold uppercase tracking-[0.2em] text-slate-500 ${isExport ? 'text-xs' : 'text-[10px]'}`
+
   return (
     <div className="flex flex-col gap-12 animate-in fade-in slide-in-from-bottom-4 duration-700 fill-mode-both">
       
       {/* Total Responses */}
       <div className="flex flex-col">
         <div className="mb-6">
-          <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500">Total Respondents</span>
+          <span className={labelClass}>Total Respondents</span>
         </div>
         <div className="mt-auto flex flex-col gap-2">
           <span className="text-5xl font-light tracking-tighter text-slate-900 leading-[1.1] break-words">
@@ -56,7 +60,7 @@ export function ClientDemographicsOverview({
       {/* Top Location */}
       <div className="flex flex-col" style={{ animationDelay: '100ms' }}>
         <div className="mb-6">
-          <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500">Primary Location</span>
+          <span className={labelClass}>Primary Location</span>
         </div>
         <div className="mt-auto flex flex-col gap-2">
           <span className="text-5xl font-light tracking-tighter text-slate-900 leading-[1.1] break-words">
@@ -73,7 +77,7 @@ export function ClientDemographicsOverview({
       {/* Top Department */}
       <div className="flex flex-col" style={{ animationDelay: '200ms' }}>
         <div className="mb-6">
-          <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500">Top Program</span>
+          <span className={labelClass}>Top Program</span>
         </div>
         <div className="mt-auto flex flex-col gap-2">
           <span className="text-5xl font-light tracking-tighter text-slate-900 leading-[1.1] break-words">

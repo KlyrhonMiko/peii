@@ -662,15 +662,15 @@ export default function AnalyticsPage() {
           <div className="flex flex-col gap-[2000px]">
             
             {/* PAGE 1: Scorecard */}
-            <div id="social-export-dashboard-1" className="w-[1080px] bg-white p-16 flex flex-col font-sans border border-slate-100">
+            <div id="social-export-dashboard-1" className="w-[1080px] bg-white p-16 flex flex-col font-sans border border-slate-100 export-poster">
               <div className="flex justify-between items-end pb-8 border-b-2 border-slate-900">
                 <div className="space-y-2">
-                  <h2 className="text-4xl font-bold tracking-tight text-slate-900">Pasig Education Impact Index</h2>
-                  <p className="text-xl text-slate-500 font-medium uppercase tracking-widest">Impact Scorecard</p>
+                  <h2 className="text-5xl font-extrabold tracking-tight text-slate-900">Pasig Education Impact Index</h2>
+                  <p className="text-xl text-slate-500 font-semibold uppercase tracking-[0.2em]">Impact Scorecard</p>
                 </div>
                 <div className="text-right flex flex-col items-end gap-1">
-                  <div className="text-2xl font-bold text-slate-900">{filters.batch}</div>
-                  <div className="text-lg text-slate-500">{filters.department}</div>
+                  <div className="text-3xl font-bold text-slate-900">{filters.batch}</div>
+                  <div className="text-xl text-slate-500 font-medium">{filters.department}</div>
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-12 py-12 border-b-2 border-slate-100">
@@ -692,55 +692,55 @@ export default function AnalyticsPage() {
                 })}
               </div>
               <div className="pt-12 pb-4 flex flex-col gap-6">
-                <ClientDomainGainChart data={chartData} isLoading={false} />
+                <ClientDomainGainChart data={chartData} isLoading={false} isExport={true} />
               </div>
             </div>
 
             {/* PAGE 2: Outcomes & Demographics */}
-            <div id="social-export-dashboard-2" className="w-[1080px] bg-white p-16 flex flex-col font-sans border border-slate-100">
+            <div id="social-export-dashboard-2" className="w-[1080px] bg-white p-16 flex flex-col font-sans border border-slate-100 export-poster">
               <div className="flex justify-between items-end pb-8 border-b-2 border-slate-900">
                 <div className="space-y-2">
-                  <h2 className="text-4xl font-bold tracking-tight text-slate-900">Pasig Education Impact Index</h2>
-                  <p className="text-xl text-slate-500 font-medium uppercase tracking-widest">Graduate Outcomes</p>
+                  <h2 className="text-5xl font-extrabold tracking-tight text-slate-900">Pasig Education Impact Index</h2>
+                  <p className="text-xl text-slate-500 font-semibold uppercase tracking-[0.2em]">Graduate Outcomes</p>
                 </div>
                 <div className="text-right flex flex-col items-end gap-1">
-                  <div className="text-2xl font-bold text-slate-900">{filters.batch}</div>
-                  <div className="text-lg text-slate-500">{filters.department}</div>
+                  <div className="text-3xl font-bold text-slate-900">{filters.batch}</div>
+                  <div className="text-xl text-slate-500 font-medium">{filters.department}</div>
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-16 py-12 border-b-2 border-slate-100">
                 <div className="flex flex-col gap-12">
-                  <ClientKeyOutcomes aggregates={aggregates} isLoading={false} />
-                  <ClientDegreeAlignment aggregates={aggregates} isLoading={false} />
+                  <ClientKeyOutcomes aggregates={aggregates} isLoading={false} isExport={true} />
+                  <ClientDegreeAlignment aggregates={aggregates} isLoading={false} isExport={true} />
                 </div>
                 <div className="flex flex-col gap-12 border-l-2 border-slate-100 pl-16">
-                  <ClientDemographicsOverview demographics={demographics} isLoading={false} />
+                  <ClientDemographicsOverview demographics={demographics} isLoading={false} isExport={true} />
                 </div>
               </div>
               <div className="pt-12 pb-4">
-                <ClientFeedbackClassificationChart data={classificationData} />
+                <ClientFeedbackClassificationChart data={classificationData} isExport={true} />
               </div>
             </div>
 
             {/* PAGE 3: Trends (Only for All Batches) */}
             {filters.batch === "All Batches" && (
-              <div id="social-export-dashboard-3" className="w-[1080px] bg-white p-16 flex flex-col font-sans border border-slate-100">
+              <div id="social-export-dashboard-3" className="w-[1080px] bg-white p-16 flex flex-col font-sans border border-slate-100 export-poster">
                 <div className="flex justify-between items-end pb-8 border-b-2 border-slate-900">
                   <div className="space-y-2">
-                    <h2 className="text-4xl font-bold tracking-tight text-slate-900">Pasig Education Impact Index</h2>
-                    <p className="text-xl text-slate-500 font-medium uppercase tracking-widest">Longitudinal Trends</p>
+                    <h2 className="text-5xl font-extrabold tracking-tight text-slate-900">Pasig Education Impact Index</h2>
+                    <p className="text-xl text-slate-500 font-semibold uppercase tracking-[0.2em]">Longitudinal Trends</p>
                   </div>
                   <div className="text-right flex flex-col items-end gap-1">
-                    <div className="text-2xl font-bold text-slate-900">{filters.batch}</div>
-                    <div className="text-lg text-slate-500">{filters.department}</div>
+                    <div className="text-3xl font-bold text-slate-900">{filters.batch}</div>
+                    <div className="text-xl text-slate-500 font-medium">{filters.department}</div>
                   </div>
                 </div>
                 <div className="flex flex-col gap-16 pt-12">
                   <div className="pb-12 border-b-2 border-slate-100">
-                    <ClientPEIIHistoricalTrendChart data={historicalTrend} isLoading={false} />
+                    <ClientPEIIHistoricalTrendChart data={historicalTrend} isLoading={false} isExport={true} />
                   </div>
                   <div className="pb-4">
-                    <ClientPEIIDimensionsTrendChart data={historicalTrend} isLoading={false} />
+                    <ClientPEIIDimensionsTrendChart data={historicalTrend} isLoading={false} isExport={true} />
                   </div>
                 </div>
               </div>

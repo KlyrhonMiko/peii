@@ -3,7 +3,13 @@
 import type { FeedbackClassification } from "@/lib/surveys"
 import { getDimensionColor } from "@/lib/dimension-colors"
 
-export function FeedbackClassificationChart({ data }: { data?: FeedbackClassification[] | undefined }) {
+export function FeedbackClassificationChart({ 
+  data, 
+  isExport 
+}: { 
+  data?: FeedbackClassification[] | undefined
+  isExport?: boolean | undefined 
+}) {
   if (!data || data.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center h-full min-h-[400px] text-slate-500 text-sm bg-slate-50/50 rounded-xl">
@@ -14,9 +20,13 @@ export function FeedbackClassificationChart({ data }: { data?: FeedbackClassific
 
   return (
     <div className="flex flex-col h-full w-full relative">
-      <div className="mb-6 flex flex-col gap-1">
-        <h3 className="font-semibold text-slate-900">Feedback Sentiment by Dimension</h3>
-        <p className="text-sm text-slate-500">Distribution of positive, neutral, and negative feedback across dimensions</p>
+      <div className={isExport ? "mb-8 flex flex-col gap-1" : "mb-6 flex flex-col gap-1"}>
+        <h3 className={isExport ? "text-3xl font-bold tracking-tight text-slate-900" : "text-2xl font-bold tracking-tight text-slate-900"}>
+          Feedback Sentiment by Dimension
+        </h3>
+        <p className={isExport ? "text-base text-slate-500 mt-1.5" : "text-sm text-slate-500"}>
+          Distribution of positive, neutral, and negative feedback across dimensions
+        </p>
       </div>
 
       <div className="flex flex-col gap-8 flex-1 justify-center px-2">
