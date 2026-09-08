@@ -1,6 +1,7 @@
 "use client"
 
 import { useMemo } from "react"
+import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from "recharts"
 import type { SurveyResponseAggregate } from "@/lib/surveys"
 
 export interface ClientKeyOutcomesProps {
@@ -9,13 +10,13 @@ export interface ClientKeyOutcomesProps {
   isExport?: boolean
 }
 
-// Colors for the Likert scale segments aligned with Employability dimension
-const SCALE_COLORS: Record<string, string> = {
-  "Strongly Agree": "bg-violet-600",
-  "Agree": "bg-violet-400",
-  "Neutral": "bg-violet-200",
-  "Disagree": "bg-slate-300",
-  "Strongly Disagree": "bg-slate-200"
+// Colors for the Likert scale segments aligned with Employability dimension (Hex for Recharts)
+const SCALE_COLORS_HEX: Record<string, string> = {
+  "Strongly Agree": "#7c3aed", // violet-600
+  "Agree": "#a78bfa",          // violet-400
+  "Neutral": "#ddd6fe",        // violet-200
+  "Disagree": "#cbd5e1",       // slate-300
+  "Strongly Disagree": "#e2e8f0" // slate-200
 }
 
 export function ClientKeyOutcomes({ aggregates, isLoading, isExport }: ClientKeyOutcomesProps) {
@@ -41,11 +42,17 @@ export function ClientKeyOutcomes({ aggregates, isLoading, isExport }: ClientKey
     data.sort((a, b) => order.indexOf(a.name) - order.indexOf(b.name))
 
     const total = data.reduce((acc, curr) => acc + curr.value, 0)
-    const positiveCount = data
+    
+    const dataWithPct = data.map(c => ({
+      ...c,
+      pct: total > 0 ? Math.round((c.value / total) * 100) : 0
+    }))
+
+    const positivePct = dataWithPct
       .filter(d => d.name === "Strongly Agree" || d.name === "Agree")
-      .reduce((acc, curr) => acc + curr.value, 0)
+      .reduce((acc, curr) => acc + curr.pct, 0)
       
-    return { data, total, positivePct: total > 0 ? (positiveCount / total) * 100 : 0 }
+    return { data: dataWithPct, total, positivePct }
   }, [aggregates])
 
   return (
@@ -64,7 +71,7 @@ export function ClientKeyOutcomes({ aggregates, isLoading, isExport }: ClientKey
         </p>
       </div>
 
-      <div className="flex flex-col mt-4">
+      <div className="flex flex-col mt-2">
         {isLoading ? (
           <div className="animate-pulse flex flex-col gap-4">
             <div className="h-12 w-24 bg-slate-100 rounded"></div>
@@ -73,41 +80,67 @@ export function ClientKeyOutcomes({ aggregates, isLoading, isExport }: ClientKey
         ) : !chartData || chartData.total === 0 ? (
           <div className="text-slate-400 text-sm">No employment data available in current survey</div>
         ) : (
-          <div className="flex flex-col gap-6">
-            <div className="flex flex-col">
-              <span className="text-5xl font-light tracking-tighter text-slate-900 leading-[1.1] break-words">
-                {Math.round(chartData.positivePct)}%
-              </span>
-              <div className="flex items-baseline gap-3 mt-2">
-                <span className="text-sm font-medium text-slate-500">
-                  Report Stable Employment
+          <div className="flex flex-col items-center mt-8">
+            {/* Donut Chart */}
+            <div className="relative w-48 h-48 shrink-0">
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie
+                    data={chartData.data}
+                    cx="50%"
+                    cy="50%"
+                    innerRadius={68}
+                    outerRadius={92}
+                    paddingAngle={3}
+                    dataKey="value"
+                    stroke="none"
+                    cornerRadius={4}
+                  >
+                    {chartData.data.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={SCALE_COLORS_HEX[entry.name] || '#cbd5e1'} />
+                    ))}
+                  </Pie>
+                  <Tooltip 
+                    contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 12px -2px rgb(0 0 0 / 0.1)', fontSize: '13px' }}
+                    itemStyle={{ color: '#334155' }}
+                    formatter={(value: any, name: any) => [`${value} responses (${Math.round((Number(value) / chartData.total) * 100)}%)`, name]}
+                  />
+                </PieChart>
+              </ResponsiveContainer>
+              {/* Center Text */}
+              <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none mt-1">
+                <span className="text-5xl font-light tracking-tighter text-slate-900 leading-none">
+                  {chartData.positivePct}%
                 </span>
-                <span className="text-[13px] font-normal text-slate-400 tabular-nums">
-                  {chartData.total} responses
+                <span className="text-xs uppercase font-bold tracking-widest text-slate-400 mt-2">
+                  Favorable
                 </span>
               </div>
             </div>
-
-            {/* Segmented Bar */}
-            <div className="flex flex-col gap-3">
-              <div className="w-full flex h-3 rounded-full overflow-hidden">
-                {chartData.data.map(segment => (
-                  <div
-                    key={segment.name}
-                    className={`${SCALE_COLORS[segment.name] || 'bg-slate-100'} h-full transition-all hover:opacity-80`}
-                    style={{ width: `${(segment.value / chartData.total) * 100}%` }}
-                    title={`${segment.name}: ${Math.round((segment.value / chartData.total) * 100)}%`}
-                  />
-                ))}
+            
+            {/* Info Text and Legend */}
+            <div className="flex flex-col w-full max-w-sm mt-10">
+              <div className="flex flex-col items-center text-center mb-6">
+                <span className="text-base font-medium text-slate-800 leading-snug">
+                  Report Stable Employment
+                </span>
+                <span className="text-sm font-normal text-slate-500 mt-1.5 leading-snug">
+                  Based on {chartData.total} responses
+                </span>
               </div>
               
               {/* Legend */}
-              <div className="flex flex-wrap gap-x-5 gap-y-2 mt-2">
+              <div className="flex flex-col gap-3.5">
                 {chartData.data.map(segment => (
-                  <div key={segment.name} className="flex items-center gap-1.5">
-                    <div className={`w-3.5 h-1 rounded-[1px] ${SCALE_COLORS[segment.name] || 'bg-slate-100'}`} />
-                    <span className="text-[10px] uppercase font-bold tracking-wider text-slate-500">
-                      {segment.name}
+                  <div key={segment.name} className="flex items-center justify-between gap-4">
+                    <div className="flex items-center gap-3.5">
+                      <div className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: SCALE_COLORS_HEX[segment.name] || '#cbd5e1' }} />
+                      <span className="text-sm font-medium text-slate-600 truncate">
+                        {segment.name}
+                      </span>
+                    </div>
+                    <span className="text-sm font-semibold text-slate-900 tabular-nums shrink-0">
+                      {segment.pct}%
                     </span>
                   </div>
                 ))}
