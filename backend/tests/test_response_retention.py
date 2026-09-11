@@ -105,10 +105,9 @@ async def test_retention_policy_is_immutable_after_live_or_tombstoned_response(c
     assert changed.status_code == 409
     assert changed.json()["errors"] == {"code": "retention_policy_immutable"}
 
-    withdrawn = await client.post(
-        "/api/v1/survey/responses/withdraw", json={"withdrawal_code": code}
-    )
-    assert withdrawn.status_code == 200
+    from tests.test_response_withdrawal import _withdraw_stored_response
+
+    assert (await _withdraw_stored_response(code)).withdrawn
     changed_after_tombstone = await client.patch(
         f"/api/v1/surveys/{survey['survey_id']}", json={"retention_enabled": False}
     )

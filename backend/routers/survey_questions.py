@@ -3,6 +3,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Request, status
 
 from core.cache import cache_invalidate_prefix
+from core.client_ip import resolve_client_ip
 from core.deps import AsyncDBSession, Principal, require_permissions
 from core.responses import success_response
 from schemas.common import APIResponse
@@ -49,7 +50,7 @@ async def create_question(
     principal: Principal = Depends(require_permissions("surveys.manage")),
 ) -> APIResponse[SurveyQuestionRead]:
     await survey_service.resolve_survey(session, survey_id)
-    ip_address = request.client.host if request.client else None
+    ip_address = resolve_client_ip(request)
     question = await survey_question_service.create_question(
         session,
         survey_id,
@@ -78,7 +79,7 @@ async def reorder_questions(
     principal: Principal = Depends(require_permissions("surveys.manage")),
 ) -> APIResponse[list[SurveyQuestionRead]]:
     await survey_service.resolve_survey(session, survey_id)
-    ip_address = request.client.host if request.client else None
+    ip_address = resolve_client_ip(request)
     questions = await survey_question_service.reorder_questions(
         session,
         survey_id,
@@ -109,7 +110,7 @@ async def update_question(
     principal: Principal = Depends(require_permissions("surveys.manage")),
 ) -> APIResponse[SurveyQuestionRead]:
     await survey_service.resolve_survey(session, survey_id)
-    ip_address = request.client.host if request.client else None
+    ip_address = resolve_client_ip(request)
     question = await survey_question_service.update_question(
         session,
         survey_id,
@@ -139,7 +140,7 @@ async def delete_question(
     principal: Principal = Depends(require_permissions("surveys.manage")),
 ) -> APIResponse[SurveyQuestionRead]:
     await survey_service.resolve_survey(session, survey_id)
-    ip_address = request.client.host if request.client else None
+    ip_address = resolve_client_ip(request)
     question = await survey_question_service.delete_question(
         session, survey_id, question_id, actor_id=principal.user.id, ip_address=ip_address
     )

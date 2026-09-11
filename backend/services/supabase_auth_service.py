@@ -1,5 +1,7 @@
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
+
+import httpx
 
 from core.config import settings
 from core.exceptions import AppError
@@ -29,6 +31,14 @@ async def password_login(email: str, password: str) -> dict[str, Any]:
 
 _ADMIN_USERS_PAGE_SIZE = 1000
 _ADMIN_USERS_MAX_PAGES = 50
+LogoutScope = Literal["global", "local", "others"]
+_LOGOUT_SCOPES = frozenset({"global", "local", "others"})
+
+
+class LogoutUserSessionError(AppError):
+    def __init__(self, *, retryable: bool) -> None:
+        self.retryable = retryable
+        super().__init__("Unable to log out.", status_code=502)
 
 
 async def invite_user(email: str, redirect_to: str) -> dict[str, Any]:
@@ -103,28 +113,76 @@ async def revoke_user_sessions(auth_user_id: UUID | str) -> None:
         raise AppError("Unable to revoke user sessions.", status_code=502)
 
 
-async def logout_user_session(access_token: str) -> None:
+async def logout_user_session(access_token: str, scope: LogoutScope) -> None:
+    if scope not in _LOGOUT_SCOPES:
+        raise ValueError("Invalid logout scope.")
     client = get_http_client()
-    response = await client.post(
-        _auth_url("/logout"),
+    try:
+        response = await client.post(
+            _auth_url("/logout"),
+            headers={
+                "apikey": settings.SUPABASE_PUBLISHABLE_KEY,
+                "Authorization": f"Bearer {access_token}",
+            },
+            params={"scope": scope},
+        )
+    except httpx.TransportError as exc:
+        raise LogoutUserSessionError(retryable=True) from exc
+    if response.status_code not in {200, 204}:
+        raise LogoutUserSessionError(retryable=response.status_code >= 500)
+
+
+def _safe_password_provider_error(response: Any) -> AppError:
+    code = ""
+    try:
+        payload = response.json()
+        if isinstance(payload, dict):
+            code = str(
+                payload.get("code")
+                or payload.get("error_code")
+                or payload.get("error")
+                or payload.get("message")
+                or payload.get("error_description")
+                or ""
+            ).casefold()
+    except (TypeError, ValueError):
+        pass
+    if response.status_code == 429:
+        return AppError("Please wait before trying again.", status_code=429)
+    if "aal" in code or "insufficient" in code:
+        return AppError("Additional authentication is required.", status_code=403)
+    if "reauth" in code or "nonce" in code or "expired" in code or "invalid" in code:
+        return AppError("Password reauthentication is required.", status_code=400)
+    if code in {"weak_password", "same_password"}:
+        return AppError("Password does not meet the security requirements.", status_code=400)
+    return AppError("Unable to update password.", status_code=502)
+
+
+async def request_password_reauthentication(access_token: str) -> None:
+    client = get_http_client()
+    response = await client.get(
+        _auth_url("/reauthenticate"),
         headers={
             "apikey": settings.SUPABASE_PUBLISHABLE_KEY,
             "Authorization": f"Bearer {access_token}",
         },
     )
     if response.status_code not in {200, 204}:
-        raise AppError("Unable to log out.", status_code=502)
+        raise _safe_password_provider_error(response)
 
 
-async def update_password(access_token: str, password: str) -> None:
+async def update_password(access_token: str, password: str, nonce: str | None = None) -> None:
     client = get_http_client()
+    payload: dict[str, str] = {"password": password}
+    if nonce is not None:
+        payload["nonce"] = nonce
     response = await client.put(
         _auth_url("/user"),
         headers={
             "apikey": settings.SUPABASE_PUBLISHABLE_KEY,
             "Authorization": f"Bearer {access_token}",
         },
-        json={"password": password},
+        json=payload,
     )
     if response.status_code != 200:
-        raise AppError("Unable to update password.", status_code=502)
+        raise _safe_password_provider_error(response)

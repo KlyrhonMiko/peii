@@ -1,6 +1,5 @@
 import secrets
 from datetime import UTC, datetime, timedelta
-from hashlib import sha256
 from uuid import UUID, uuid4
 
 import pytest
@@ -419,7 +418,9 @@ async def test_response_rejects_unknown_and_missing_required_questions(client):
 
 
 async def test_invalid_active_survey_cannot_be_distributed_or_submitted(client):
-    survey_uuid, survey_business_id = await _create_invalid_active_survey(client, "Empty Active Survey")
+    survey_uuid, survey_business_id = await _create_invalid_active_survey(
+        client, "Empty Active Survey"
+    )
 
     # We can check if trying to respond directly fails if invalid
     response = await client.get(f"/api/v1/survey/{survey_business_id}")

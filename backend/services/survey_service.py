@@ -1,7 +1,7 @@
 from uuid import UUID
 
 from fastapi import status
-from sqlalchemy import func, or_
+from sqlalchemy import exists, func, or_
 from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -236,6 +236,14 @@ async def get_survey_by_uuid(
     return survey
 
 
+async def has_response_history(session: AsyncSession, survey_id: UUID) -> bool:
+    """Include erased/withdrawn tombstones: questionnaire history is permanent."""
+    result = await session.exec(
+        select(exists().where(col(SurveyResponse.survey_id) == survey_id))
+    )
+    return bool(result.one())
+
+
 async def get_survey_for_structure_edit(session: AsyncSession, survey_id: UUID) -> Survey:
     result = await session.exec(
         select(Survey)
@@ -251,12 +259,7 @@ async def get_survey_for_structure_edit(session: AsyncSession, survey_id: UUID) 
             status_code=status.HTTP_409_CONFLICT,
         )
 
-    response_count_result = await session.exec(
-        select(func.count())
-        .select_from(SurveyResponse)
-        .where(col(SurveyResponse.survey_id) == survey_id)
-    )
-    if response_count_result.one() > 0:
+    if await has_response_history(session, survey_id):
         raise structure_edit_conflict_error()
     return survey
 
@@ -456,18 +459,23 @@ async def update_survey(
 ) -> Survey:
     survey = await get_survey(session, survey_id, for_update=True)
     updates = payload.model_dump(exclude_unset=True)
-    if "retention_enabled" in updates or "retention_days" in updates:
-        response_count_result = await session.exec(
-            select(func.count())
-            .select_from(SurveyResponse)
-            .where(col(SurveyResponse.survey_id) == survey.id)
+    immutable_fields = {
+        "title", "description", "target_cohort", "retention_enabled", "retention_days"
+    }
+    changed_fields = {
+        key for key in immutable_fields & updates.keys()
+        if getattr(survey, key) != updates[key]
+    }
+    if changed_fields and await has_response_history(session, survey.id):
+        retention_change = bool(changed_fields & {"retention_enabled", "retention_days"})
+        raise AppError(
+            "Survey content cannot be changed because it is stale or locked.",
+            status_code=status.HTTP_409_CONFLICT,
+            errors={
+                "code": "retention_policy_immutable"
+                if retention_change else "survey_content_conflict"
+            },
         )
-        if response_count_result.one() > 0:
-            raise AppError(
-                "Retention policy cannot be changed after responses exist.",
-                status_code=status.HTTP_409_CONFLICT,
-                errors={"code": "retention_policy_immutable"},
-            )
     resulting_status = updates.get("status", survey.status)
     if resulting_status == "Active":
         await ensure_survey_ready_for_activation(

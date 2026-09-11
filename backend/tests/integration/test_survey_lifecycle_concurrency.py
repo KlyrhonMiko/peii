@@ -46,9 +46,9 @@ def _populate_active_survey(database: PostgresTestDatabase) -> None:
                 "(id, created_at, updated_at, is_deleted, deleted_at, performed_by, survey_id, "
                 "title, "
                 "description, status, target_cohort, responses_count, retention_enabled, "
-                "retention_days) "
+                "retention_days, is_template) "
                 "VALUES (:id, :ts, :ts, false, NULL, :actor, 'SURV-CONCUR', 'Concurrent survey', "
-                "NULL, 'Active', NULL, 0, true, 1825)"
+                "NULL, 'Active', NULL, 0, true, 1825, false)"
             ),
             {"id": str(SURVEY_ID), "actor": str(ACTOR_ID), "ts": timestamp},
         )

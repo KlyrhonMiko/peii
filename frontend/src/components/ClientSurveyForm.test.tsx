@@ -79,7 +79,7 @@ describe("ClientSurveyForm", () => {
     expect(screen.queryByText(/confidential/i)).not.toBeInTheDocument()
   })
 
-  it("submits a private code and shows it once with withdrawal instructions", async () => {
+  it("submits answers without withdrawal controls or a withdrawal code", async () => {
     const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(successResponse())
     renderSurvey()
 
@@ -100,14 +100,10 @@ describe("ClientSurveyForm", () => {
     expect(body).toEqual({
       answers: { "question-1": "The mentoring program" },
       consent: { accepted: true, version: consent.version },
-      withdrawal_code: expect.stringMatching(/^[A-Za-z0-9_-]{43}$/),
     })
     expect(screen.getByRole("heading", { name: "Phase 1 submitted" })).toBeInTheDocument()
-    expect(screen.getByText(/required to withdraw your response later/i)).toBeInTheDocument()
-    expect(screen.getByRole("link", { name: /withdraw a response/i })).toHaveAttribute(
-      "href",
-      "/survey/withdraw",
-    )
+    expect(screen.queryByLabelText("Private withdrawal code")).not.toBeInTheDocument()
+    expect(screen.queryByRole("link", { name: /withdraw a response/i })).not.toBeInTheDocument()
     expect(screen.queryByText("visible-token-must-not-render")).not.toBeInTheDocument()
     expect(screen.queryByText(/receipt|internal id|response id/i)).not.toBeInTheDocument()
   })
@@ -138,29 +134,7 @@ describe("ClientSurveyForm", () => {
     })
     const firstBody = JSON.parse((fetchMock.mock.calls[0]?.[1] as RequestInit).body as string) as Record<string, string>
     const secondBody = JSON.parse((fetchMock.mock.calls[1]?.[1] as RequestInit).body as string) as Record<string, string>
-    expect(secondBody.withdrawal_code).toBe(firstBody.withdrawal_code)
-  })
-
-  it("copies the displayed withdrawal code without placing it in a URL", async () => {
-    const writeText = vi.fn().mockResolvedValue(undefined)
-    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } })
-    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(successResponse())
-    renderSurvey()
-    fireEvent.change(screen.getByLabelText("What did you enjoy?"), {
-      target: { value: "The mentoring program" },
-    })
-    fireEvent.click(screen.getByRole("checkbox", { name: /consent/i }))
-    fireEvent.click(screen.getByRole("button", { name: /submit/i }))
-
-    await screen.findByRole("heading", { name: "Phase 1 submitted" })
-    const code = screen.getByLabelText("Private withdrawal code").textContent
-    expect(code).toMatch(/^[A-Za-z0-9_-]{43}$/)
-    expect(screen.getAllByText(code ?? "")).toHaveLength(1)
-    fireEvent.click(screen.getByRole("button", { name: /copy withdrawal code/i }))
-    expect(writeText).toHaveBeenCalledWith(code)
-    expect(fetchMock.mock.calls[0]?.[0]).toBe("/api/survey/visible-token-must-not-render")
-    expect(fetchMock.mock.calls[0]?.[0]).not.toContain(code ?? "")
-    expect(window.location.href).not.toContain(code)
+    expect(secondBody).toEqual(firstBody)
   })
 
   it("shows and respects Retry-After for rate limits", async () => {
@@ -293,4 +267,27 @@ describe("ClientSurveyForm", () => {
     expect(screen.queryByLabelText("Private withdrawal code")).not.toBeInTheDocument()
     expect(screen.queryByRole("link", { name: /withdraw a response/i })).not.toBeInTheDocument()
   })
+})
+
+
+it("disables Next for No consent and enables it again for Yes", async () => {
+  const questionText = "Consent Statement: I have read and understood the Data Privacy Statement and voluntarily agree to participate in this survey."
+  const consentSection: PublicSurveySection = {
+    id: "intro", title: "Intro", description: null, order_index: 0,
+    questions: [{ id: "participation", question_text: questionText,
+      question_type: "single_choice", options: ["Yes", "No"], config: null,
+      order_index: 0, is_required: true }],
+  }
+  render(<ClientSurveyForm title="Survey" description={null} consent={consent}
+    sections={[consentSection, ...sections]} submissionPhase={1} token="test" />)
+  fireEvent.click(screen.getByRole("checkbox", { name: /consent to this data notice/i }))
+  fireEvent.click(screen.getByRole("button", { name: questionText }))
+  fireEvent.click(await screen.findByRole("button", { name: "No" }))
+  const next = screen.getByRole("button", { name: "Next" })
+  expect(next).toBeDisabled()
+  fireEvent.click(next)
+  expect(screen.getByRole("heading", { name: "Intro" })).toBeInTheDocument()
+  fireEvent.click(screen.getByRole("button", { name: questionText }))
+  fireEvent.click(await screen.findByRole("button", { name: "Yes" }))
+  expect(next).toBeEnabled()
 })

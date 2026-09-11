@@ -50,6 +50,13 @@ def get_cache_ttl(namespace: str) -> int:
         return 0
 
 
+def is_shared_redis_cache_active() -> bool:
+    """Return whether any shared response-cache namespace can use Redis."""
+    return _is_cacheable() and any(
+        get_cache_ttl(namespace) > 0 for namespace in _NAMESPACE_TTLS
+    )
+
+
 def _full_key(namespace: str, key: str) -> str:
     prefix = settings.CACHE_PREFIX.rstrip(":")
     return f"{prefix}:{namespace}:{key}"

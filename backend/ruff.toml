@@ -3,3 +3,7 @@ target-version = "py314"
 
 [lint]
 select = ["E", "F", "I", "UP"]
+
+[lint.per-file-ignores]
+# Immutable generated Alembic revisions retain their original historical formatting and annotations.
+"alembic/versions/*.py" = ["E501", "I001", "F401", "UP007", "UP035"]

@@ -237,7 +237,7 @@ async def test_legacy_replay_records_consent_without_binding_attacker_code(clien
         "/api/v1/survey/responses/withdraw", json={"withdrawal_code": attacker_code}
     )
     assert attacker_withdrawal.status_code == 404
-    assert attacker_withdrawal.json()["message"] == "Response not found or already withdrawn."
+    assert attacker_withdrawal.json()["detail"] == "Not Found"
 
     response_list = await client.get(
         f"/api/v1/surveys/{stored_after.survey_id}/responses/"

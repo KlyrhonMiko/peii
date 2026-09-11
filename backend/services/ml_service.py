@@ -1,22 +1,218 @@
 import asyncio
 import atexit
 import json
-import logging
 import os
 import re
+from threading import Lock
 
+import langdetect
 import torch
-from sqlmodel import select
+from fastapi import HTTPException
+from sqlmodel import col, select
 from transformers import pipeline
 
 from core.analytics_cache import ainvalidate_survey_analytics
 from core.config import settings
 from core.database import async_session_factory
+from core.logging import get_logger
 from models.survey_question import SurveyQuestion
 from models.survey_response import SurveyResponse
+from schemas.ml import SentimentResponse
 from services.audit_service import AuditEvent, commit_with_audit
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
+
+# Published local-inference compatibility contract.
+TL_MODEL_ID = "dost-asti/RoBERTa-tl-sentiment-analysis"
+EN_MODEL_ID = "distilbert-base-uncased-finetuned-sst-2-english"
+
+tl_pipeline = None
+en_pipeline = None
+_pipelines_lock = Lock()
+
+_TAGALOG_KEYWORDS = {
+    "ang",
+    "ng",
+    "mga",
+    "sa",
+    "ako",
+    "ito",
+    "yan",
+    "lang",
+    "pa",
+    "na",
+    "ba",
+    "daw",
+    "din",
+    "rin",
+    "naman",
+    "po",
+    "medyo",
+    "pangit",
+    "ganda",
+    "sobra",
+    "talaga",
+    "kaya",
+    "bakit",
+    "ano",
+    "sino",
+    "saan",
+    "kailan",
+    "paano",
+    "hindi",
+    "oo",
+    "wala",
+    "meron",
+    "may",
+    "masaya",
+    "malungkot",
+    "nakakainis",
+    "nakakabagot",
+    "niya",
+    "niyo",
+    "nila",
+    "namin",
+    "tayo",
+    "kami",
+    "kayo",
+    "sila",
+    "ko",
+    "mo",
+    "ni",
+    "si",
+}
+
+
+def get_pipelines():
+    """Lazily load the published Tagalog and English inference pipelines."""
+    global en_pipeline, tl_pipeline
+
+    with _pipelines_lock:
+        if tl_pipeline is None:
+            logger.info("ml_model_loading", model_id=TL_MODEL_ID, language="tl")
+            try:
+                tl_pipeline = pipeline(
+                    "text-classification",
+                    model=TL_MODEL_ID,
+                    tokenizer=TL_MODEL_ID,
+                )
+            except Exception as exc:
+                logger.error(
+                    "ml_model_load_failed",
+                    model_id=TL_MODEL_ID,
+                    language="tl",
+                    error_type=type(exc).__name__,
+                )
+                raise RuntimeError("Failed to load Tagalog ML model.") from exc
+
+        if en_pipeline is None:
+            logger.info("ml_model_loading", model_id=EN_MODEL_ID, language="en")
+            try:
+                en_pipeline = pipeline(
+                    "text-classification",
+                    model=EN_MODEL_ID,
+                    tokenizer=EN_MODEL_ID,
+                )
+            except Exception as exc:
+                logger.error(
+                    "ml_model_load_failed",
+                    model_id=EN_MODEL_ID,
+                    language="en",
+                    error_type=type(exc).__name__,
+                )
+                raise RuntimeError("Failed to load English ML model.") from exc
+
+    return tl_pipeline, en_pipeline
+
+
+def get_models() -> list[dict[str, str]]:
+    """Return the published model catalog without initializing model weights."""
+    return [
+        {
+            "id": TL_MODEL_ID,
+            "name": "Tagalog Sentiment Analyzer (RoBERTa)",
+            "type": "sentiment-analysis",
+            "description": (
+                "Fine-tuned RoBERTa model for sentiment analysis on Tagalog and Taglish text."
+            ),
+        },
+        {
+            "id": EN_MODEL_ID,
+            "name": "English Sentiment Analyzer (DistilBERT)",
+            "type": "sentiment-analysis",
+            "description": "DistilBERT model fine-tuned on SST-2 for English sentiment analysis.",
+        },
+    ]
+
+
+def _select_sentiment_model(text: str, requested_model: str | None) -> str:
+    if requested_model == EN_MODEL_ID:
+        return EN_MODEL_ID
+    if requested_model == TL_MODEL_ID:
+        return TL_MODEL_ID
+
+    words = set(re.findall(r"\b\w+\b", text.lower()))
+    if any(word in _TAGALOG_KEYWORDS for word in words):
+        return TL_MODEL_ID
+
+    try:
+        if langdetect.detect(text) == "en":
+            return EN_MODEL_ID
+    except langdetect.lang_detect_exception.LangDetectException:
+        pass
+    return TL_MODEL_ID
+
+
+def _analyze_sentiment_sync(text: str, requested_model: str | None) -> SentimentResponse:
+    tl_pipe, en_pipe = get_pipelines()
+    active_model = _select_sentiment_model(text, requested_model)
+
+    if active_model == EN_MODEL_ID:
+        logger.info("ml_model_selected", model_id=EN_MODEL_ID, language="en")
+        results = en_pipe(text)
+    else:
+        logger.info("ml_model_selected", model_id=TL_MODEL_ID, language="tl")
+        results = tl_pipe(text)
+
+    if not results:
+        raise RuntimeError("Model returned no predictions.")
+
+    prediction = results[0]
+    raw_label = prediction.get("label", "UNKNOWN").upper()
+    score = prediction.get("score", 0.0)
+
+    label = "NEUTRAL"
+    if raw_label in ["POSITIVE", "POS", "LABEL_1"]:
+        label = "POSITIVE"
+    elif raw_label in ["NEGATIVE", "NEG", "LABEL_0"]:
+        label = "NEGATIVE"
+    elif raw_label in ["NEUTRAL", "NEU", "LABEL_2"]:
+        label = "NEUTRAL"
+
+    sentiment_score = 0.0
+    if label == "POSITIVE":
+        sentiment_score = score
+    elif label == "NEGATIVE":
+        sentiment_score = -score
+
+    return SentimentResponse(
+        label=label,
+        score=score,
+        sentiment_score=sentiment_score,
+        model=active_model,
+    )
+
+
+async def analyze_sentiment(
+    text: str,
+    requested_model: str | None = None,
+) -> SentimentResponse:
+    """Run published local sentiment inference without blocking the event loop."""
+    try:
+        return await asyncio.to_thread(_analyze_sentiment_sync, text, requested_model)
+    except Exception as exc:
+        logger.error("sentiment_analysis_failed", error_type=type(exc).__name__)
+        raise HTTPException(status_code=500, detail="Local inference failed.") from exc
 
 CACHE_FILE = "ml_cache.json"
 # Bump this version whenever the scoring/calibration logic changes.
@@ -249,7 +445,7 @@ class FeedbackAnalyzer:
             cls._instance = cls()
         return cls._instance
 
-    def _analyze_cached(self, text: str, answer: str = None) -> tuple:
+    def _analyze_cached(self, text: str, answer: str | None = None) -> tuple:
         if text in _disk_cache:
             # Reconstruct tuples from JSON lists
             return tuple((k, v) for k, v in _disk_cache[text])
@@ -318,7 +514,7 @@ class FeedbackAnalyzer:
 
         return result_tuple
 
-    def analyze_feedback(self, text: str, answer: str = None) -> list[tuple[str, float]]:
+    def analyze_feedback(self, text: str, answer: str | None = None) -> list[tuple[str, float]]:
         return list(self._analyze_cached(text, answer))
 
 
@@ -355,7 +551,9 @@ class FeedbackAnalyzer:
             except Exception as e:
                 logger.error(f"Failed to write to training data: {e}")
         else:
-            logger.warning(f"      -> No original result found in cache or model for text: {text[:50]}...")
+            logger.warning(
+                f"      -> No original result found in cache or model for text: {text[:50]}..."
+            )
             # Still append to the training data file so the model can learn from its blind spots!
             try:
                 import json
@@ -369,7 +567,9 @@ class FeedbackAnalyzer:
                         "note": "Heuristic fallback"
                     }
                     f.write(json.dumps(entry) + "\n")
-                logger.warning(f"      -> Appended heuristic fallback to training data file: {training_file}")
+                logger.warning(
+                    f"      -> Appended heuristic fallback to training data file: {training_file}"
+                )
             except Exception as e:
                 logger.error(f"Failed to write to training data: {e}")
 
@@ -411,7 +611,7 @@ async def analyze_response_background(response_id: str):
             questions_result = await session.exec(
                 select(SurveyQuestion).where(
                     SurveyQuestion.survey_id == response.survey_id,
-                    SurveyQuestion.is_deleted.is_(False),
+                    col(SurveyQuestion.is_deleted).is_(False),
                 )
             )
             questions = {str(q.id): q for q in questions_result.all()}
@@ -438,5 +638,3 @@ async def analyze_response_background(response_id: str):
 
     except Exception as e:
         logger.error(f"Error computing background ML sentiments for {response_id}: {e}")
-
-

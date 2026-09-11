@@ -1,4 +1,7 @@
 import pytest
+from starlette.requests import Request
+
+from routers import health as health_router
 
 pytestmark = pytest.mark.anyio
 
@@ -12,6 +15,208 @@ async def test_health_check(client):
     assert body["message"] == "Success"
     assert body["errors"] is None
     assert "request_id" in body["meta"]
+
+
+async def test_ready_checks_database_and_redis_and_returns_shared_envelope(
+    client, monkeypatch: pytest.MonkeyPatch
+):
+    calls: list[str] = []
+
+    class Connection:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def execute(self, _statement):
+            calls.append("database")
+
+    class Engine:
+        def connect(self):
+            return Connection()
+
+    class Redis:
+        async def ping(self):
+            calls.append("redis")
+            return True
+
+    monkeypatch.setattr(health_router, "async_engine", Engine(), raising=False)
+    monkeypatch.setattr(health_router, "get_redis_client", lambda: Redis(), raising=False)
+    monkeypatch.setattr(health_router.settings, "CACHE_ENABLED", True)
+    monkeypatch.setattr(health_router.settings, "READINESS_TIMEOUT_SECONDS", 1.0, raising=False)
+
+    response = await client.get("/api/v1/ready")
+
+    assert response.status_code == 200
+    assert response.json()["data"] == {
+        "status": "ready",
+        "database": "ok",
+        "redis": "ok",
+    }
+    assert response.json()["errors"] is None
+    assert "request_id" in response.json()["meta"]
+    assert set(calls) == {"database", "redis"}
+
+
+async def test_ready_returns_safe_503_when_a_dependency_fails(
+    client, monkeypatch: pytest.MonkeyPatch
+):
+    class Connection:
+        async def __aenter__(self):
+            raise RuntimeError("postgres password=secret")
+
+        async def __aexit__(self, *_args):
+            return None
+
+    class Engine:
+        def connect(self):
+            return Connection()
+
+    class Redis:
+        async def ping(self):
+            return True
+
+    monkeypatch.setattr(health_router, "async_engine", Engine(), raising=False)
+    monkeypatch.setattr(health_router, "get_redis_client", lambda: Redis(), raising=False)
+    monkeypatch.setattr(health_router.settings, "CACHE_ENABLED", True)
+    monkeypatch.setattr(health_router.settings, "READINESS_TIMEOUT_SECONDS", 1.0, raising=False)
+
+    response = await client.get("/api/v1/ready")
+
+    assert response.status_code == 503
+    assert response.json()["data"] is None
+    assert response.json()["message"] == "Service is not ready."
+    assert response.json()["errors"] is None
+    assert "postgres password=secret" not in response.text
+
+
+async def test_ready_skips_redis_when_local_redis_features_are_disabled(
+    client, monkeypatch: pytest.MonkeyPatch
+):
+    class Connection:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def execute(self, _statement):
+            return None
+
+    class Engine:
+        def connect(self):
+            return Connection()
+
+    monkeypatch.setattr(health_router, "async_engine", Engine())
+    monkeypatch.setattr(health_router.settings, "RATE_LIMIT_ENABLED", False)
+    monkeypatch.setattr(health_router.settings, "CACHE_ENABLED", False)
+
+    response = await client.get("/api/v1/ready")
+
+    assert response.status_code == 200
+    assert response.json()["data"]["redis"] == "skipped"
+
+
+async def test_ready_skips_redis_when_all_shared_cache_namespaces_are_disabled(
+    client, monkeypatch: pytest.MonkeyPatch
+):
+    class Connection:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def execute(self, _statement):
+            return None
+
+    class Engine:
+        def connect(self):
+            return Connection()
+
+    def unexpected_redis_client():
+        raise AssertionError("Redis client must not be fetched")
+
+    monkeypatch.setattr(health_router, "async_engine", Engine())
+    monkeypatch.setattr(health_router, "get_redis_client", unexpected_redis_client)
+    monkeypatch.setattr(health_router.settings, "RATE_LIMIT_ENABLED", False)
+    monkeypatch.setattr(health_router.settings, "CACHE_ENABLED", True)
+    for ttl_name in (
+        "CACHE_TTL_PEII_SECONDS",
+        "CACHE_TTL_AGGREGATES_SECONDS",
+        "CACHE_TTL_SURVEYS_SECONDS",
+        "CACHE_TTL_USERS_SECONDS",
+        "CACHE_TTL_RBAC_SECONDS",
+    ):
+        monkeypatch.setattr(health_router.settings, ttl_name, 0)
+
+    response = await client.get("/api/v1/ready")
+
+    assert response.status_code == 200
+    assert response.json()["data"]["redis"] == "skipped"
+
+
+async def test_ready_requires_redis_when_a_shared_cache_namespace_is_active(
+    client, monkeypatch: pytest.MonkeyPatch
+):
+    calls: list[str] = []
+
+    class Connection:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def execute(self, _statement):
+            return None
+
+    class Engine:
+        def connect(self):
+            return Connection()
+
+    class Redis:
+        async def ping(self):
+            calls.append("redis")
+            return True
+
+    monkeypatch.setattr(health_router, "async_engine", Engine())
+    monkeypatch.setattr(health_router, "get_redis_client", lambda: Redis())
+    monkeypatch.setattr(health_router.settings, "RATE_LIMIT_ENABLED", False)
+    monkeypatch.setattr(health_router.settings, "CACHE_ENABLED", True)
+    for ttl_name in (
+        "CACHE_TTL_PEII_SECONDS",
+        "CACHE_TTL_AGGREGATES_SECONDS",
+        "CACHE_TTL_SURVEYS_SECONDS",
+        "CACHE_TTL_USERS_SECONDS",
+        "CACHE_TTL_RBAC_SECONDS",
+    ):
+        monkeypatch.setattr(health_router.settings, ttl_name, 0)
+    monkeypatch.setattr(health_router.settings, "CACHE_TTL_RBAC_SECONDS", 1)
+
+    response = await client.get("/api/v1/ready")
+
+    assert response.status_code == 200
+    assert response.json()["data"]["redis"] == "ok"
+    assert calls == ["redis"]
+
+
+def test_rbac_audit_ip_uses_trusted_forwarded_client_address(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(health_router.settings, "TRUSTED_PROXY_CIDRS", ["10.0.0.0/8"])
+    from routers.rbac import _ip_address
+
+    request = Request(
+        {
+            "type": "http",
+            "client": ("10.1.2.3", 1234),
+            "headers": [(b"x-forwarded-for", b"198.51.100.7, 10.2.3.4")],
+        }
+    )
+
+    assert _ip_address(request) == "198.51.100.7"
 
 
 async def test_root_redirect(client):

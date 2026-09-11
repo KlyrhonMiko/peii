@@ -5,6 +5,8 @@ import type { useSurveyManagement } from "../useSurveyManagement"
 
 interface SurveyEditorHeaderProps {
   modalState: ReturnType<typeof useSurveyManagement>["state"]["modalState"]
+  contentLocked?: boolean
+  statusChanged?: boolean
   interactionLocked: boolean
   saving: boolean
   surveyTitle: string
@@ -14,6 +16,8 @@ interface SurveyEditorHeaderProps {
 
 export function SurveyEditorHeader({
   modalState,
+  contentLocked = false,
+  statusChanged = false,
   interactionLocked,
   saving,
   surveyTitle,
@@ -35,7 +39,9 @@ export function SurveyEditorHeader({
           <DialogDescription className="text-xs text-slate-500 mt-0.5">
             {isCreate
               ? "Define a new survey for the PEII system."
-              : "Modify the title, target cohort, description, and questions for this survey."}
+              : contentLocked
+                ? "Survey content is locked. You can update collection status."
+                : "Modify the title, target cohort, description, and questions for this survey."}
           </DialogDescription>
         </div>
       </div>
@@ -45,7 +51,7 @@ export function SurveyEditorHeader({
         </Button>
         <Button
           onClick={handleSaveSurvey}
-          disabled={!surveyTitle.trim() || interactionLocked}
+          disabled={!surveyTitle.trim() || interactionLocked || (contentLocked && !statusChanged)}
           className="gap-2 bg-indigo-600 hover:bg-indigo-700 text-white h-9"
         >
           {saving ? (
@@ -55,7 +61,7 @@ export function SurveyEditorHeader({
           ) : (
             <Pencil className="size-4" />
           )}
-          {isCreate ? "Create Survey" : "Save Changes"}
+          {isCreate ? "Create Survey" : contentLocked ? "Save status" : "Save Changes"}
         </Button>
       </div>
     </div>

@@ -141,7 +141,8 @@ SECTIONS: list[dict] = [
                 "Degree Program Category:",
                 [
                     "Bachelor of Science in Accountancy",
-                    "Bachelor of Science in Business Administration - Major in Marketing Management",
+                    "Bachelor of Science in Business Administration - Major in Marketing "
+                    "Management",
                     "Bachelor of Science in Entrepreneurship",
                     "Bachelor of Elementary Education",
                     "Bachelor of Secondary Education - Major in English",

@@ -15,9 +15,11 @@ are still deployment responsibilities.
   plaintext distribution tokens), `d5a4f7c91e2b` (Supabase Data API RLS/ACL lockdown),
   `a8055c9859f5` (Google survey respondent identity and auth proofs), `b9055c9859f6`
   (`is_template`), `f88b9c1d0000` (drop survey distributions and distribution link,
-  survey-scoped response idempotency), `3aad20b0fc8a` (ML sentiments),
-  `b0d864b9935b` (false-positive feedbacks), and `a6c42481a0d9` (polarity override).
-  `a6c42481a0d9` is the current head.
+   survey-scoped response idempotency), `3aad20b0fc8a` (ML sentiments),
+   `b0d864b9935b` (false-positive feedbacks), `a6c42481a0d9` (polarity override),
+   `7ac95c493227` (performance indexes), `b43d56b55144` (survey-question JSONB), and
+   `bf21a63040a2` (false-positive feedback Data API lockdown). `bf21a63040a2` is the current
+   head.
 - Run `./.venv/bin/alembic upgrade head` once as the protected release job. Promote API replicas
   only after the migration, backfill review, and smoke test succeed. Future schema changes are
   forward revisions; do not migrate independently in every replica.
@@ -37,11 +39,15 @@ are still deployment responsibilities.
   legacy-compatible response identity snapshots, survey-scoped dedupe uniqueness,
   `survey_responses.read_identity`, and proof-table ACL/RLS lockdown. Admin and the default
   researcher receive identity permission; staff does not. Raw, aggregate, and CSV contracts
-  remain identity-free, and the identity endpoint requires both raw and identity permission.
+  omit dedicated Google identity snapshots; answer values may still identify respondents.
+  Aggregate readers intentionally receive identifying answer values. The identity endpoint
+  requires both raw and identity permission.
 - Later revisions: `b9055c9859f6` adds the survey `is_template` flag, `f88b9c1d0000` drops
   `survey_distributions` and `survey_responses.distribution_id` (response idempotency becomes
-  survey-scoped), and `3aad20b0fc8a`/`b0d864b9935b`/`a6c42481a0d9` add ML sentiments,
-  false-positive feedbacks, and polarity override.
+   survey-scoped), and `3aad20b0fc8a`/`b0d864b9935b`/`a6c42481a0d9` add ML sentiments,
+   false-positive feedbacks, and polarity override. `7ac95c493227` adds performance indexes,
+   `b43d56b55144` converts survey-question options/config to JSONB, and `bf21a63040a2` locks
+   down false-positive feedbacks in the Data API.
 
 ### Retired distribution contract and RBAC
 
@@ -179,7 +185,8 @@ PUBLIC_SURVEY_PURPOSE=<approved purpose>
 PUBLIC_SURVEY_RETENTION=<approved retention duration/statement>
 PUBLIC_SURVEY_CONTACT=<approved withdrawal/privacy contact>
 # SURVEY_DISTRIBUTION_DEFAULT_EXPIRY_DAYS / SURVEY_DISTRIBUTION_MAX_EXPIRY_DAYS retired with f88b9c1d0000
-DATABASE_TLS_MODE=require
+DATABASE_TLS_MODE=verify-full
+# DATABASE_TLS_CA_BUNDLE_PATH=/path/to/private-or-provider-ca.pem
 ```
 
 The local example and Compose default use consent version `2026-09-01`; production must replace
@@ -187,12 +194,12 @@ the example with explicitly approved consent and privacy values. The exact appli
 `${APP_ORIGIN}/auth/survey/google/callback` must be in the Supabase Auth redirect allowlist, with
 the matching Google/Supabase provider callback configured at Google.
 
-`DATABASE_TLS_MODE=disable` is the local Compose default. For Supabase production,
-`DATABASE_TLS_MODE=require` configures psycopg2/Alembic with `sslmode=require`, which encrypts
-transport but does not verify the server certificate or hostname. Asyncpg uses `ssl="require"`
-so the Supavisor pooler connection follows the same encryption-only transition. Provider-side SSL
-enforcement and eventual CA-backed `verify-full` for every database path remain manual follow-up
-items; record an owner and deadline for both before launch. Set `BACKEND_CORS_ORIGINS` to exact HTTPS
+`DATABASE_TLS_MODE=disable` is the local Compose default. Supabase production requires
+`DATABASE_TLS_MODE=verify-full`: psycopg2/Alembic use `sslmode=verify-full`, while asyncpg uses a
+hostname-checking, certificate-verifying SSL context. Set `DATABASE_TLS_CA_BUNDLE_PATH` only for a
+private or provider-specific CA; otherwise the system trust store is used. Verify the optional CA
+bundle is readable by the API and Alembic migration identities before enabling provider-side SSL
+enforcement. Set `BACKEND_CORS_ORIGINS` to exact HTTPS
 `APP_ORIGIN` value(s) only—no wildcard, path, or trailing slash. With `DEBUG=false`, FastAPI does
 not expose Swagger, ReDoc, or OpenAPI routes.
 
@@ -216,7 +223,7 @@ also send private/no-store and no-cache headers.
 For production Supabase mode (`DEBUG=false`, `DB_MODE=supabase`), startup also requires
 `RATE_LIMIT_READ_FAILURE_POLICY=fail_closed`, nonempty valid `TRUSTED_PROXY_CIDRS` for the
 verified immediate proxy networks, and either a secure HTTPS Upstash REST URL/token pair or a
-`rediss://` Redis URL. Broad RFC1918 ranges are not production-ready proxy CIDRs. Render/provider
+`rediss://` Redis URL. Broad RFC1918 ranges are not production-ready proxy CIDRs. Oracle/provider
 log redaction and verification of the actual forwarding chain remain deployment tasks; do not
 consider application tests or the liveness health check proof of either.
 
@@ -226,7 +233,7 @@ consider application tests or the liveness health check proof of either.
 2. Block public response writes at ingress, drain in-flight writes, and stop every old API
    replica. Phase 3 is not a rolling frontend/backend release.
 3. Apply `./.venv/bin/alembic upgrade head` once. Confirm the revision order through
-   `a6c42481a0d9`, verify the `survey_distributions` table is absent and the
+   `bf21a63040a2`, verify the `survey_distributions` table is absent and the
    `uq_survey_responses_survey_idempotency` unique constraint is present, inspect the
    enabled/1,825 survey policy backfill, verify response deadline backfill from submission
    timestamps, and verify the protected-table and proof-table RLS/ACL lockdown postconditions.
@@ -271,7 +278,7 @@ The repository provides a bounded command but no in-process scheduler. Run from 
 The command defaults to 100 responses per batch and accepts optional `--cutoff` ISO-8601 and
 `--batch-size` values. It purges expired short-lived Google proof rows as well as due live
 responses and prints `proofs` alongside `purged`, `surveys`, `batches`, `dry_run`, and `cutoff`.
-Schedule one managed job at least daily, prevent overlapping instances, and alert on non-zero
+Schedule one Oracle systemd timer at least daily, prevent overlapping instances, and alert on non-zero
 exit or missed execution. Reconcile response output against `retention_purge` audit events and
 the due-row backlog. Dry runs do not mutate responses or create purge audits. Purge locks the
 survey before processing response batches and is repeat-safe.
@@ -308,8 +315,8 @@ Required provider actions remain manual and are not claimed as completed here: e
 the Alembic release migration against PostgreSQL; rotate any
 credentials exposed during development; remove `public` from the Supabase Data API exposed
 schemas/tables; enable Supabase SSL enforcement only after the TLS client rollout; track the
-eventual CA-backed `verify-full` follow-up for all database paths; and configure HSTS
-on both Vercel and Render. Manually verify exact CORS, production docs-off behavior,
+hostname-verified database TLS and any required CA bundle for all database paths; and configure HSTS
+on both Vercel and the Oracle Caddy ingress. Manually verify exact CORS, production docs-off behavior,
 application-owned headers through the real ingress, service-specific environment exposure,
 provider redaction/no-store behavior, the actual forwarding chain, backups/PITR, and purge
 scheduling before launch. PostgreSQL execution and real provider/browser verification are
@@ -335,8 +342,13 @@ Run PostgreSQL integration tests explicitly; a skip is not a pass:
 
 ```bash
 TEST_DATABASE_URL=postgresql+psycopg2://user:password@localhost:5432/peii_test \
+  TEST_DATABASE_TLS_MODE=disable \
   env DEBUG=false ./.venv/bin/pytest -q -m integration --require-postgres
 ```
+
+`TEST_DATABASE_TLS_MODE` affects only the isolated-schema Alembic subprocesses. It defaults to
+`disable` for local disposable Compose PostgreSQL and accepts only `disable`, `require`, or
+`verify-full`.
 
 Rehearse migration/backfill, purge dry-run and mutating run, proof-row expiry deletion, backup
 restore, health/RBAC seed, public withdrawal, Google provider/browser sign-in and submit, and

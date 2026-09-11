@@ -8,6 +8,8 @@ import { getDimensionColor } from "@/lib/dimension-colors"
 export interface ClientCurriculumFeedbackProps {
   surveyId: string | null
   feedbacks: QualitativeFeedback[]
+  qualitativeFeedbackTotal: number
+  qualitativeFeedbackTruncated: boolean
   isLoading?: boolean
   onRefresh?: () => void
 }
@@ -34,7 +36,14 @@ function SentimentBadge({ score }: { score: number }) {
   )
 }
 
-export function ClientCurriculumFeedback({ surveyId, feedbacks, isLoading, onRefresh }: ClientCurriculumFeedbackProps) {
+export function ClientCurriculumFeedback({
+  surveyId,
+  feedbacks,
+  qualitativeFeedbackTotal,
+  qualitativeFeedbackTruncated,
+  isLoading,
+  onRefresh,
+}: ClientCurriculumFeedbackProps) {
   const [markedIds, setMarkedIds] = useState<Set<string>>(new Set())
   // Track local polarity overrides: key = 'responseId-questionId', value = override polarity number
   const [polarityOverrides, setPolarityOverrides] = useState<Record<string, number>>({})
@@ -79,6 +88,8 @@ export function ClientCurriculumFeedback({ surveyId, feedbacks, isLoading, onRef
       })
       .sort((a, b) => (a.sentiment_score ?? 0) - (b.sentiment_score ?? 0))
   }, [feedbacks, markedIds, polarityOverrides, selectedDimension])
+  const displayedFeedbackCount = Math.min(filteredFeedbacks.length, 30)
+  const retainedFeedbackCount = feedbacks.length
 
   const handleMarkFalsePositive = useCallback((responseId: string, questionId: string, polarityOverride?: number) => {
     const key = `${responseId}-${questionId}`
@@ -107,14 +118,16 @@ export function ClientCurriculumFeedback({ surveyId, feedbacks, isLoading, onRef
         <div>
           <h3 className="text-2xl font-bold tracking-tight text-slate-900 flex items-baseline gap-3">
             Curriculum & Improvement Feedback
-            {!isLoading && filteredFeedbacks.length > 0 && (
+            {!isLoading && qualitativeFeedbackTotal > 0 && (
               <span className="text-sm font-normal text-slate-400">
-                {filteredFeedbacks.length} responses
+                {qualitativeFeedbackTotal} entries
               </span>
             )}
           </h3>
           <p className="text-sm text-slate-500 mt-1">
-            Ranked by critical sentiment (Needs Attention)
+            {qualitativeFeedbackTotal > 0
+              ? `Showing ${displayedFeedbackCount} of the newest ${retainedFeedbackCount} retained feedback entries (${qualitativeFeedbackTotal} matching entries).${qualitativeFeedbackTruncated ? " Older matching entries are not retained." : ""} Ranked by critical sentiment.`
+              : "Ranked by critical sentiment (Needs Attention)"}
           </p>
         </div>
 
@@ -178,7 +191,7 @@ export function ClientCurriculumFeedback({ surveyId, feedbacks, isLoading, onRef
           </div>
         ) : (
           <div className="space-y-0">
-            {filteredFeedbacks.slice(0, 30).map((f, i) => {
+            {filteredFeedbacks.slice(0, displayedFeedbackCount).map((f, i) => {
               const score = f.sentiment_score ?? 0
               return (
                 <div key={i} className="py-6 border-b border-slate-200 last:border-0">
@@ -261,9 +274,9 @@ export function ClientCurriculumFeedback({ surveyId, feedbacks, isLoading, onRef
               )
             })}
             
-            {filteredFeedbacks.length > 30 && (
+            {filteredFeedbacks.length > displayedFeedbackCount && (
               <div className="py-6 text-center text-xs font-medium text-slate-400 uppercase tracking-widest border-t border-slate-200">
-                Showing top 30 critical feedbacks
+                Showing {displayedFeedbackCount} of {filteredFeedbacks.length} retained feedback entries
               </div>
             )}
           </div>

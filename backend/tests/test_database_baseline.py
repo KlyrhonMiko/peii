@@ -9,6 +9,7 @@ from sqlmodel import SQLModel
 
 from models import (  # noqa: F401
     AuditLog,
+    FalsePositiveFeedback,
     GoogleSurveyAuthProof,
     Permission,
     ResponseErasureReceipt,
@@ -41,7 +42,10 @@ CANONICAL_TABLES = {
     "survey_responses",
     "response_erasure_receipts",
 }
-LIVE_METADATA_TABLES = CANONICAL_TABLES | {"google_survey_auth_proofs"}
+LIVE_METADATA_TABLES = CANONICAL_TABLES | {
+    "false_positive_feedbacks",
+    "google_survey_auth_proofs",
+}
 EXPECTED_ROLE_IDS = {
     "admin": "00000000-0000-0000-0000-000000000101",
     "researcher": "00000000-0000-0000-0000-000000000102",

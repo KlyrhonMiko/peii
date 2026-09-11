@@ -3,15 +3,12 @@ import { describe, expect, it, vi } from "vitest"
 
 import { SurveyEditorSidebar } from "./SurveyEditorSidebar"
 
-function renderSidebar(retentionEnabled = true) {
+function renderSidebar(retentionEnabled = true, contentLocked = false) {
   return render(
     <SurveyEditorSidebar
+      contentLocked={contentLocked}
       surveyTitle="Alumni survey"
       setSurveyTitle={vi.fn()}
-      targetCohort="Class of 2024"
-      setTargetCohort={vi.fn()}
-      cohortOpen={false}
-      setCohortOpen={vi.fn()}
       surveyStatus="Inactive"
       setSurveyStatus={vi.fn()}
       statusOpen={false}
@@ -52,10 +49,6 @@ describe("SurveyEditorSidebar retention controls", () => {
       <SurveyEditorSidebar
         surveyTitle=""
         setSurveyTitle={vi.fn()}
-        targetCohort="Class of 2024"
-        setTargetCohort={vi.fn()}
-        cohortOpen={false}
-        setCohortOpen={vi.fn()}
         surveyStatus="Inactive"
         setSurveyStatus={vi.fn()}
         statusOpen={false}
@@ -75,4 +68,14 @@ describe("SurveyEditorSidebar retention controls", () => {
     expect(setRetentionEnabled).toHaveBeenCalledWith(false)
     expect(setRetentionDays).toHaveBeenCalledWith(90)
   })
+})
+
+it("locks content and retention while preserving the status control", () => {
+  renderSidebar(true, true)
+  expect(screen.getByRole("group", { name: "Collection status" })).toBeInTheDocument()
+  expect(screen.getByRole("textbox", { name: "Title" })).toBeDisabled()
+  expect(screen.getByRole("textbox", { name: "Description" })).toBeDisabled()
+  expect(screen.getByRole("switch", { name: "Automatically delete responses" })).toHaveAttribute("aria-disabled", "true")
+  expect(screen.getByLabelText("Retention period (days)")).toBeDisabled()
+  expect(screen.getByRole("button", { name: "Inactive" })).not.toBeDisabled()
 })

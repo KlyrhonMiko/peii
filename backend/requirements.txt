@@ -37,7 +37,7 @@ uvicorn==0.41.0
 websockets==15.0.1
 structlog==25.1.0
 langdetect==1.0.9
-greenlet
+greenlet==3.5.5
 
-transformers
-torch
+transformers==5.16.1
+torch==2.14.0

@@ -6,8 +6,7 @@ This guide covers `src/lib/`.
 ## Current Responsibilities
 - `utils.ts` provides `cn()` and `formatDate()`.
 - `api.ts` owns the authenticated browser API envelope/error client.
-- `public-survey.ts` owns the public survey phase contract, submission payload, private 256-bit
-  withdrawal-code generation/request parsing, envelope parsing, and retry-after helpers.
+- `public-survey.ts` owns the public survey phase contract, submission payload, envelope parsing and retry-after helpers.
 - `users.ts`, `rbac.ts`, `audit.ts`, and `surveys.ts` own domain types, mapping, and operations.
   `audit.ts` maps the read-only audit trail list/detail endpoints through `/api/backend`;
   `surveys.ts`
@@ -50,5 +49,4 @@ This guide covers `src/lib/`.
 - Authenticated browser calls use `api.ts` and `/api/backend`. Server-only calls use
   `BACKEND_INTERNAL_URL`; the server-rendered identified survey page may use it for the survey
   GET after Google OAuth, while browser submission uses the focused same-origin
-  `/api/survey/[token]` BFF. Public withdrawal remains a direct, code-only `NEXT_PUBLIC_API_URL`
-  operation.
+  `/api/survey/[token]` BFF.

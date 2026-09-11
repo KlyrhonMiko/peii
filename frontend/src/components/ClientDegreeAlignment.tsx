@@ -5,7 +5,7 @@ import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from "recharts"
 import type { SurveyResponseAggregate } from "@/lib/surveys"
 
 export interface ClientDegreeAlignmentProps {
-  aggregates: SurveyResponseAggregate[]
+  distribution: SurveyResponseAggregate | null
   isLoading?: boolean
   isExport?: boolean
 }
@@ -19,18 +19,10 @@ const SCALE_COLORS_HEX: Record<string, string> = {
   "Strongly Disagree": "#e2e8f0" // slate-200
 }
 
-export function ClientDegreeAlignment({ aggregates, isLoading, isExport }: ClientDegreeAlignmentProps) {
+export function ClientDegreeAlignment({ distribution, isLoading, isExport }: ClientDegreeAlignmentProps) {
   const chartData = useMemo(() => {
-    if (!aggregates || aggregates.length === 0) return null
-    
-    const matchingQuestions = aggregates.filter(a => 
-      a.question_text.toLowerCase().includes('aligned with my college degree or skills')
-    )
-    const alignmentQuestion = matchingQuestions.length > 1 ? matchingQuestions[1] : matchingQuestions[0]
-
-    if (!alignmentQuestion) return null
-
-    const data = alignmentQuestion.cells
+    if (!distribution) return null
+    const data = distribution.cells
       .map(c => ({
         name: String(c.value),
         value: c.count
@@ -41,19 +33,20 @@ export function ClientDegreeAlignment({ aggregates, isLoading, isExport }: Clien
     const order = ["Strongly Agree", "Agree", "Neutral", "Disagree", "Strongly Disagree"]
     data.sort((a, b) => order.indexOf(a.name) - order.indexOf(b.name))
 
-    const total = data.reduce((acc, curr) => acc + curr.value, 0)
+    const total = distribution.total
     
     const dataWithPct = data.map(c => ({
       ...c,
       pct: total > 0 ? Math.round((c.value / total) * 100) : 0
     }))
 
-    const positivePct = dataWithPct
+    const favorableCount = data
       .filter(d => d.name === "Strongly Agree" || d.name === "Agree")
-      .reduce((acc, curr) => acc + curr.pct, 0)
-      
+      .reduce((acc, curr) => acc + curr.value, 0)
+    const positivePct = total > 0 ? Math.round(favorableCount / total * 100) : 0
+
     return { data: dataWithPct, total, positivePct }
-  }, [aggregates])
+  }, [distribution])
 
   return (
     <div className="flex flex-col">
@@ -125,7 +118,7 @@ export function ClientDegreeAlignment({ aggregates, isLoading, isExport }: Clien
                   Report Job Alignment
                 </span>
                 <span className={`${isExport ? 'text-base' : 'text-sm'} font-normal text-slate-500 mt-1.5 leading-snug`}>
-                  Based on {chartData.total} responses
+                  Based on {chartData.total} {chartData.total === 1 ? "response" : "responses"}
                 </span>
               </div>
               

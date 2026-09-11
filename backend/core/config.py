@@ -1,4 +1,5 @@
 import ipaddress
+import ssl
 from functools import lru_cache
 from pathlib import Path
 from typing import Literal, Self
@@ -9,9 +10,15 @@ from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy.engine import URL, make_url
 
+from core.database_tls import read_supabase_legacy_ca
+
 ROOT_ENV_FILE = Path(__file__).resolve().parents[2] / ".env"
 LOCAL_GOOGLE_OAUTH_CLIENT_ID = "local-google-client-id"
 LOCAL_SURVEY_RESPONDENT_HMAC_SECRET = "local-only-survey-respondent-hmac-secret"
+LOCAL_PASSWORD_RESET_GRANT_SECRET = "local-only-password-reset-grant-secret"
+DOCUMENTED_PASSWORD_RESET_GRANT_SECRET_PLACEHOLDERS = frozenset(
+    {"replace_with_a_dedicated_random_32_byte_value"}
+)
 LIBPQ_SSL_QUERY_OPTIONS = frozenset(
     {
         "sslmode",
@@ -110,7 +117,9 @@ class Settings(BaseSettings):
     SQL_ECHO: bool
     LOG_JSON: bool
     DB_MODE: Literal["local", "supabase"]
-    DATABASE_TLS_MODE: Literal["disable", "require"] = "disable"
+    DATABASE_TLS_MODE: Literal["disable", "require", "verify-full"] = "disable"
+    DATABASE_TLS_CA_BUNDLE_PATH: str | None = None
+    DATABASE_TLS_SUPABASE_LEGACY_CA_COMPAT: bool = False
     LOCAL_DATABASE_URL: str
     SUPABASE_DATABASE_URL: str
     # Async SQLAlchemy engine pool sizing. Overrides apply to non-SQLite deployments
@@ -120,6 +129,7 @@ class Settings(BaseSettings):
     DB_POOL_TIMEOUT_SECONDS: float = Field(default=30.0, gt=0, le=300)
     DB_POOL_RECYCLE_SECONDS: int = Field(default=1800, ge=0, le=86_400)
     DB_POOL_PRE_PING: bool = True
+    READINESS_TIMEOUT_SECONDS: float = Field(default=5.0, gt=0, le=30)
     # Dedicated pool for read-only analytics/export sessions so bursty PEII, aggregate,
     # and raw-list reads can never exhaust the primary pool shared by auth/portal traffic.
     DB_ANALYTICS_POOL_SIZE: int = Field(default=5, ge=1, le=200)
@@ -161,6 +171,8 @@ class Settings(BaseSettings):
     GOOGLE_OAUTH_CLIENT_ID: str = LOCAL_GOOGLE_OAUTH_CLIENT_ID
     SURVEY_RESPONDENT_HMAC_SECRET: str = LOCAL_SURVEY_RESPONDENT_HMAC_SECRET
     SURVEY_GOOGLE_SESSION_MAX_AGE_SECONDS: int = Field(default=300, ge=1, le=86_400)
+    # Shared with the Next.js server to sign short-lived invite/recovery reset grants.
+    PASSWORD_RESET_GRANT_SECRET: str = LOCAL_PASSWORD_RESET_GRANT_SECRET
 
     # Traffic security is disabled by default for local installations that have not
     # provisioned Redis yet. Production deployments should set this to true and provide
@@ -202,6 +214,14 @@ class Settings(BaseSettings):
     PASSWORD_RECOVERY_RATE_WINDOW_SECONDS: int = Field(default=900, ge=1)
     PASSWORD_RECOVERY_GLOBAL_LIMIT: int = Field(default=1000, ge=1)
     PASSWORD_RECOVERY_GLOBAL_WINDOW_SECONDS: int = Field(default=900, ge=1)
+    PASSWORD_REAUTHENTICATE_RATE_LIMIT: int = Field(default=5, ge=1)
+    PASSWORD_REAUTHENTICATE_RATE_WINDOW_SECONDS: int = Field(default=900, ge=1)
+    PASSWORD_REAUTHENTICATE_GLOBAL_LIMIT: int = Field(default=1000, ge=1)
+    PASSWORD_REAUTHENTICATE_GLOBAL_WINDOW_SECONDS: int = Field(default=900, ge=1)
+    PASSWORD_CHANGE_RATE_LIMIT: int = Field(default=5, ge=1)
+    PASSWORD_CHANGE_RATE_WINDOW_SECONDS: int = Field(default=900, ge=1)
+    PASSWORD_CHANGE_GLOBAL_LIMIT: int = Field(default=1000, ge=1)
+    PASSWORD_CHANGE_GLOBAL_WINDOW_SECONDS: int = Field(default=900, ge=1)
     GOOGLE_SURVEY_ATTEST_RATE_LIMIT: int = Field(default=5, ge=1)
     GOOGLE_SURVEY_ATTEST_RATE_WINDOW_SECONDS: int = Field(default=60, ge=1)
     MAX_REQUEST_BODY_BYTES: int = Field(default=65_536, ge=1)
@@ -274,6 +294,8 @@ class Settings(BaseSettings):
             raise ValueError("GOOGLE_OAUTH_CLIENT_ID must not be empty")
         if len(self.SURVEY_RESPONDENT_HMAC_SECRET.encode("utf-8")) < 32:
             raise ValueError("SURVEY_RESPONDENT_HMAC_SECRET must be at least 32 bytes")
+        if len(self.PASSWORD_RESET_GRANT_SECRET.encode("utf-8")) < 32:
+            raise ValueError("PASSWORD_RESET_GRANT_SECRET must be at least 32 bytes")
         if not self.DEBUG and self.SURVEY_GOOGLE_SESSION_MAX_AGE_SECONDS > 3600:
             raise ValueError(
                 "SURVEY_GOOGLE_SESSION_MAX_AGE_SECONDS must not exceed 3600 in production"
@@ -287,6 +309,13 @@ class Settings(BaseSettings):
                 raise ValueError(
                     "SURVEY_RESPONDENT_HMAC_SECRET must be explicitly configured "
                     "when DEBUG is false"
+                )
+            if self.PASSWORD_RESET_GRANT_SECRET.strip() in (
+                DOCUMENTED_PASSWORD_RESET_GRANT_SECRET_PLACEHOLDERS
+                | {LOCAL_PASSWORD_RESET_GRANT_SECRET}
+            ):
+                raise ValueError(
+                    "PASSWORD_RESET_GRANT_SECRET must be explicitly configured when DEBUG is false"
                 )
         if not self.DEBUG and self.DB_MODE == "supabase":
             if self.RATE_LIMIT_READ_FAILURE_POLICY != "fail_closed":
@@ -315,10 +344,14 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_production_origins_and_database_tls(self) -> Self:
+        if self.DATABASE_TLS_SUPABASE_LEGACY_CA_COMPAT:
+            if self.DATABASE_TLS_MODE != "verify-full":
+                raise ValueError("Legacy Supabase CA compatibility requires verify-full")
+            read_supabase_legacy_ca(self.DATABASE_TLS_CA_BUNDLE_PATH)
         if not self.DEBUG:
-            if self.DB_MODE == "supabase" and self.DATABASE_TLS_MODE != "require":
+            if self.DATABASE_TLS_MODE != "verify-full":
                 raise ValueError(
-                    "DATABASE_TLS_MODE must be require when DB_MODE is supabase outside debug mode"
+                    "DATABASE_TLS_MODE must be verify-full outside debug mode"
                 )
 
             for origin in self.BACKEND_CORS_ORIGINS:
@@ -344,14 +377,36 @@ class Settings(BaseSettings):
 
     @property
     def database_sync_tls_args(self) -> dict[str, str]:
-        if self.DATABASE_TLS_MODE == "require" and self.database_url.startswith("postgresql"):
-            return {"sslmode": "require"}
+        if self.DATABASE_TLS_MODE in {"require", "verify-full"} and self.database_url.startswith(
+            "postgresql"
+        ):
+            tls_args: dict[str, str] = {"sslmode": str(self.DATABASE_TLS_MODE)}
+            if self.DATABASE_TLS_CA_BUNDLE_PATH:
+                tls_args["sslrootcert"] = self.DATABASE_TLS_CA_BUNDLE_PATH
+            return tls_args
         return {}
 
     @property
-    def database_async_tls_args(self) -> dict[str, str]:
+    def database_async_tls_args(self) -> dict[str, str | ssl.SSLContext]:
         if self.DATABASE_TLS_MODE == "require" and self.database_url.startswith("postgresql"):
             return {"ssl": "require"}
+        if (
+            self.DATABASE_TLS_MODE == "verify-full"
+            and self.database_url.startswith("postgresql")
+        ):
+            if self.DATABASE_TLS_SUPABASE_LEGACY_CA_COMPAT:
+                # Hash the exact PEM loaded into this context, not a separately reopened file.
+                pem = read_supabase_legacy_ca(self.DATABASE_TLS_CA_BUNDLE_PATH)
+                context = ssl.create_default_context(purpose=ssl.Purpose.SERVER_AUTH, cadata=pem)
+                context.verify_flags &= ~ssl.VERIFY_X509_STRICT
+            else:
+                context = ssl.create_default_context(
+                    purpose=ssl.Purpose.SERVER_AUTH,
+                    cafile=self.DATABASE_TLS_CA_BUNDLE_PATH or None,
+                )
+            context.check_hostname = True
+            context.verify_mode = ssl.CERT_REQUIRED
+            return {"ssl": context}
         return {}
 
     @property

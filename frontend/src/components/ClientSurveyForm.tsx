@@ -1,8 +1,6 @@
 "use client"
 
 import { type FormEvent, useEffect, useRef, useState, useMemo } from "react"
-import Link from "next/link"
-import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -18,8 +16,6 @@ import {
   Loader2,
   CheckCircle,
   AlertCircle,
-  Copy,
-  Printer,
   Target,
   Info,
   ShieldCheck,
@@ -29,7 +25,6 @@ import {
 
 import {
   createPublicSurveySubmission,
-  generateWithdrawalCode,
   publicSurveyErrorCode,
   parsePublicSurveyAccepted,
   parseRetryAfter,
@@ -116,24 +111,9 @@ export function ClientSurveyForm({
   const [staleConsent, setStaleConsent] = useState(false)
   const [retryAt, setRetryAt] = useState<number | null>(null)
   const [now, setNow] = useState(() => Date.now())
-  const [submittedWithdrawalCode, setSubmittedWithdrawalCode] = useState<string | null>(null)
   const [isTransitioning, setIsTransitioning] = useState(false)
   const idempotencyKey = useRef<{ phase: 1 | 2 | null; key: string } | null>(null)
-  const withdrawalCode = useRef<string | null>(null)
-  const [codeCopied, setCodeCopied] = useState(false)
   const submittingRef = useRef(false)
-
-  const copyWithdrawalCode = async (code: string) => {
-    try {
-      if (!navigator.clipboard) throw new Error("Clipboard unavailable")
-      await navigator.clipboard.writeText(code)
-      setCodeCopied(true)
-      toast.success("Withdrawal code copied to clipboard.")
-    } catch {
-      setCodeCopied(false)
-      toast.error("Could not copy withdrawal code.")
-    }
-  }
 
   useEffect(() => {
     if (retryAt === null) return
@@ -202,7 +182,6 @@ export function ClientSurveyForm({
   }, [section])
 
   if (submitted) {
-    const code = submittedWithdrawalCode
     return (
       <div className="min-h-screen bg-zinc-50 flex items-center justify-center py-12 px-4">
         <div className="w-full max-w-lg rounded-2xl border border-zinc-200 bg-white p-8 text-center shadow-sm sm:p-10">
@@ -217,46 +196,6 @@ export function ClientSurveyForm({
               ? "Your first set of answers has been recorded. Continue with Phase 2."
               : "Thank you for completing the survey. Your feedback has been recorded."}
           </p>
-          {isPhase1 && code && (
-            <section
-              aria-labelledby="withdrawal-code-heading"
-              className="mt-8 rounded-xl border-2 border-zinc-900 bg-zinc-50 p-5 text-left"
-            >
-              <h3 id="withdrawal-code-heading" className="text-sm font-semibold text-zinc-900">
-                Save this code for later
-              </h3>
-              <p className="mt-2 text-sm leading-relaxed text-zinc-600">
-                This code is required to withdraw your response later. Keep it somewhere safe; it cannot be recovered for you.
-              </p>
-              <code
-                aria-label="Private withdrawal code"
-                className="mt-4 block select-all break-all rounded-lg bg-white px-3 py-3 text-center font-mono text-sm font-semibold tracking-wide text-zinc-900 ring-1 ring-zinc-200"
-              >
-                {code}
-              </code>
-              <div className="mt-4 flex flex-wrap justify-center gap-2 print:hidden">
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => void copyWithdrawalCode(code)}
-                  className="h-9 gap-2 rounded-lg border-zinc-200 px-3 text-xs"
-                  aria-label="Copy withdrawal code"
-                >
-                  <Copy data-icon="inline-start" />
-                  {codeCopied ? "Copied" : "Copy code"}
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => window.print()}
-                  className="h-9 gap-2 rounded-lg border-zinc-200 px-3 text-xs"
-                >
-                  <Printer data-icon="inline-start" />
-                  Print
-                </Button>
-              </div>
-            </section>
-          )}
           {isPhase1 && !isLegacy && (
             <div className="mt-8">
               <Button
@@ -269,14 +208,6 @@ export function ClientSurveyForm({
               </Button>
             </div>
           )}
-          {isPhase1 && (
-            <p className="mt-6 text-sm text-zinc-600">
-              Need to withdraw your response?{" "}
-              <Link href="/survey/withdraw" className="font-semibold text-zinc-900 underline underline-offset-4">
-                Withdraw a response
-              </Link>
-            </p>
-          )}
         </div>
       </div>
     )
@@ -284,6 +215,12 @@ export function ClientSurveyForm({
 
   if (!section) return null
 
+  const consentDeclined = sections.some((currentSection) =>
+    currentSection.questions.some((question) =>
+      question.question_text === "Consent Statement: I have read and understood the Data Privacy Statement and voluntarily agree to participate in this survey." &&
+      answers[question.id] === "No",
+    ),
+  )
   const isFirst = sectionIdx === 0
   const isLast = sectionIdx === sections.length - 1
   const retryRemaining = retryAt === null ? 0 : Math.max(0, Math.ceil((retryAt - now) / 1000))
@@ -315,7 +252,7 @@ export function ClientSurveyForm({
   }
 
   const goNext = () => {
-    if (submitting || isTransitioning) return
+    if (submitting || isTransitioning || consentDeclined) return
     if (isPhase1 && isFirst && !consentAccepted) {
       setConsentTouched(true)
       return
@@ -380,12 +317,9 @@ export function ClientSurveyForm({
         requestIdempotencyKey = { phase: submissionPhase, key: crypto.randomUUID() }
         idempotencyKey.current = requestIdempotencyKey
       }
-      let code: string | null = null
       let body: PublicSurveySubmission | { answers: PublicAnswers }
       if (isPhase1) {
-        code = withdrawalCode.current ?? generateWithdrawalCode()
-        withdrawalCode.current = code
-        body = createPublicSurveySubmission(submittedAnswers, consent.version, code)
+        body = createPublicSurveySubmission(submittedAnswers, consent.version)
       } else {
         body = { answers: submittedAnswers }
       }
@@ -459,8 +393,6 @@ export function ClientSurveyForm({
         return
       }
       setRetryAt(null)
-      setSubmittedWithdrawalCode(code)
-      if (isPhase1) withdrawalCode.current = null
       setSubmitted(true)
     } catch {
       setSubmitError("We could not submit your response. Please try again.")
@@ -472,7 +404,7 @@ export function ClientSurveyForm({
 
   const onSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
-    if (submitting || staleConsent || retryBlocked || isTransitioning) return
+    if (submitting || staleConsent || retryBlocked || isTransitioning || consentDeclined) return
     if (isPhase1 && !consentAccepted) {
       setConsentTouched(true)
       return
@@ -603,14 +535,14 @@ export function ClientSurveyForm({
                   </Button>
                 )}
                 {!isLast ? (
-                  <Button type="button" onClick={goNext} disabled={isTransitioning} className="h-10 gap-2 rounded-lg bg-zinc-900 px-6 text-sm font-medium text-white shadow-sm transition-all hover:bg-zinc-800 disabled:opacity-50">
+                  <Button type="button" onClick={goNext} disabled={isTransitioning || consentDeclined} className="h-10 gap-2 rounded-lg bg-zinc-900 px-6 text-sm font-medium text-white shadow-sm transition-all hover:bg-zinc-800 disabled:opacity-50">
                     Next
                     <ArrowRight className="size-4" data-icon="inline-end" />
                   </Button>
                 ) : (
                   <Button
                     type="submit"
-                    disabled={submitting || isTransitioning || (isPhase1 && !consentAccepted) || staleConsent || retryBlocked}
+                    disabled={submitting || isTransitioning || consentDeclined || (isPhase1 && !consentAccepted) || staleConsent || retryBlocked}
                     className="h-10 gap-2 rounded-lg bg-zinc-900 px-6 text-sm font-medium text-white shadow-sm transition-all hover:bg-zinc-800 disabled:opacity-50"
                   >
                     {submitting ? (

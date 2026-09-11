@@ -57,8 +57,9 @@ def _seed_analytics_fixture(database: PostgresTestDatabase) -> None:
                 "INSERT INTO surveys "
                 "(id, created_at, updated_at, is_deleted, deleted_at, performed_by, survey_id, "
                 "title, description, status, target_cohort, responses_count, retention_enabled, "
-                "retention_days) VALUES (:id, :ts, :ts, false, NULL, :actor, 'SURV-ANALYTICS', "
-                "'PostgreSQL analytics', NULL, 'Closed', NULL, 4, true, 1825)"
+                "retention_days, is_template) VALUES (:id, :ts, :ts, false, NULL, :actor, "
+                "'SURV-ANALYTICS', 'PostgreSQL analytics', NULL, 'Closed', NULL, 4, true, "
+                "1825, false)"
             ),
             {"id": str(ANALYTICS_SURVEY_ID), "actor": str(ACTOR_ID), "ts": timestamp},
         )
@@ -166,8 +167,9 @@ def _seed_retention_fixture(database: PostgresTestDatabase) -> None:
                 "INSERT INTO surveys "
                 "(id, created_at, updated_at, is_deleted, deleted_at, performed_by, survey_id, "
                 "title, description, status, target_cohort, responses_count, retention_enabled, "
-                "retention_days) VALUES (:id, :ts, :ts, false, NULL, :actor, 'SURV-RETENTION', "
-                "'Concurrent retention', NULL, 'Closed', NULL, 1, true, 1)"
+                "retention_days, is_template) VALUES (:id, :ts, :ts, false, NULL, :actor, "
+                "'SURV-RETENTION', 'Concurrent retention', NULL, 'Closed', NULL, 1, true, "
+                "1, false)"
             ),
             {"id": str(RETENTION_SURVEY_ID), "actor": str(ACTOR_ID), "ts": timestamp},
         )

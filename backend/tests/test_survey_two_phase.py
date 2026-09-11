@@ -141,10 +141,9 @@ async def test_two_phase_get_progression_and_withdrawal(client):
     assert completed_get.json()["data"]["sections"] == []
     assert completed_get.json()["data"]["questions"] == []
 
-    withdrawn = await client.post(
-        "/api/v1/survey/responses/withdraw", json={"withdrawal_code": withdrawal_code}
-    )
-    assert withdrawn.status_code == 200
+    from tests.test_response_withdrawal import _withdraw_stored_response
+
+    assert (await _withdraw_stored_response(withdrawal_code)).withdrawn
     withdrawn_get = await client.get(f"/api/v1/survey/{token}")
     assert withdrawn_get.json()["data"]["collection_state"] == "withdrawn"
     assert withdrawn_get.json()["data"]["submission_phase"] is None

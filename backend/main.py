@@ -1,3 +1,4 @@
+import asyncio
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -6,9 +7,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
 
 from core.config import Settings, settings
+from core.database import analytics_async_engine, async_engine, engine
 from core.handlers import register_exception_handlers
 from core.http_client import close_http_client, get_http_client
-from core.logging import setup_logging
+from core.logging import get_logger, setup_logging
 from core.middleware import (
     PublicSurveySecurityHeadersMiddleware,
     RequestIdMiddleware,
@@ -19,17 +21,39 @@ from core.rate_limit import redis_lifecycle
 from routers.api import api_router
 
 setup_logging(json_output=settings.LOG_JSON, debug=settings.DEBUG)
+logger = get_logger(__name__)
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
-    await redis_lifecycle.start()
-    get_http_client()
     try:
+        await redis_lifecycle.start()
+        get_http_client()
         yield
     finally:
-        await close_http_client()
-        await redis_lifecycle.stop()
+        cleanup_names = ("http_client", "redis", "primary_database", "analytics_database")
+        cleanup_results = await asyncio.gather(
+            close_http_client(),
+            redis_lifecycle.stop(),
+            async_engine.dispose(),
+            analytics_async_engine.dispose(),
+            return_exceptions=True,
+        )
+        for name, result in zip(cleanup_names, cleanup_results, strict=True):
+            if isinstance(result, Exception):
+                logger.error(
+                    "Lifespan resource cleanup failed",
+                    resource=name,
+                    error_type=type(result).__name__,
+                )
+        try:
+            engine.dispose()
+        except Exception as exc:
+            logger.error(
+                "Lifespan resource cleanup failed",
+                resource="sync_database",
+                error_type=type(exc).__name__,
+            )
 
 
 def create_app(app_settings: Settings = settings) -> FastAPI:

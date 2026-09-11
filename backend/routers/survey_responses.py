@@ -4,6 +4,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, Query, Request, Response, status
 
+from core.client_ip import resolve_client_ip
 from core.config import settings
 from core.deps import AnalyticsAsyncDBSession, AsyncDBSession, CurrentPrincipal, require_permissions
 from core.exceptions import AppError
@@ -158,7 +159,7 @@ async def export_survey_responses(
     http_response: Response,
     principal: CurrentPrincipal,
 ) -> APIResponse[ExportPreparationResponse]:
-    ip_address = request.client.host if request.client else None
+    ip_address = resolve_client_ip(request)
     prepared_export = await response_export_service.prepare_response_export(
         session,
         survey_id,
@@ -210,7 +211,7 @@ async def erase_survey_responses(
             status_code=status.HTTP_400_BAD_REQUEST,
         ) from exc
 
-    ip_address = request.client.host if request.client else None
+    ip_address = resolve_client_ip(request)
     result = await response_service.erase_responses(
         session,
         survey_id,

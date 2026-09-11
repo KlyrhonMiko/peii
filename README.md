@@ -14,7 +14,7 @@ for authentication, RBAC, survey management, responses, audit logs, and sentimen
 ## Prerequisites
 
 - Node.js and npm compatible with Next.js 16
-- Python 3.14
+- Python 3.14.7 (validated backend runtime: Linux aarch64)
 - PostgreSQL 17 for a host-managed local database, Docker with Docker Compose, or a
   configured Supabase database
 - A Supabase project for authentication
@@ -33,11 +33,11 @@ Database URLs depend on where the backend runs:
 - `DB_MODE=supabase` selects `SUPABASE_DATABASE_URL`; Compose can still start its local
   PostgreSQL service, while Adminer is available only through the `tools` profile.
 - Local Compose sets `DATABASE_TLS_MODE=disable` by default. Production Supabase deployments
-  must use `DATABASE_TLS_MODE=require`. For psycopg2/Alembic, that setting uses
-  `sslmode=require`: it encrypts transport but does not verify the server certificate or
-  hostname. Asyncpg uses `ssl="require"` so the Supavisor pooler connection follows the same
-  encryption-only transition. Provider SSL enforcement and eventual CA-backed `verify-full` for
-  every database path remain manual follow-up items with an explicitly recorded owner and deadline.
+  must use `DATABASE_TLS_MODE=verify-full`. Psycopg2/Alembic use `sslmode=verify-full`, and
+  asyncpg uses a hostname-checking, certificate-verifying SSL context. Set
+  `DATABASE_TLS_CA_BUNDLE_PATH` only when the database uses a private or provider-specific CA;
+  otherwise the system trust store is used. Ensure an optional CA bundle is readable by the API
+  and migration identities before release.
 
 Keep `SUPABASE_SECRET_KEY` server-only. `NEXT_PUBLIC_API_URL` is intentionally exposed to
 the browser for development sentiment requests. After isolated Google authentication, the
@@ -58,10 +58,10 @@ never passed wholesale to a container.
 
 ## Production
 
-The approved deployment topology uses a managed Next.js host, managed Python web service,
-managed PostgreSQL, Supabase Auth, and managed Redis for distributed rate limiting. Run
-Alembic exactly once as a release job before promoting API replicas; do not let each API
-replica migrate independently. Docker deployment is out of scope.
+The approved deployment topology uses Vercel for Next.js, one host-native Uvicorn worker
+on Oracle behind Caddy, Supabase PostgreSQL and Auth, and managed Redis. Run Alembic
+exactly once as a protected release job before starting the compatible API. Docker Compose
+is for local development. See the [Oracle runbook](docs/oracle-host-runbook.md).
 
 Survey GET and submit require a dedicated Google OAuth respondent session and backend proof. The
 server-rendered page may fetch GET through `BACKEND_INTERNAL_URL` after isolated auth, while
@@ -83,9 +83,9 @@ Production Supabase mode additionally requires fail-closed rate-limit reads, ver
 proxy CIDRs, and secure Redis configuration; see the canonical production documents for details.
 
 Before launch, operators must manually rotate credentials exposed during development, remove the
-`public` schema from Supabase Data API exposed schemas, track provider SSL enforcement and the
-eventual CA-backed `verify-full` follow-up for all database paths, and configure HSTS on
-Vercel and Render, and verify provider redaction, no-store
+`public` schema from Supabase Data API exposed schemas, verify provider SSL enforcement with
+`DATABASE_TLS_MODE=verify-full` and any required CA bundle for all database paths, and configure HSTS on
+Vercel and the Oracle Caddy ingress, and verify provider redaction, no-store
 behavior, backups/PITR, and the external purge schedule. These provider actions are not performed
 by this repository.
 
@@ -104,7 +104,9 @@ Start the backend from `backend/`:
 
 ```bash
 python3.14 -m venv .venv
-./.venv/bin/pip install -r requirements.txt
+./.venv/bin/pip install torch==2.14.0 -c requirements.lock --index-url https://download.pytorch.org/whl/cpu
+./.venv/bin/pip install -r requirements.txt -c requirements.lock
+./.venv/bin/pip check
 ./.venv/bin/alembic upgrade head
 ./.venv/bin/python scripts/bootstrap_admin.py
 ./.venv/bin/uvicorn main:app --reload --no-access-log --no-proxy-headers
@@ -132,7 +134,8 @@ Compose defines frontend (`127.0.0.1:3000`), backend (`127.0.0.1:8000`), Postgre
 (`127.0.0.1:5432`), and an opt-in Adminer tool (`127.0.0.1:8080`). Adminer is excluded from the
 default graph; start it explicitly with `docker compose --profile tools up adminer`. Compose does
 not apply Alembic migrations automatically; initialize a new database before relying on the
-application services. The current Alembic head is `a6c42481a0d9` (polarity override). The full
+application services. The current Alembic head is `bf21a63040a2` (false-positive feedback Data
+API lockdown). The full
 canonical chain is `20260825_v1` -> `f77a807cf2f9` (SHA-256 token digests + 8-character prefixes,
 historical) -> `d1f9bad768ad` (nullable expiry, historical) -> `fb1c93d15474`
 (retention/withdrawal) -> `2bf09a6bc738` (drop plaintext token, historical) ->
@@ -140,7 +143,9 @@ historical) -> `d1f9bad768ad` (nullable expiry, historical) -> `fb1c93d15474`
 identity + auth proofs, fail-closed irreversible downgrade) -> `b9055c9859f6` (`is_template`) ->
 `f88b9c1d0000` (drops `survey_distributions` and the response distribution link, switching
 response idempotency to a survey-scoped unique) -> `3aad20b0fc8a` (ML sentiments) ->
-`b0d864b9935b` (false-positive feedbacks) -> `a6c42481a0d9` (polarity override).
+`b0d864b9935b` (false-positive feedbacks) -> `a6c42481a0d9` (polarity override) ->
+`7ac95c493227` (performance indexes) -> `b43d56b55144` (survey-question JSONB) ->
+`bf21a63040a2` (false-positive feedback Data API lockdown).
 
 ## Validation
 
@@ -165,8 +170,34 @@ absent. Run those tests against an isolated PostgreSQL database with:
 
 ```bash
 TEST_DATABASE_URL=postgresql+psycopg2://user:password@localhost:5432/peii_test \
+  TEST_DATABASE_TLS_MODE=disable \
   env DEBUG=false ./.venv/bin/pytest -q -m integration --require-postgres
 ```
 
+`TEST_DATABASE_TLS_MODE` applies only to isolated-schema Alembic subprocesses. It defaults to
+`disable` for local disposable Compose PostgreSQL; use only `disable`, `require`, or `verify-full`.
+
 See `frontend/AGENTS.md`, `backend/AGENTS.md`, and the nested `AGENTS.md` files for local
 architecture and contribution rules.
+
+### CPU and CUDA package selection
+
+CPU is the default on both ARM64 and x86_64. Install Torch first from the selected official
+index, then install the remaining requirements with `requirements.lock`, as shown above.
+For a CUDA installation, use `https://download.pytorch.org/whl/cu130` for that first Torch
+command; keep Torch 2.14.0 and the same generic constraints. An existing environment should
+be replaced with a fresh virtual environment when changing CPU/CUDA variants, so an already
+installed Torch build does not silently satisfy the version pin.
+
+Compose defaults `TORCH_INDEX_URL` to the CPU index. For an NVIDIA host with the required
+GPU driver and container runtime, the CUDA override selects cu130 and requests GPU devices:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.cuda.yml up --build
+```
+
+The packaging has no ARM-only restriction. Official CPU/CUDA wheels exist for Python 3.14
+on ARM64 and x86_64, but prior runtime verification here covers ARM64 CPU only. x86_64 and
+GPU execution require their own clean `pip check` and inference checks. In particular, the
+previous ARM CUDA dependency tag failure is not proof that the CUDA override resolves on ARM.
+Selecting a CUDA package does not itself prove the application runs inference on the GPU.

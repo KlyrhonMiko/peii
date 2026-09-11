@@ -13,8 +13,10 @@ database change log, not as scratch files.
   `d5a4f7c91e2b` Supabase Data API lockdown revision, `a8055c9859f5` (Google survey
   respondent identity/auth proofs), `b9055c9859f6` (`is_template`),
   `f88b9c1d0000` (drops survey distributions), `3aad20b0fc8a` (ml_sentiments),
-  `b0d864b9935b` (false_positive_feedbacks), `a6c42481a0d9` (polarity_override), and this guide.
-  `a6c42481a0d9` is the current head.
+  `b0d864b9935b` (false_positive_feedbacks), `a6c42481a0d9` (polarity_override),
+  `7ac95c493227` (performance indexes), `b43d56b55144` (survey-question JSONB), and
+  `bf21a63040a2` (false-positive feedback Data API lockdown), and this guide.
+  `bf21a63040a2` is the current head.
   Future revisions may follow these revisions, but predecessor
   history must not be reintroduced.
   The lockdown revision requires its migration identity to own every protected table before

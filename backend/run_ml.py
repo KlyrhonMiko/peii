@@ -1,21 +1,27 @@
-import sys
 import asyncio
-import time
 import logging
+import sys
 from pathlib import Path
+from typing import Protocol, cast
 
-# Force real-time printing
-sys.stdout.reconfigure(line_buffering=True)
-sys.stderr.reconfigure(line_buffering=True)
+from sqlmodel import select
+
+
+class _ReconfigurableTextStream(Protocol):
+    def reconfigure(self, *, line_buffering: bool) -> None: ...
+
+# Force real-time printing when the active streams support reconfiguration.
+for stream in (sys.stdout, sys.stderr):
+    if hasattr(stream, "reconfigure"):
+        cast(_ReconfigurableTextStream, stream).reconfigure(line_buffering=True)
 
 # Ensure Python can find the core and models folders
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from sqlmodel import select
-from core.database import async_session_factory
-from models.survey import Survey
-from models.survey_response import SurveyResponse
-from services.ml_service import analyze_response_background
+from core.database import async_session_factory  # noqa: E402
+from models.survey import Survey  # noqa: E402
+from models.survey_response import SurveyResponse  # noqa: E402
+from services.ml_service import analyze_response_background  # noqa: E402
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)

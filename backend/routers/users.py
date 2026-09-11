@@ -3,6 +3,7 @@ from typing import Annotated, Literal
 from fastapi import APIRouter, Depends, Query, Request, Response, status
 
 from core.cache import build_cache_key, cache_get, cache_invalidate_prefix, cache_set
+from core.client_ip import resolve_client_ip
 from core.config import settings
 from core.deps import AsyncDBSession, CurrentPrincipal, Principal, require_permissions
 from core.exceptions import AppError
@@ -143,7 +144,7 @@ async def batch_create_users(
     request: Request,
     principal: Principal = Depends(require_permissions("users.invite")),
 ) -> APIResponse[list[UserRead]]:
-    ip_address = request.client.host if request.client else None
+    ip_address = resolve_client_ip(request)
     users = await user_service.batch_create_users(
         session,
         payload.users,
@@ -174,7 +175,7 @@ async def create_user(
     request: Request,
     principal: Principal = Depends(require_permissions("users.invite")),
 ) -> APIResponse[UserRead]:
-    ip_address = request.client.host if request.client else None
+    ip_address = resolve_client_ip(request)
     user = await user_service.create_user(
         session,
         payload,
@@ -213,7 +214,7 @@ async def resend_invitation(
     request: Request,
     principal: Principal = Depends(require_permissions("users.invite")),
 ) -> APIResponse[UserRead]:
-    ip_address = request.client.host if request.client else None
+    ip_address = resolve_client_ip(request)
     user = await user_service.resend_invitation(
         session,
         user_id,
@@ -237,7 +238,7 @@ async def revoke_sessions(
     request: Request,
     principal: Principal = Depends(require_permissions("users.revoke_sessions")),
 ) -> APIResponse[None]:
-    ip_address = request.client.host if request.client else None
+    ip_address = resolve_client_ip(request)
     await user_service.revoke_user_sessions(
         session, user_id, principal.user.id, ip_address=ip_address
     )
@@ -265,7 +266,7 @@ async def update_user(
         required_permissions.add("users.update")
     if not required_permissions.issubset(principal.permissions):
         raise AppError("You do not have permission to perform this action.", status_code=403)
-    ip_address = request.client.host if request.client else None
+    ip_address = resolve_client_ip(request)
     user = await user_service.update_user(
         session, user_id, payload, principal.user.id, ip_address=ip_address
     )
@@ -286,7 +287,7 @@ async def delete_user(
     request: Request,
     principal: Principal = Depends(require_permissions("users.delete")),
 ) -> APIResponse[UserRead]:
-    ip_address = request.client.host if request.client else None
+    ip_address = resolve_client_ip(request)
     user = await user_service.soft_delete_user(
         session, user_id, payload, principal.user.id, ip_address=ip_address
     )
@@ -307,7 +308,7 @@ async def restore_user(
     request: Request,
     principal: Principal = Depends(require_permissions("users.restore")),
 ) -> APIResponse[UserRead]:
-    ip_address = request.client.host if request.client else None
+    ip_address = resolve_client_ip(request)
     user = await user_service.restore_user(
         session, user_id, payload, principal.user.id, ip_address=ip_address
     )

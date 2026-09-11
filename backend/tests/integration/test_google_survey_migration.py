@@ -150,7 +150,7 @@ def _seed_legacy_response(database: PostgresTestDatabase) -> None:
                 "title, description, status, target_cohort, responses_count, "
                 "retention_enabled, retention_days) VALUES "
                 "('50000000-0000-0000-0000-000000000001', '2021-01-02 03:04:05', "
-                "'2021-01-02 03:04:05', false, NULL, NULL, 'SURV-GOOGLE-MIGRATION', "
+                "'2021-01-02 03:04:05', false, NULL, NULL, 'SURV-GOOGLE-MIGRATE', "
                 "'Google migration survey', NULL, 'Active', NULL, 1, true, 1825)"
             )
         )
