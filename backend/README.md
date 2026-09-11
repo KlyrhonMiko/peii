@@ -15,7 +15,7 @@ public responses, audit logs, and sentiment inference.
 
 ```bash
 python3.14 -m venv .venv
-./.venv/bin/pip install torch==2.14.0 -c requirements.lock --index-url https://download.pytorch.org/whl/cpu
+./.venv/bin/pip install --no-deps torch==2.14.0 -c requirements.lock --index-url https://download.pytorch.org/whl/cpu
 ./.venv/bin/pip install -r requirements.txt -c requirements.lock
 ./.venv/bin/pip check
 ```

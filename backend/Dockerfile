@@ -9,7 +9,7 @@ COPY requirements.txt requirements.lock ./
 # CPU by default on both ARM64 and x86-64; select an official CUDA index for GPU builds.
 ARG TORCH_INDEX_URL=https://download.pytorch.org/whl/cpu
 RUN pip install --no-cache-dir --upgrade pip \
-    && pip install --no-cache-dir torch==2.14.0 -c requirements.lock --index-url "${TORCH_INDEX_URL}" \
+    && pip install --no-cache-dir --no-deps torch==2.14.0 -c requirements.lock --index-url "${TORCH_INDEX_URL}" \
     && pip install --no-cache-dir -r requirements.txt -c requirements.lock \
     && pip check
 
