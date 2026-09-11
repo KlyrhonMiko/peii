@@ -122,7 +122,7 @@ function contentLengthError(request: NextRequest): NextResponse | undefined {
 }
 
 function requiresTrailingSlash(path: string[]): boolean {
-  if (path.length === 1) return path[0] === "surveys" || path[0] === "users"
+  if (path.length === 1) return ["surveys", "users", "audit-logs"].includes(path[0] ?? "")
   return (
     path.length === 3 &&
     path[0] === "surveys" &&
