@@ -114,7 +114,7 @@ the non-GPU baseline versions. In a fresh virtual environment, install Torch fir
 selected official index, then the application requirements, from `backend/`:
 
 ```bash
-./.venv/bin/pip install torch==2.14.0 -c requirements.lock --index-url https://download.pytorch.org/whl/cpu
+./.venv/bin/pip install --no-deps torch==2.14.0 -c requirements.lock --index-url https://download.pytorch.org/whl/cpu
 ./.venv/bin/pip install -r requirements.txt -c requirements.lock
 ./.venv/bin/pip check
 ```
