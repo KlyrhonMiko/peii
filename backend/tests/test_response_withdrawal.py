@@ -71,14 +71,8 @@ async def test_withdrawal_is_atomic_sanitized_and_replay_idempotent(client):
     finally:
         await generator.aclose()
 
-    withdrawn = await client.post(
-        "/api/v1/survey/responses/withdraw", json={"withdrawal_code": code}
-    )
-    replay = await client.post(
-        "/api/v1/survey/responses/withdraw", json={"withdrawal_code": code}
-    )
-    assert withdrawn.status_code == replay.status_code == 200
-    assert withdrawn.json()["data"] == replay.json()["data"] == {"withdrawn": True}
+    assert (await _withdraw_stored_response(code)).withdrawn
+    assert (await _withdraw_stored_response(code)).withdrawn
 
     session, generator = await _session()
     try:
@@ -120,14 +114,14 @@ async def test_withdrawal_rejects_malformed_and_unknown_codes_without_oracle(cli
     malformed = await client.post(
         "/api/v1/survey/responses/withdraw", json={"withdrawal_code": "too-short"}
     )
-    assert malformed.status_code == 422
+    assert malformed.status_code == 404
 
     unknown_code = secrets.token_urlsafe(32)
     unknown = await client.post(
         "/api/v1/survey/responses/withdraw", json={"withdrawal_code": unknown_code}
     )
     assert unknown.status_code == 404
-    assert unknown.json()["message"] == "Response not found or already withdrawn."
+    assert unknown.json() == malformed.json()
 
     submitted = await client.post(
         f"/api/v1/survey/{token}/respond",
@@ -170,5 +164,43 @@ async def test_admin_erasure_clears_withdrawal_digest(client):
     try:
         response = (await session.exec(select(SurveyResponse))).one()
         assert response.withdrawal_credential_digest is None
+    finally:
+        await generator.aclose()
+
+
+async def test_public_withdrawal_is_removed_and_submission_needs_no_code(client):
+    from main import app
+
+    assert "/api/v1/survey/responses/withdraw" not in app.openapi()["paths"]
+    removed = await client.post(
+        "/api/v1/survey/responses/withdraw", json={"withdrawal_code": "anything"}
+    )
+    assert removed.status_code == 404
+    survey, question_id, token = await _create_response_fixture(client)
+    payload = {"answers": {question_id: "answer"}, "consent": CONSENT}
+    headers = {"Idempotency-Key": str(uuid4())}
+    first = await client.post(f"/api/v1/survey/{token}/respond", json=payload, headers=headers)
+    assert first.status_code == 201
+    replay = await client.post(f"/api/v1/survey/{token}/respond", json=payload, headers=headers)
+    assert replay.status_code == 200
+    session, generator = await _session()
+    try:
+        response = (await session.exec(select(SurveyResponse))).one()
+        assert response.withdrawal_credential_digest is None
+        assert response.answers == {question_id: "answer"}
+    finally:
+        await generator.aclose()
+
+
+async def _withdraw_stored_response(code):
+    """Exercise preserved historical tombstone handling through the internal service."""
+    from schemas.survey_response import SurveyResponseWithdrawalRequest
+    from services.response_service import withdraw_response
+
+    session, generator = await _session()
+    try:
+        return await withdraw_response(
+            session, SurveyResponseWithdrawalRequest(withdrawal_code=code)
+        )
     finally:
         await generator.aclose()

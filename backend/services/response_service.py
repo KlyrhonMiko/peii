@@ -428,11 +428,6 @@ async def submit_response(
     if consent_version is None:
         consent_version = survey_consent.get_public_consent_policy().version
     consent_policy = survey_consent.require_current_consent(consent_version)
-    if withdrawal_code is None:
-        # Internal callers predating the public withdrawal contract receive a
-        # non-returned process-local secret. Public callers are required to
-        # provide their own code by SurveyResponseSubmit.
-        withdrawal_code = secrets.token_urlsafe(32)
 
     try:
         answers_json = json.dumps(answers, allow_nan=False)
@@ -476,7 +471,7 @@ async def submit_response(
     answers_hash = None
     candidates: list[SurveyResponse] = []
     if idempotency_key is not None:
-        answers_hash = response_idempotency_hash(answers, consent_version, withdrawal_code)
+        answers_hash = response_idempotency_hash(answers, consent_version, withdrawal_code or "")
         legacy_answers_hash = hashlib.sha256(
             json.dumps(answers, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()
         ).hexdigest()
@@ -638,7 +633,9 @@ async def submit_response(
             if survey.retention_enabled
             else None
         ),
-        withdrawal_credential_digest=hash_withdrawal_code(withdrawal_code),
+        withdrawal_credential_digest=(
+            hash_withdrawal_code(withdrawal_code) if withdrawal_code is not None else None
+        ),
         provider="google" if respondent is not None else None,
         auth_user_id=respondent.auth_user_id if respondent is not None else None,
         respondent_key_digest=respondent_digest,

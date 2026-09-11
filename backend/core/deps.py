@@ -24,6 +24,7 @@ class Principal:
     user: User
     permissions: frozenset[str]
     access_token: str
+    session_id: UUID | None = None
 
 
 @dataclass(frozen=True)
@@ -52,7 +53,12 @@ async def get_current_principal(
         raise AppError(
             "You do not have permission to perform this action.", status_code=403
         )
-    return Principal(user=user, permissions=permissions, access_token=claims.access_token)
+    return Principal(
+        user=user,
+        permissions=permissions,
+        access_token=claims.access_token,
+        session_id=claims.session_id,
+    )
 
 
 CurrentPrincipal = Annotated[Principal, Depends(get_current_principal)]

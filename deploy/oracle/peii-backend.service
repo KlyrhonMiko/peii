@@ -1,0 +1,27 @@
+[Unit]
+Description=PEII FastAPI backend
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=exec
+User=peii
+Group=peii
+WorkingDirectory=/var/lib/peii
+EnvironmentFile=/etc/peii/backend.env
+Environment=PYTHONPATH=/opt/peii/backend
+Environment=HF_HOME=/var/lib/peii/huggingface
+ExecStart=/opt/peii/backend/.venv/bin/uvicorn main:app --host 127.0.0.1 --port 8000 --workers 1 --no-access-log --no-proxy-headers
+Restart=on-failure
+RestartSec=5s
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+StateDirectory=peii
+ReadOnlyPaths=/opt/peii
+ReadWritePaths=/var/lib/peii
+
+[Install]
+WantedBy=multi-user.target

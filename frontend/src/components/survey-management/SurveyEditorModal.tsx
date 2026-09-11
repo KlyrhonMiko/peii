@@ -26,6 +26,7 @@ export function SurveyEditorModal({ store }: SurveyEditorModalProps) {
     retentionDays,
     sections,
     structureEditable,
+    contentLocked,
     editedSurvey,
     openQuestionSelectId,
   } = state
@@ -54,6 +55,8 @@ export function SurveyEditorModal({ store }: SurveyEditorModalProps) {
         className="sm:max-w-6xl max-w-6xl w-[95vw] h-[90vh] p-0 overflow-hidden flex flex-col gap-0 border-0 rounded-2xl shadow-[0_16px_40px_-12px_rgba(0,0,0,0.1)] bg-white"
       >
         <SurveyEditorHeader
+          contentLocked={contentLocked}
+          statusChanged={surveyStatus !== editedSurvey?.status}
           modalState={modalState}
           interactionLocked={interactionLocked}
           saving={saving}
@@ -75,6 +78,7 @@ export function SurveyEditorModal({ store }: SurveyEditorModalProps) {
         >
           {/* Left Sidebar: Details */}
           <SurveyEditorSidebar
+            contentLocked={contentLocked}
             surveyTitle={surveyTitle}
             setSurveyTitle={setSurveyTitle}
             surveyStatus={surveyStatus}
@@ -94,7 +98,9 @@ export function SurveyEditorModal({ store }: SurveyEditorModalProps) {
             <div className="max-w-3xl mx-auto pb-20">
               {!structureEditable && (
                 <p className="mb-6 rounded-lg border border-amber-200/50 bg-amber-50/50 px-4 py-3 text-sm text-amber-800">
-                  {editedSurvey?.status !== "Inactive"
+                  {contentLocked
+                    ? "This survey has received responses. Its content and retention policy are permanently locked, including after erasure or restoration. Status can still be changed."
+                    : editedSurvey?.status !== "Inactive"
                     ? "Set this survey to Inactive and save before changing its structure."
                     : "The backend will check for response conflicts when the structure is saved."}
                 </p>

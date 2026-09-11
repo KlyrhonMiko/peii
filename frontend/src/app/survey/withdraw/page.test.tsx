@@ -1,13 +1,8 @@
-import { render, screen } from "@testing-library/react"
-import { describe, expect, it } from "vitest"
+import { expect, it, vi } from "vitest"
+import WithdrawalPage from "./page"
 
-import WithdrawalPage, { metadata } from "./page"
+vi.mock("next/navigation", () => ({ notFound: () => { throw new Error("NEXT_NOT_FOUND") } }))
 
-describe("WithdrawalPage", () => {
-  it("is token-independent and discourages indexing", () => {
-    expect(metadata.robots).toEqual({ index: false, follow: false })
-    render(<WithdrawalPage />)
-    expect(screen.getByRole("heading", { name: /withdraw a response/i })).toBeInTheDocument()
-    expect(window.location.pathname).toBe("/")
-  })
+it("returns not found for the removed withdrawal page", () => {
+  expect(() => WithdrawalPage()).toThrow("NEXT_NOT_FOUND")
 })

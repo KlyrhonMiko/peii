@@ -116,15 +116,16 @@ export function useSurveyManagement({ permissions, csvExportEnabled }: UseSurvey
   const [selectedResponseIds, setSelectedResponseIdsState] = useState<string[]>([])
   const [responseAction, setResponseAction] = useState<"export" | "erase" | null>(null)
   const responseRequestRef = useRef(0)
-  const editingSurveyRef = useRef<Survey | null>(null)
+  const [editingSurvey, setEditingSurvey] = useState<Survey | null>(null)
   const cachedTemplateRef = useRef<Survey | null>(null)
   const [dragItem, setDragItem] = useState<DragItem | null>(null)
   const deferredSearch = useDeferredValue(search)
 
   const editedSurvey = modalState?.type === "edit"
-    ? surveys.find((survey) => survey.id === modalState.id)
+    ? editingSurvey ?? undefined
     : undefined
-  const structureEditable = modalState?.type !== "edit" || (modalState.type === "edit" && modalState.isTemplate) || editedSurvey?.status === "Inactive"
+  const contentLocked = modalState?.type === "edit" && editedSurvey?.hasResponseHistory === true
+  const structureEditable = !contentLocked && (modalState?.type !== "edit" || (modalState.type === "edit" && modalState.isTemplate) || editedSurvey?.status === "Inactive")
 
   const interactionLocked = loading || pendingAction !== null
   const pendingLabel = pendingAction?.type === "view"
@@ -278,7 +279,7 @@ export function useSurveyManagement({ permissions, csvExportEnabled }: UseSurvey
     setTargetCohort("Class of 2024")
     setSurveyStatus("Inactive")
     setViewTab("questions")
-    editingSurveyRef.current = null
+    setEditingSurvey(null)
     setPreviewSurvey(null)
   }
 
@@ -330,7 +331,7 @@ export function useSurveyManagement({ permissions, csvExportEnabled }: UseSurvey
         const loaded = toEditorSections(full.sections ?? [])
         setOriginalSections(loaded)
         setSections(loaded)
-        editingSurveyRef.current = full
+        setEditingSurvey(full)
         setModalState({ type: "edit", id: full.id, isTemplate: true })
       } catch (error) {
         toast.error(error instanceof Error ? error.message : "We could not load or create the survey template.")
@@ -560,7 +561,7 @@ export function useSurveyManagement({ permissions, csvExportEnabled }: UseSurvey
         const loaded = toEditorSections(full.sections ?? [])
         setOriginalSections(loaded)
         setSections(loaded)
-        editingSurveyRef.current = full
+        setEditingSurvey(full)
         setModalState({ type: "edit", id })
       } catch (error) {
         toast.error(error instanceof Error ? error.message : "We could not open the editor.")
@@ -592,8 +593,8 @@ export function useSurveyManagement({ permissions, csvExportEnabled }: UseSurvey
         if (fullTemplate) {
           payload = {
             title: fullTemplate.title,
-            description: fullTemplate.description,
-            target_cohort: fullTemplate.targetCohort,
+            description: fullTemplate.description ?? null,
+            target_cohort: fullTemplate.targetCohort ?? null,
             status: "Inactive" as const,
             sections: fullTemplate.sections?.map((s) => ({
               client_id: createClientId(),
@@ -629,6 +630,16 @@ export function useSurveyManagement({ permissions, csvExportEnabled }: UseSurvey
     setSaving(true)
     setSaveError(null)
     try {
+      const editing = modalState?.type === "edit" ? editingSurvey : null
+      if (editing?.hasResponseHistory === true) {
+        if (surveyStatus !== editing.status) {
+          await updateSurvey(editing.surveyId, { status: surveyStatus })
+          const refreshed = await fetchSurvey(editing.surveyId)
+          setSurveys((prev) => prev.map((item) => item.id === refreshed.id ? refreshed : item))
+        }
+        handleCloseModal()
+        return
+      }
       const structureError = validateSurveyStructure(sections)
       if (structureError) {
         setSaveError(structureError)
@@ -666,11 +677,11 @@ export function useSurveyManagement({ permissions, csvExportEnabled }: UseSurvey
         })
         setSurveys((prev) => [created, ...prev.filter((survey) => survey.id !== created.id)])
       } else if (modalState?.type === "edit") {
-        const target = editingSurveyRef.current
+        const target = editingSurvey
         if (!target || target.id !== modalState.id) return
 
         const structureChanged = JSON.stringify(sections) !== JSON.stringify(originalSections)
-        const structureEditable = target.status === "Inactive"
+        const structureEditable = target.status === "Inactive" && target.hasResponseHistory !== true
         if (structureChanged && !structureEditable) {
           const msg = "Only inactive surveys can have their structure edited. The backend will check for response conflicts when saving."
           setSaveError(msg)
@@ -696,12 +707,12 @@ export function useSurveyManagement({ permissions, csvExportEnabled }: UseSurvey
           }
         }
         const updated = await updateSurvey(target.surveyId, {
-          title: surveyTitle,
-          description: surveyDescription || null,
-          target_cohort: targetCohort,
-          status: surveyStatus,
-          retention_enabled: retentionEnabled,
-          retention_days: retentionDays,
+          ...(surveyTitle !== target.title ? { title: surveyTitle } : {}),
+          ...((surveyDescription || null) !== (target.description ?? null) ? { description: surveyDescription || null } : {}),
+          ...(targetCohort !== (target.targetCohort ?? "Class of 2024") ? { target_cohort: targetCohort } : {}),
+          ...(surveyStatus !== target.status ? { status: surveyStatus } : {}),
+          ...(retentionEnabled !== target.retentionEnabled ? { retention_enabled: retentionEnabled } : {}),
+          ...(retentionDays !== target.retentionDays ? { retention_days: retentionDays } : {}),
         })
         
         if (modalState.isTemplate && cachedTemplateRef.current) {
@@ -716,6 +727,25 @@ export function useSurveyManagement({ permissions, csvExportEnabled }: UseSurvey
       toast.success(modalState?.type === "create" ? "Survey created successfully." : "Survey saved successfully.")
       handleCloseModal()
     } catch (error) {
+      if (error instanceof ApiError && error.status === 409 && editingSurvey) {
+        try {
+          const refreshed = await fetchSurvey(editingSurvey.surveyId)
+          setEditingSurvey(refreshed)
+          setSurveys((prev) => prev.map((item) => item.id === refreshed.id ? refreshed : item))
+          setSurveyTitle(refreshed.title)
+          setSurveyDescription(refreshed.description ?? "")
+          setTargetCohort(refreshed.targetCohort ?? "Class of 2024")
+          setSurveyStatus(refreshed.status)
+          setRetentionEnabled(refreshed.retentionEnabled)
+          setRetentionDays(refreshed.retentionDays)
+          const loaded = toEditorSections(refreshed.sections ?? [])
+          setOriginalSections(loaded)
+          setSections(loaded)
+        } catch {
+          setSaveError("Survey changed, but its latest details could not be loaded. Close and reopen the editor before saving.")
+          return
+        }
+      }
       const message = error instanceof Error
         ? error.message
         : "We could not save the survey. Please try again."
@@ -1050,6 +1080,7 @@ export function useSurveyManagement({ permissions, csvExportEnabled }: UseSurvey
       dragItem,
       editedSurvey,
       structureEditable,
+      contentLocked,
       interactionLocked,
       pendingLabel,
       capabilities,

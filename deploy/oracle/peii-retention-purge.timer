@@ -1,0 +1,11 @@
+[Unit]
+Description=Run the PEII retention purge once daily without overlap
+
+[Timer]
+OnCalendar=*-*-* 03:17:00
+RandomizedDelaySec=15m
+Persistent=true
+Unit=peii-retention-purge.service
+
+[Install]
+WantedBy=timers.target

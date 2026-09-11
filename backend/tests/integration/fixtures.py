@@ -14,6 +14,7 @@ from sqlalchemy.engine import URL, make_url
 from sqlalchemy.pool import NullPool
 
 BACKEND_DIR = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+TEST_DATABASE_TLS_MODES = frozenset({"disable", "require", "verify-full"})
 
 
 @dataclass
@@ -47,12 +48,26 @@ def _sanitize_diagnostics(diagnostics: str, database_url: URL) -> str:
     return sanitized
 
 
-def migrate_to(url: URL, revision: str, schema: str) -> None:
+def test_database_tls_mode() -> str:
+    tls_mode = os.environ.get("TEST_DATABASE_TLS_MODE", "disable")
+    if tls_mode not in TEST_DATABASE_TLS_MODES:
+        allowed_modes = ", ".join(sorted(TEST_DATABASE_TLS_MODES))
+        raise RuntimeError(f"TEST_DATABASE_TLS_MODE must be one of: {allowed_modes}.")
+    return tls_mode
+
+
+def _migration_environment(url: URL, schema: str) -> dict[str, str]:
     environment = os.environ.copy()
     environment["DB_MODE"] = "local"
+    environment["DATABASE_TLS_MODE"] = test_database_tls_mode()
     environment["LOCAL_DATABASE_URL"] = url.render_as_string(hide_password=False)
     environment["PGOPTIONS"] = f"-c search_path={schema}"
     environment["ALEMBIC_EXPECTED_SCHEMA"] = schema
+    return environment
+
+
+def migrate_to(url: URL, revision: str, schema: str) -> None:
+    environment = _migration_environment(url, schema)
     result = subprocess.run(
         [sys.executable, "-m", "alembic", "upgrade", revision],
         cwd=BACKEND_DIR,
@@ -72,11 +87,7 @@ def migrate_to(url: URL, revision: str, schema: str) -> None:
 
 
 def attempt_downgrade(url: URL, revision: str, schema: str) -> str:
-    environment = os.environ.copy()
-    environment["DB_MODE"] = "local"
-    environment["LOCAL_DATABASE_URL"] = url.render_as_string(hide_password=False)
-    environment["PGOPTIONS"] = f"-c search_path={schema}"
-    environment["ALEMBIC_EXPECTED_SCHEMA"] = schema
+    environment = _migration_environment(url, schema)
     result = subprocess.run(
         [sys.executable, "-m", "alembic", "downgrade", revision],
         cwd=BACKEND_DIR,
@@ -117,6 +128,10 @@ def _isolated_postgres_database(
         if request.config.getoption("--require-postgres"):
             pytest.fail(str(exc))
         pytest.skip(str(exc))
+    try:
+        test_database_tls_mode()
+    except RuntimeError as exc:
+        pytest.fail(str(exc))
 
     schema = f"peii_test_{uuid4().hex}"
     admin_engine = create_engine(parsed, poolclass=NullPool)

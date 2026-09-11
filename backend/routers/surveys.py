@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, Query, Request, Response, status
 from fastapi.encoders import jsonable_encoder
 
 from core.cache import build_cache_key, cache_get, cache_invalidate_prefix, cache_set
+from core.client_ip import resolve_client_ip
 from core.deps import AsyncDBSession, Principal, require_permissions
 from core.exceptions import AppError
 from core.responses import list_meta_response, success_response
@@ -110,7 +111,7 @@ async def replace_survey_structure(
     request: Request,
     principal: Principal = Depends(require_permissions("surveys.manage")),
 ) -> APIResponse[dict]:
-    ip_address = request.client.host if request.client else None
+    ip_address = resolve_client_ip(request)
     survey = await survey_structure_service.replace_structure(
         session,
         survey_id,
@@ -207,7 +208,7 @@ async def create_survey(
     request: Request,
     principal: Principal = Depends(require_permissions("surveys.manage")),
 ) -> APIResponse[SurveyRead]:
-    ip_address = request.client.host if request.client else None
+    ip_address = resolve_client_ip(request)
     survey = await survey_service.create_survey(
         session, payload, principal.user.id, ip_address=ip_address
     )
@@ -230,7 +231,7 @@ async def create_survey_with_structure(
     request: Request,
     principal: Principal = Depends(require_permissions("surveys.manage")),
 ) -> APIResponse[dict]:
-    ip_address = request.client.host if request.client else None
+    ip_address = resolve_client_ip(request)
     survey = await survey_service.create_survey_with_structure(
         session,
         payload,
@@ -260,7 +261,7 @@ async def get_survey(
     http_response.headers["Cache-Control"] = "private, no-store, max-age=0"
     http_response.headers["Pragma"] = "no-cache"
     exact = survey_privacy.has_exact_response_count_capability(principal.permissions)
-    cache_key = build_cache_key(survey_id, "exact" if exact else "masked")
+    cache_key = build_cache_key(survey_id, "history-v1", "exact" if exact else "masked")
     redis_cached = await cache_get("surveys", cache_key)
     if isinstance(redis_cached, dict):
         http_response.headers["X-Cache"] = "HIT"
@@ -269,6 +270,9 @@ async def get_survey(
         session, survey_id
     )
     survey_data = _survey_structure_data(survey, sections_with_questions, principal.permissions)
+    survey_data["has_response_history"] = (
+        await survey_service.has_response_history(session, survey.id) if exact else None
+    )
     await cache_set("surveys", cache_key, jsonable_encoder(survey_data))
     http_response.headers["X-Cache"] = "MISS"
     return success_response(survey_data)
@@ -287,7 +291,7 @@ async def update_survey(
     request: Request,
     principal: Principal = Depends(require_permissions("surveys.manage")),
 ) -> APIResponse[SurveyRead]:
-    ip_address = request.client.host if request.client else None
+    ip_address = resolve_client_ip(request)
     survey = await survey_service.update_survey(
         session, survey_id, payload, principal.user.id, ip_address=ip_address
     )
@@ -310,7 +314,7 @@ async def delete_survey(
     request: Request,
     principal: Principal = Depends(require_permissions("surveys.manage")),
 ) -> APIResponse[SurveyRead]:
-    ip_address = request.client.host if request.client else None
+    ip_address = resolve_client_ip(request)
     survey = await survey_service.soft_delete_survey(
         session, survey_id, payload, principal.user.id, ip_address=ip_address
     )
@@ -333,7 +337,7 @@ async def restore_survey(
     request: Request,
     principal: Principal = Depends(require_permissions("surveys.manage")),
 ) -> APIResponse[SurveyRead]:
-    ip_address = request.client.host if request.client else None
+    ip_address = resolve_client_ip(request)
     survey = await survey_service.restore_survey(
         session, survey_id, payload, principal.user.id, ip_address=ip_address
     )

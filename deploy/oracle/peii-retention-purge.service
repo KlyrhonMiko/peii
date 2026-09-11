@@ -1,0 +1,22 @@
+[Unit]
+Description=PEII response retention purge
+After=network-online.target peii-backend.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=peii
+Group=peii
+WorkingDirectory=/var/lib/peii
+EnvironmentFile=/etc/peii/backend.env
+Environment=PYTHONPATH=/opt/peii/backend
+Environment=HF_HOME=/var/lib/peii/huggingface
+ExecStart=/opt/peii/backend/.venv/bin/python /opt/peii/backend/scripts/purge_expired_responses.py --batch-size 100
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+StateDirectory=peii
+ReadOnlyPaths=/opt/peii
+ReadWritePaths=/var/lib/peii

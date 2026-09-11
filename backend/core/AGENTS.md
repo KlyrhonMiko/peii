@@ -74,3 +74,12 @@ backend without knowing about one resource such as users.
   the endpoint-specific filter schema from the route.
 - For expected domain failures, raise `AppError` from services and let `handlers.py` produce the HTTP response.
 - Use `structlog` inside `handlers.py` to record failures with comprehensive context.
+
+## Legacy Supabase database CA
+
+`DATABASE_TLS_SUPABASE_LEGACY_CA_COMPAT` defaults false. Opt-in requires `verify-full`
+and the single audited Supabase 2021 CA at `DATABASE_TLS_CA_BUNDLE_PATH` (fingerprint checked
+by `core/database_tls.py` at settings validation and context construction). It clears only
+Python's `VERIFY_X509_STRICT`; hostname checks and `CERT_REQUIRED` remain enabled. There is
+no failure retry or insecure fallback. Follow `docs/oracle-host-runbook.md` from the root for
+the recorded well-formedness tradeoff and migration back to strict verification.

@@ -2,10 +2,12 @@ from __future__ import annotations
 
 from typing import cast
 
+import httpx
 import pytest
 
 from core.exceptions import AppError
 from services import supabase_auth_service
+from services.supabase_auth_service import LogoutUserSessionError
 
 pytestmark = pytest.mark.anyio
 
@@ -84,11 +86,11 @@ async def test_revoke_user_sessions_uses_supabase_admin_global_logout(monkeypatc
     assert client.calls[0]["json"] == {"scope": "global"}
 
 
-async def test_logout_user_session_uses_the_callers_access_token(monkeypatch):
+async def test_logout_user_session_uses_the_callers_access_token_and_explicit_scope(monkeypatch):
     client = FakeClient()
     monkeypatch.setattr(supabase_auth_service, "get_http_client", lambda: client)
 
-    await supabase_auth_service.logout_user_session("user-access-token")
+    await supabase_auth_service.logout_user_session("user-access-token", "global")
 
     url = client.calls[0]["url"]
     headers = client.calls[0]["headers"]
@@ -96,6 +98,94 @@ async def test_logout_user_session_uses_the_callers_access_token(monkeypatch):
     assert isinstance(headers, dict)
     assert url.endswith("/auth/v1/logout")
     assert headers["Authorization"] == "Bearer user-access-token"
+    assert headers["apikey"] == supabase_auth_service.settings.SUPABASE_PUBLISHABLE_KEY
+    assert client.calls[0]["params"] == {"scope": "global"}
+
+
+async def test_logout_user_session_rejects_unknown_scope_without_calling_supabase(monkeypatch):
+    client = FakeClient()
+    monkeypatch.setattr(supabase_auth_service, "get_http_client", lambda: client)
+
+    with pytest.raises(ValueError, match="scope"):
+        await supabase_auth_service.logout_user_session("user-access-token", "invalid")  # type: ignore[arg-type]
+
+    assert client.calls == []
+
+
+@pytest.mark.parametrize(
+    ("status_code", "retryable"),
+    [(400, False), (500, True)],
+)
+async def test_logout_user_session_marks_only_upstream_5xx_as_retryable(
+    monkeypatch, status_code, retryable
+):
+    class StatusClient:
+        async def post(self, _url: str, **_kwargs: object) -> FakeResponse:
+            return FakeResponse(status_code=status_code)
+
+    monkeypatch.setattr(supabase_auth_service, "get_http_client", lambda: StatusClient())
+
+    with pytest.raises(LogoutUserSessionError) as exc_info:
+        await supabase_auth_service.logout_user_session("user-access-token", "global")
+
+    assert exc_info.value.retryable is retryable
+
+
+async def test_logout_user_session_marks_transport_errors_as_retryable(monkeypatch):
+    class TransportClient:
+        async def post(self, _url: str, **_kwargs: object) -> FakeResponse:
+            raise httpx.ConnectError("connection failed")
+
+    monkeypatch.setattr(supabase_auth_service, "get_http_client", lambda: TransportClient())
+
+    with pytest.raises(LogoutUserSessionError) as exc_info:
+        await supabase_auth_service.logout_user_session("user-access-token", "global")
+
+    assert exc_info.value.retryable is True
+
+
+async def test_reauthentication_uses_the_callers_bearer_token(monkeypatch):
+    class Client:
+        def __init__(self) -> None:
+            self.headers: dict[str, str] | None = None
+
+        async def get(self, _url: str, **kwargs: object) -> FakeResponse:
+            headers = kwargs["headers"]
+            assert isinstance(headers, dict)
+            self.headers = headers
+            return FakeResponse()
+
+    client = Client()
+    monkeypatch.setattr(supabase_auth_service, "get_http_client", lambda: client)
+
+    await supabase_auth_service.request_password_reauthentication("caller-token")
+
+    assert client.headers is not None
+    assert client.headers["Authorization"] == "Bearer caller-token"
+
+
+async def test_password_update_forwards_nonce_and_hides_provider_reauthentication_error(
+    monkeypatch,
+):
+    class Client:
+        def __init__(self) -> None:
+            self.payload: dict[str, str] | None = None
+
+        async def put(self, _url: str, **kwargs: object) -> FakeResponse:
+            payload = kwargs["json"]
+            assert isinstance(payload, dict)
+            self.payload = payload
+            return FakeResponse(status_code=400, payload={"code": "reauthentication_not_valid"})
+
+    client = Client()
+    monkeypatch.setattr(supabase_auth_service, "get_http_client", lambda: client)
+
+    with pytest.raises(AppError) as exc_info:
+        await supabase_auth_service.update_password("caller-token", "a secure password", "nonce")
+
+    assert client.payload == {"password": "a secure password", "nonce": "nonce"}
+    assert exc_info.value.status_code == 400
+    assert exc_info.value.message == "Password reauthentication is required."
 
 
 class FakeListClient:

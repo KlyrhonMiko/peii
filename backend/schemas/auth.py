@@ -34,7 +34,17 @@ class PasswordRecoveryRequest(BaseModel):
 
 
 class PasswordChangeRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     password: str = Field(min_length=12, max_length=256)
+    nonce: str = Field(min_length=1, max_length=512)
+
+
+class PasswordResetRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    password: str = Field(min_length=12, max_length=256)
+    grant: str = Field(min_length=1, max_length=4096)
 
 
 class GoogleSurveyAttestationRequest(BaseModel):

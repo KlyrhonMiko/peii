@@ -42,6 +42,7 @@ describe("mapSurvey", () => {
     })
 
     expect(survey.responses).toBeNull()
+    expect(survey.hasResponseHistory).toBeNull()
     expect(survey.retentionEnabled).toBe(false)
     expect(survey.retentionDays).toBe(90)
   })

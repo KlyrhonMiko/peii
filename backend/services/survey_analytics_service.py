@@ -1,33 +1,34 @@
 import json
 from collections import Counter
 from dataclasses import dataclass
-from typing import Any, cast
+from datetime import datetime
+from heapq import heappush, heapreplace
+from typing import Any, TypedDict, cast
 from uuid import UUID
 
 from fastapi import status
-from sqlalchemy import text
+from sqlalchemy import ColumnElement, false, func, text
 from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from core.exceptions import AppError
+from models.false_positive_feedback import FalsePositiveFeedback
 from models.question_type import QuestionType
 from models.survey import Survey
 from models.survey_question import SurveyQuestion
 from models.survey_response import SurveyResponse
 from models.survey_section import SurveySection
-from models.false_positive_feedback import FalsePositiveFeedback
 from schemas.peii import (
-    PEIIAnalyticsResponse, 
-    PEIICohortResult, 
-    PEIIDomainScore, 
-    PEIIDemographics,
     FeedbackClassification,
     FeedbackClassificationData,
+    PEIIAnalyticsResponse,
+    PEIICohortResult,
+    PEIIDemographics,
+    PEIIDomainScore,
     PEIIHistoricalTrend,
-    QualitativeFeedback
+    PEIIOutcomeDistributions,
+    QualitativeFeedback,
 )
-from services.ml_service import FeedbackAnalyzer
-
 from schemas.survey_analytics import (
     AggregateCell,
     AggregateQuestionType,
@@ -40,6 +41,48 @@ from services.survey_service import resolve_survey
 MAX_AGGREGATE_CELLS_PER_QUESTION = 1000
 MAX_AGGREGATE_CELLS_TOTAL = 10000
 AGGREGATE_BATCH_SIZE = 1000
+MAX_QUALITATIVE_FEEDBACK = 200
+
+
+class _DomainQuestionMap(TypedDict):
+    pre: list[str]
+    post: list[str]
+
+
+class _SurveyQuestionMap(TypedDict):
+    year_q: str | None
+    degree_q: str | None
+    gender_q: str | None
+    location_q: str | None
+    domains: dict[str, _DomainQuestionMap]
+    feedback_qs: list[tuple[str, str]]
+
+
+class _DomainStats(TypedDict):
+    pre_sum: float
+    pre_count: int
+    post_sum: float
+    post_count: int
+
+
+def _new_survey_question_map() -> _SurveyQuestionMap:
+    return {
+        "year_q": None,
+        "degree_q": None,
+        "gender_q": None,
+        "location_q": None,
+        "domains": {
+            domain: {"pre": [], "post": []} for domain in DOMAIN_WEIGHTS
+        },
+        "feedback_qs": [],
+    }
+
+
+def _new_domain_stats() -> dict[str, _DomainStats]:
+    return {
+        domain: {"pre_sum": 0.0, "pre_count": 0, "post_sum": 0.0, "post_count": 0}
+        for domain in DOMAIN_WEIGHTS
+    }
 
 _AGGREGATE_TYPES = {
     QuestionType.SINGLE_CHOICE,
@@ -322,7 +365,14 @@ def _aggregate_cells(state: _AggregateState) -> list[dict[str, object]]:
             cast(list[str] | None, scale_options), state.config
         )
         return [
-            {"value": scale_options[value - minimum] if scale_options and (value - minimum) < len(scale_options) else value, "count": state.counts.get(value, 0)}
+            {
+                "value": (
+                    scale_options[value - minimum]
+                    if scale_options and (value - minimum) < len(scale_options)
+                    else value
+                ),
+                "count": state.counts.get(value, 0),
+            }
             for value in range(minimum, maximum + 1)
         ]
     if state.question_type == QuestionType.RANKING:
@@ -534,6 +584,79 @@ DEPARTMENT_MAPPING = {
     ],
 }
 
+
+def _matching_response_filters(
+    survey_id: UUID,
+    survey_map: _SurveyQuestionMap,
+    *,
+    batch_year: str | None,
+    department: str | None,
+    degree: str | None,
+) -> list[ColumnElement[bool]]:
+    """Build SQL-side eligibility filters for one tracer survey."""
+    now = utc_now()
+    filters: list[ColumnElement[bool]] = [
+        col(SurveyResponse.survey_id) == survey_id,
+        col(SurveyResponse.is_deleted).is_(False),
+        (col(SurveyResponse.retention_expires_at).is_(None))
+        | (col(SurveyResponse.retention_expires_at) > now),
+    ]
+    year_question_id = survey_map["year_q"]
+    if not isinstance(year_question_id, str):
+        return [*filters, false()]
+
+    answers = SurveyResponse.metadata.tables[SurveyResponse.__tablename__].c.answers
+    year_answer = answers[year_question_id].as_string()
+    filters.extend((year_answer.is_not(None), func.trim(year_answer) != ""))
+    if batch_year and batch_year != "All Batches":
+        filters.append(year_answer == batch_year)
+
+    degree_filter_active = (
+        (department is not None and department != "All Departments")
+        or (degree is not None and degree != "All Degrees")
+    )
+    if not degree_filter_active:
+        return filters
+
+    degree_question_id = survey_map["degree_q"]
+    if not isinstance(degree_question_id, str):
+        return [*filters, false()]
+
+    degree_answer = answers[degree_question_id].as_string()
+    if department and department != "All Departments":
+        allowed_degrees = DEPARTMENT_MAPPING.get(department, [])
+        filters.append(degree_answer.in_(allowed_degrees) if allowed_degrees else false())
+    if degree and degree != "All Degrees":
+        filters.append(degree_answer == degree)
+    return filters
+
+
+def normalize_peii_filters(
+    batch_year: str | None, department: str | None, degree: str | None,
+) -> tuple[str | None, str | None, str | None]:
+    return (
+        None if batch_year in (None, "", "All Batches") else batch_year,
+        None if department in (None, "", "All Departments") else department,
+        None if degree in (None, "", "All Degrees") else degree,
+    )
+
+
+def _accumulate_outcome_answer(state: _AggregateState, answer: object) -> None:
+    # A scale answer must be a real numeric option, never bool/string/container.
+    if state.question_type == QuestionType.SCALE:
+        if type(answer) not in (int, float) or answer not in state.counts:
+            return
+    elif state.question_type == QuestionType.SINGLE_CHOICE:
+        if not isinstance(answer, str) or answer not in state.counts:
+            return
+    elif state.question_type == QuestionType.BOOLEAN:
+        if not isinstance(answer, bool):
+            return
+    else:
+        return
+    _accumulate_aggregate_answer(state, answer)
+
+
 async def compute_peii_scores(
     session: AsyncSession,
     survey_ids: list[UUID] | None = None,
@@ -542,8 +665,13 @@ async def compute_peii_scores(
     department: str | None = None,
     degree: str | None = None,
 ) -> PEIIAnalyticsResponse:
+    batch_year, department, degree = normalize_peii_filters(batch_year, department, degree)
     # 1. Find target surveys
-    query = select(Survey).where(col(Survey.title) == "GRADUATE TRACER STUDY SURVEY", col(Survey.status) == "Active")
+    query = select(Survey).where(
+        col(Survey.title) == "GRADUATE TRACER STUDY SURVEY",
+        col(Survey.status) == "Active",
+        col(Survey.is_deleted).is_(False),
+    )
     if survey_ids:
         query = query.where(col(Survey.id).in_(survey_ids))
     if exclude_survey_ids:
@@ -551,7 +679,13 @@ async def compute_peii_scores(
         
     surveys = (await session.exec(query)).all()
     if not surveys:
-        return PEIIAnalyticsResponse(cohort_result=PEIICohortResult(batch_year=batch_year or "All Batches", domains=[], peii_score=0.0))
+        return PEIIAnalyticsResponse(
+            cohort_result=PEIICohortResult(
+                batch_year=batch_year or "All Batches", domains=[], peii_score=0.0
+            ),
+            qualitative_feedback_total=0,
+            qualitative_feedback_truncated=False,
+        )
 
     target_survey_ids = [s.id for s in surveys]
 
@@ -562,24 +696,34 @@ async def compute_peii_scores(
     
     sections = (await session.exec(
         select(SurveySection)
-        .where(col(SurveySection.survey_id).in_(target_survey_ids))
+        .where(
+            col(SurveySection.survey_id).in_(target_survey_ids),
+            col(SurveySection.is_deleted).is_(False),
+        )
+        .order_by(
+            col(SurveySection.survey_id),
+            col(SurveySection.order_index),
+            col(SurveySection.id),
+        )
     )).all()
     
     questions = (await session.exec(
         select(SurveyQuestion)
-        .where(col(SurveyQuestion.survey_id).in_(target_survey_ids))
+        .where(
+            col(SurveyQuestion.survey_id).in_(target_survey_ids),
+            col(SurveyQuestion.is_deleted).is_(False),
+        )
+        .order_by(
+            col(SurveyQuestion.survey_id),
+            col(SurveyQuestion.section_id),
+            col(SurveyQuestion.order_index),
+            col(SurveyQuestion.id),
+        )
     )).all()
 
-    survey_maps = {} # survey_id -> mapping
-    for sid in target_survey_ids:
-        survey_maps[sid] = {
-            "year_q": None,
-            "degree_q": None,
-            "gender_q": None,
-            "location_q": None,
-            "domains": {d: {"pre": [], "post": []} for d in DOMAIN_WEIGHTS.keys()},
-            "feedback_qs": []
-        }
+    survey_maps: dict[UUID, _SurveyQuestionMap] = {
+        survey_id: _new_survey_question_map() for survey_id in target_survey_ids
+    }
 
     for sec in sections:
         sec_qs = [q for q in questions if q.section_id == sec.id]
@@ -612,14 +756,34 @@ async def compute_peii_scores(
         if "Feedback and Reflection" in sec.title:
             smap["feedback_qs"].extend([(str(q.id), q.question_text) for q in sec_qs])
 
+    # Resolve only the selected Employability POST mapping; never fall back to PRE.
+    outcome_states: dict[str, _AggregateState] = {}
+    outcome_by_survey: dict[UUID, list[_AggregateState]] = {}
+    question_by_id = {str(question.id): question for question in questions}
+    # This question-level contract applies to a single survey only. Cross-survey
+    # PEII callers receive null outcomes rather than a misleading partial total.
+    outcome_maps = survey_maps.items() if len(surveys) == 1 else []
+    for sid, smap in outcome_maps:
+        post_ids = smap["domains"]["A. Employability and Economic Mobility"]["post"]
+        for name, phrase in (
+            ("employment_stability", "stable source of income or employment"),
+            ("degree_alignment", "aligned with my college degree or skills"),
+        ):
+            match = next((question_by_id[qid] for qid in post_ids
+                          if phrase in question_by_id[qid].question_text.lower()), None)
+            if match is not None:
+                state = _new_aggregate_state(match)
+                outcome_states.setdefault(name, state)
+                outcome_by_survey.setdefault(sid, []).append(state)
+
     # 3. Process Responses
     # We will accumulate scores per cohort (batch_year)
-    cohort_stats = {} # batch_year -> { domain_name -> { pre_sum, pre_count, post_sum, post_count } }
+    cohort_stats: dict[str, dict[str, _DomainStats]] = {}
     
     total_valid_responses = 0
-    gender_dist = Counter()
-    location_dist = Counter()
-    dept_dist = Counter()
+    gender_dist: Counter[str] = Counter()
+    location_dist: Counter[str] = Counter()
+    dept_dist: Counter[str] = Counter()
     
     classification_counts = {
         domain_name.split(". ", 1)[-1]: {"positive": 0, "neutral": 0, "negative": 0}
@@ -627,187 +791,235 @@ async def compute_peii_scores(
     }
     classification_counts["General Feedback"] = {"positive": 0, "neutral": 0, "negative": 0}
     
-    qualitative_feedbacks = []
-    
-    
-    
+    qualitative_feedback_candidates: list[
+        tuple[datetime, str, str, QualitativeFeedback]
+    ] = []
+    qualitative_feedback_total = 0
+
     for sid in target_survey_ids:
         smap = survey_maps[sid]
-        responses = (await session.exec(
-            select(SurveyResponse)
-            .where(col(SurveyResponse.survey_id) == sid, col(SurveyResponse.is_deleted).is_(False))
-        )).all()
-        
-        # Pre-fetch false positives — store polarity_override keyed by (response_id, question_id)
+        response_filters = _matching_response_filters(
+            sid,
+            smap,
+            batch_year=batch_year,
+            department=department,
+            degree=degree,
+        )
+
+        # Only corrections for responses that contribute to this filtered analytics result
+        # are loaded. The join avoids materializing every matching response ID in Python.
         fp_records = (await session.exec(
-            select(FalsePositiveFeedback)
-            .where(col(FalsePositiveFeedback.response_id).in_([r.id for r in responses]))
+            select(
+                FalsePositiveFeedback.response_id,
+                FalsePositiveFeedback.question_id,
+                FalsePositiveFeedback.polarity_override,
+            )
+            .join(
+                SurveyResponse,
+                col(FalsePositiveFeedback.response_id) == col(SurveyResponse.id),
+            )
+            .where(*response_filters)
         )).all()
-        # value is None (flip) or explicit float override
         fp_map: dict[tuple[str, str], float | None] = {
-            (str(fp.response_id), str(fp.question_id)): fp.polarity_override
-            for fp in fp_records
+            (str(response_id), str(question_id)): polarity_override
+            for response_id, question_id, polarity_override in fp_records
         }
 
-        
-        for resp in responses:
-            ans = resp.answers
-            if not isinstance(ans, dict):
-                continue
-                
-            resp_year = ans.get(smap["year_q"])
-            if not resp_year:
-                continue # Unknown cohort
-                
-            if batch_year and batch_year != "All Batches" and resp_year != batch_year:
-                continue # Filtered out
-                
-            resp_deg = ans.get(smap["degree_q"])
-            if department and department != "All Departments":
-                # Check mapping
-                allowed_degrees = DEPARTMENT_MAPPING.get(department, [])
-                if resp_deg not in allowed_degrees:
-                    continue # Filtered out
-            if degree and degree != "All Degrees" and resp_deg != degree:
-                continue # Filtered out
+        responses_result = await session.stream(
+            select(
+                SurveyResponse.id,
+                SurveyResponse.answers,
+                SurveyResponse.ml_sentiments,
+                SurveyResponse.created_at,
+            )
+            .where(*response_filters)
+            .order_by(
+                col(SurveyResponse.created_at).desc(),
+                col(SurveyResponse.id).desc(),
+            )
+        )
+        try:
+            async for response_batch in responses_result.partitions(AGGREGATE_BATCH_SIZE):
+                for response_id, ans, ml_sentiments, response_created_at in response_batch:
+                    if not isinstance(ans, dict):
+                        continue
 
-            if resp_year not in cohort_stats:
-                cohort_stats[resp_year] = {
-                    d: {"pre_sum": 0, "pre_count": 0, "post_sum": 0, "post_count": 0}
-                    for d in DOMAIN_WEIGHTS.keys()
-                }
-                
-            # Demographics tracking
-            total_valid_responses += 1
-            if resp_deg:
-                dept_dist[resp_deg] += 1
-            gender_ans = ans.get(smap["gender_q"])
-            if gender_ans:
-                gender_dist[gender_ans] += 1
-            loc_ans = ans.get(smap["location_q"])
-            if loc_ans:
-                location_dist[loc_ans] += 1
-                
-            stats = cohort_stats[resp_year]
-            for domain_name, phases in smap["domains"].items():
-                for qid in phases["pre"]:
-                    val = ans.get(qid)
-                    if isinstance(val, (int, float)): # Scale 1-5
-                        stats[domain_name]["pre_sum"] += val
-                        stats[domain_name]["pre_count"] += 1
-                for qid in phases["post"]:
-                    val = ans.get(qid)
-                    if isinstance(val, (int, float)):
-                        stats[domain_name]["post_sum"] += val
-                        stats[domain_name]["post_count"] += 1
+                    year_question_id = smap["year_q"]
+                    if not isinstance(year_question_id, str):
+                        continue
+                    resp_year = ans.get(year_question_id)
+                    if not isinstance(resp_year, str) or not resp_year.strip():
+                        continue
 
-            # Individual Divergence Calculation
-            individual_deltas = {}
-            for domain_name, phases in smap["domains"].items():
-                pre_sum, pre_count = 0, 0
-                for qid in phases["pre"]:
-                    val = ans.get(qid)
-                    if isinstance(val, (int, float)):
-                        pre_sum += val
-                        pre_count += 1
-                post_sum, post_count = 0, 0
-                for qid in phases["post"]:
-                    val = ans.get(qid)
-                    if isinstance(val, (int, float)):
-                        post_sum += val
-                        post_count += 1
-                
-                if pre_count > 0 and post_count > 0:
-                    pre_avg = pre_sum / pre_count
-                    post_avg = post_sum / post_count
-                    # Normalized to [-1.0, 1.0] since max delta is 4
-                    delta_q = (post_avg - pre_avg) / 4.0
-                    clean_dim = domain_name.split(". ", 1)[-1]
-                    individual_deltas[clean_dim] = delta_q
-                    
-            for qid, qtext in smap["feedback_qs"]:
-                text_ans = ans.get(qid)
-                if isinstance(text_ans, str) and text_ans.strip():
-                    # Read pre-computed ML sentiments from the database column
-                    sentiments_dict = resp.ml_sentiments or {}
-                    sentiments_for_q = sentiments_dict.get(qid) or []
-                    fp_key = (str(resp.id), qid)
-                    is_fp = fp_key in fp_map
-                    fp_polarity_override = fp_map.get(fp_key)  # None = flip, float = force
-                    primary_dim = "General Feedback"
-                    if sentiments_for_q:
-                        avg_polarity = sum(p for _, p in sentiments_for_q) / len(sentiments_for_q)
-                        primary_dim = sentiments_for_q[0][0]
-                        # Apply override BEFORE chart counts for ML-classified items too
-                        if is_fp:
-                            if fp_polarity_override is not None:
-                                avg_polarity = fp_polarity_override
-                            else:
-                                avg_polarity = -avg_polarity
-                    else:
-                        # Fallback heuristic since ML was run externally and might have skipped this text
-                        lower_text = text_ans.lower()
-                        critical_words = ['sana', 'ayusin', 'kulang', 'more', 'lack', 'improve', 'wala', 'needs', 'better']
-                        positive_words = ['good', 'happy', 'great', 'excellent', 'keep up', 'thanks', 'salamat']
-                        
-                        if any(w in lower_text for w in critical_words):
-                            avg_polarity = -0.5
-                        elif any(w in lower_text for w in positive_words):
-                            avg_polarity = 0.5
+                    degree_question_id = smap["degree_q"]
+                    resp_deg = (
+                        ans.get(degree_question_id)
+                        if isinstance(degree_question_id, str)
+                        else None
+                    )
+
+                    if resp_year not in cohort_stats:
+                        cohort_stats[resp_year] = _new_domain_stats()
+
+                    for outcome_state in outcome_by_survey.get(sid, []):
+                        _accumulate_outcome_answer(
+                            outcome_state, ans.get(str(outcome_state.question.id))
+                        )
+
+                    # Demographics tracking
+                    total_valid_responses += 1
+                    if isinstance(resp_deg, str) and resp_deg:
+                        dept_dist[resp_deg] += 1
+                    gender_question_id = smap["gender_q"]
+                    gender_ans = (
+                        ans.get(gender_question_id)
+                        if isinstance(gender_question_id, str)
+                        else None
+                    )
+                    if isinstance(gender_ans, str) and gender_ans:
+                        gender_dist[gender_ans] += 1
+                    location_question_id = smap["location_q"]
+                    loc_ans = (
+                        ans.get(location_question_id)
+                        if isinstance(location_question_id, str)
+                        else None
+                    )
+                    if isinstance(loc_ans, str) and loc_ans:
+                        location_dist[loc_ans] += 1
+
+                    stats = cohort_stats[resp_year]
+                    for domain_name, phases in smap["domains"].items():
+                        for qid in phases["pre"]:
+                            val = ans.get(qid)
+                            if isinstance(val, (int, float)): # Scale 1-5
+                                stats[domain_name]["pre_sum"] += val
+                                stats[domain_name]["pre_count"] += 1
+                        for qid in phases["post"]:
+                            val = ans.get(qid)
+                            if isinstance(val, (int, float)):
+                                stats[domain_name]["post_sum"] += val
+                                stats[domain_name]["post_count"] += 1
+
+                    for qid, qtext in smap["feedback_qs"]:
+                        text_ans = ans.get(qid)
+                        if not isinstance(text_ans, str) or not text_ans.strip():
+                            continue
+
+                        qualitative_feedback_total += 1
+                        sentiments_dict = ml_sentiments if isinstance(ml_sentiments, dict) else {}
+                        sentiments_for_q = sentiments_dict.get(qid) or []
+                        fp_key = (str(response_id), qid)
+                        is_fp = fp_key in fp_map
+                        fp_polarity_override = fp_map.get(fp_key)
+                        primary_dim = "General Feedback"
+                        if sentiments_for_q:
+                            avg_polarity = (
+                                sum(p for _, p in sentiments_for_q)
+                                / len(sentiments_for_q)
+                            )
+                            primary_dim = sentiments_for_q[0][0]
+                            if is_fp:
+                                avg_polarity = (
+                                    fp_polarity_override
+                                    if fp_polarity_override is not None
+                                    else -avg_polarity
+                                )
                         else:
-                            avg_polarity = 0.0
-                            
-                        dimension_keywords = {
-                            "Employability and Economic Mobility": ["job", "work", "career", "salary", "employ", "income", "trabaho", "sweldo", "pera", "promot", "hire", "opportunity", "business", "negosyo", "workplace", "professional"],
-                            "Family Upliftment and Financial Stability": ["family", "pamilya", "financial", "children", "parents", "anak", "magulang", "bahay", "house", "budget", "gastos", "kapatid", "tulong sa pamilya", "provide"],
-                            "Personal Development and Life Quality": ["skill", "learn", "grow", "develop", "confidence", "happy", "health", "buhay", "sarili", "improve", "training", "aral", "knowledge", "natutunan", "experience", "mindset"],
-                            "Civic Engagement and Community Contribution": ["community", "help", "others", "society", "volunteer", "tulong", "kapwa", "barangay", "lipunan", "tao", "serve", "serbisyo", "contribute"],
-                            "Government Trust and LGU Support Valuation": ["gov", "mayor", "lgu", "support", "trust", "gobyerno", "program", "scholar", "city", "pasig", "officials", "leader", "public"]
-                        }
-                        
-                        matched_dim = None
-                        for dim, kws in dimension_keywords.items():
-                            if any(w in lower_text for w in kws):
-                                matched_dim = dim
-                                break
-                                
-                        if not matched_dim:
-                            matched_dim = "General Feedback"
-                            
-                        # Apply override for heuristic-classified items
-                        if is_fp:
-                            if fp_polarity_override is not None:
-                                avg_polarity = fp_polarity_override
+                            lower_text = text_ans.lower()
+                            critical_words = [
+                                "sana", "ayusin", "kulang", "more", "lack", "improve",
+                                "wala", "needs", "better",
+                            ]
+                            positive_words = [
+                                "good", "happy", "great", "excellent", "keep up", "thanks",
+                                "salamat",
+                            ]
+                            if any(word in lower_text for word in critical_words):
+                                avg_polarity = -0.5
+                            elif any(word in lower_text for word in positive_words):
+                                avg_polarity = 0.5
                             else:
-                                avg_polarity = -avg_polarity
-                            
-                        primary_dim = matched_dim
-                        if avg_polarity < 0:
-                            classification_counts[matched_dim]["negative"] += 1
-                        elif avg_polarity > 0:
-                            classification_counts[matched_dim]["positive"] += 1
-                        else:
-                            classification_counts[matched_dim]["neutral"] += 1
+                                avg_polarity = 0.0
 
-                    qualitative_feedbacks.append(QualitativeFeedback(
-                        response_id=str(resp.id),
-                        question_id=qid,
-                        question_text=qtext,
-                        response_text=text_ans.strip(),
-                        sentiment_score=avg_polarity,
-                        is_false_positive=is_fp,
-                        dimension=primary_dim
-                    ))
-                    
-                    if sentiments_for_q:
-                        for dim, polarity in sentiments_for_q:
-                            if dim in classification_counts:
-                                if polarity >= 0.3:
-                                    classification_counts[dim]["positive"] += 1
-                                elif polarity <= -0.3:
-                                    classification_counts[dim]["negative"] += 1
-                                else:
-                                    classification_counts[dim]["neutral"] += 1
+                            dimension_keywords = {
+                                "Employability and Economic Mobility": [
+                                    "job", "work", "career", "salary", "employ", "income",
+                                    "trabaho", "sweldo", "pera", "promot", "hire", "opportunity",
+                                    "business", "negosyo", "workplace", "professional",
+                                ],
+                                "Family Upliftment and Financial Stability": [
+                                    "family", "pamilya", "financial", "children", "parents",
+                                    "anak", "magulang", "bahay", "house", "budget", "gastos",
+                                    "kapatid", "tulong sa pamilya", "provide",
+                                ],
+                                "Personal Development and Life Quality": [
+                                    "skill", "learn", "grow", "develop", "confidence", "happy",
+                                    "health", "buhay", "sarili", "improve", "training", "aral",
+                                    "knowledge", "natutunan", "experience", "mindset",
+                                ],
+                                "Civic Engagement and Community Contribution": [
+                                    "community", "help", "others", "society", "volunteer", "tulong",
+                                    "kapwa", "barangay", "lipunan", "tao", "serve", "serbisyo",
+                                    "contribute",
+                                ],
+                                "Government Trust and LGU Support Valuation": [
+                                    "gov", "mayor", "lgu", "support", "trust", "gobyerno",
+                                    "program",
+                                    "scholar", "city", "pasig", "officials", "leader", "public",
+                                ],
+                            }
+                            primary_dim = next(
+                                (
+                                    dimension
+                                    for dimension, keywords in dimension_keywords.items()
+                                    if any(word in lower_text for word in keywords)
+                                ),
+                                "General Feedback",
+                            )
+                            if is_fp:
+                                avg_polarity = (
+                                    fp_polarity_override
+                                    if fp_polarity_override is not None
+                                    else -avg_polarity
+                                )
+                            if avg_polarity < 0:
+                                classification_counts[primary_dim]["negative"] += 1
+                            elif avg_polarity > 0:
+                                classification_counts[primary_dim]["positive"] += 1
+                            else:
+                                classification_counts[primary_dim]["neutral"] += 1
+
+                        qualitative_feedback = QualitativeFeedback(
+                                response_id=str(response_id),
+                                question_id=qid,
+                                question_text=qtext,
+                                response_text=text_ans.strip(),
+                                sentiment_score=avg_polarity,
+                                is_false_positive=is_fp,
+                                dimension=primary_dim,
+                            )
+                        feedback_candidate = (
+                            response_created_at,
+                            str(response_id),
+                            qid,
+                            qualitative_feedback,
+                        )
+                        if len(qualitative_feedback_candidates) < MAX_QUALITATIVE_FEEDBACK:
+                            heappush(qualitative_feedback_candidates, feedback_candidate)
+                        elif feedback_candidate[:3] > qualitative_feedback_candidates[0][:3]:
+                            heapreplace(qualitative_feedback_candidates, feedback_candidate)
+
+                        if sentiments_for_q:
+                            for dim, polarity in sentiments_for_q:
+                                if dim in classification_counts:
+                                    if polarity >= 0.3:
+                                        classification_counts[dim]["positive"] += 1
+                                    elif polarity <= -0.3:
+                                        classification_counts[dim]["negative"] += 1
+                                    else:
+                                        classification_counts[dim]["neutral"] += 1
+        finally:
+            await responses_result.close()
 
     # 4. Compute PEII for requested cohort and baseline (2023)
     def compute_for_cohort(year: str) -> PEIICohortResult | None:
@@ -844,10 +1056,7 @@ async def compute_peii_scores(
     # We might have accumulated all batches if `batch_year` was "All Batches".
     # We should merge stats if "All Batches" is requested.
     if batch_year == "All Batches" or not batch_year:
-        merged_stats = {
-            d: {"pre_sum": 0, "pre_count": 0, "post_sum": 0, "post_count": 0}
-            for d in DOMAIN_WEIGHTS.keys()
-        }
+        merged_stats = _new_domain_stats()
         for year_stats in cohort_stats.values():
             for d, ds in year_stats.items():
                 merged_stats[d]["pre_sum"] += ds["pre_sum"]
@@ -891,10 +1100,16 @@ async def compute_peii_scores(
                     domains=year_result.domains
                 ))
 
-    # Sort feedbacks: lowest sentiment (most negative/critical) first, as requested by user for actionable insights
+    qualitative_feedbacks = [
+        feedback
+        for _, _, _, feedback in sorted(
+            qualitative_feedback_candidates,
+            key=lambda candidate: candidate[:3],
+            reverse=True,
+        )
+    ]
+    # Present the selected newest entries in critical-first order.
     qualitative_feedbacks.sort(key=lambda x: x.sentiment_score)
-    # We used to limit this to 50, but users need to see the full set of qualitative data that matches the chart counts.
-    # Frontend handles scrolling.
     
     # Assemble Feedback Classification Data
     feedback_classifications = []
@@ -912,13 +1127,22 @@ async def compute_peii_scores(
             
     feedback_classification_data = None
     if feedback_classifications:
-        feedback_classification_data = FeedbackClassificationData(classifications=feedback_classifications)
+        feedback_classification_data = FeedbackClassificationData(
+            classifications=feedback_classifications
+        )
 
     return PEIIAnalyticsResponse(
+        outcome_distributions=PEIIOutcomeDistributions(**{
+            name: _finalize_aggregate(state) for name, state in outcome_states.items()
+        }),
         cohort_result=cohort_result,
         baseline_result=baseline_result,
         historical_trend=historical_trend,
         demographics=demographics,
         feedback_classification=feedback_classification_data,
-        qualitative_feedback=qualitative_feedbacks
+        qualitative_feedback=qualitative_feedbacks,
+        qualitative_feedback_total=qualitative_feedback_total,
+        qualitative_feedback_truncated=(
+            qualitative_feedback_total > len(qualitative_feedbacks)
+        ),
     )

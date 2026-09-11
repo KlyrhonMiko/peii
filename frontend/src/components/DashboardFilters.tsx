@@ -49,12 +49,13 @@ export const departmentDegrees: Record<string, string[]> = {
 const defaultBatches = ["All Batches", "2024", "2023", "2022", "2021", "2020"]
 
 export interface DashboardFiltersProps {
+  disabled?: boolean
   onFilterChange: (filters: { department: string; degree: string; batch: string }) => void
   availableBatches?: string[]
   availableDepartments?: string[]
 }
 
-export function DashboardFilters({ onFilterChange, availableBatches, availableDepartments }: DashboardFiltersProps) {
+export function DashboardFilters({ disabled = false, onFilterChange, availableBatches, availableDepartments }: DashboardFiltersProps) {
   const [department, setDepartment] = useState("All Departments")
   const [degree, setDegree] = useState("All Degrees")
   const [batch, setBatch] = useState("All Batches")
@@ -64,6 +65,7 @@ export function DashboardFilters({ onFilterChange, availableBatches, availableDe
   const [batchOpen, setBatchOpen] = useState(false)
 
   const handleDepartmentChange = (newDept: string) => {
+    if (disabled) return
     setDepartment(newDept)
     setDegree("All Degrees") // Reset degree when department changes
     setDeptOpen(false)
@@ -71,12 +73,14 @@ export function DashboardFilters({ onFilterChange, availableBatches, availableDe
   }
 
   const handleDegreeChange = (newDegree: string) => {
+    if (disabled) return
     setDegree(newDegree)
     setDegreeOpen(false)
     onFilterChange({ department, degree: newDegree, batch })
   }
 
   const handleBatchChange = (newBatch: string) => {
+    if (disabled) return
     setBatch(newBatch)
     setBatchOpen(false)
     onFilterChange({ department, degree, batch: newBatch })
@@ -95,7 +99,7 @@ export function DashboardFilters({ onFilterChange, availableBatches, availableDe
     : defaultDepartments
 
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex flex-wrap items-center gap-2">
       <div className="flex items-center justify-center h-8 w-8 rounded-lg bg-white border border-slate-200 shadow-sm text-slate-500">
         <Filter className="w-3.5 h-3.5" />
       </div>
@@ -105,6 +109,7 @@ export function DashboardFilters({ onFilterChange, availableBatches, availableDe
         <PopoverTrigger
           render={
             <Button
+              disabled={disabled}
               variant="outline"
               className="h-8 text-[12px] font-medium border border-slate-200 rounded-lg text-slate-600 bg-white hover:bg-slate-50 hover:border-slate-300 shadow-sm px-3 flex items-center gap-1.5 focus-visible:ring-slate-400/20 focus-visible:border-slate-400 select-none cursor-pointer transition-all"
             >
@@ -144,6 +149,7 @@ export function DashboardFilters({ onFilterChange, availableBatches, availableDe
         <PopoverTrigger
           render={
             <Button
+              disabled={disabled}
               variant="outline"
               className="h-8 text-[12px] font-medium border border-slate-200 rounded-lg text-slate-600 bg-white hover:bg-slate-50 hover:border-slate-300 shadow-sm px-3 flex items-center gap-1.5 focus-visible:ring-slate-400/20 focus-visible:border-slate-400 select-none cursor-pointer transition-all"
             >
@@ -184,6 +190,7 @@ export function DashboardFilters({ onFilterChange, availableBatches, availableDe
           <PopoverTrigger
             render={
               <Button
+                disabled={disabled}
                 variant="outline"
                 className="h-8 text-[12px] font-medium border border-slate-200 rounded-lg text-slate-600 bg-white hover:bg-slate-50 hover:border-slate-300 shadow-sm px-3 flex items-center gap-1.5 focus-visible:ring-slate-400/20 focus-visible:border-slate-400 select-none cursor-pointer transition-all"
               >

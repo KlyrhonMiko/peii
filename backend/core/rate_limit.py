@@ -89,6 +89,9 @@ class UpstashRedisRestClient:
             raise RuntimeError("Upstash Redis returned an invalid result") from None
         return result
 
+    async def ping(self) -> bool:
+        return str(await self._execute("PING")).upper() == "PONG"
+
     async def get(self, key: str) -> str | None:
         result = await self._execute("GET", key)
         if result is None:
@@ -97,6 +100,15 @@ class UpstashRedisRestClient:
 
     async def setex(self, key: str, ttl_seconds: int, value: str) -> None:
         await self._execute("SET", key, value, "EX", int(ttl_seconds))
+
+    async def set(
+        self, key: str, value: str, *, ex: int, nx: bool = False
+    ) -> bool:
+        command: list[object] = ["SET", key, value]
+        if nx:
+            command.append("NX")
+        command.extend(["EX", int(ex)])
+        return str(await self._execute(*command)).upper() == "OK"
 
     async def scan(
         self, cursor: int = 0, match: str | None = None, count: int = 200
@@ -259,10 +271,11 @@ class RedisRateLimitLifecycle:
                 self.limiter = None
 
     async def stop(self) -> None:
-        if self.client is not None:
-            await self.client.aclose()
+        client = self.client
         self.client = None
         self.limiter = None
+        if client is not None:
+            await client.aclose()
 
 
 class _UnavailableRedis:
@@ -337,6 +350,26 @@ def rate_limit_policy(name: str) -> RateLimitPolicy:
             name,
             settings.PASSWORD_RECOVERY_GLOBAL_LIMIT,
             settings.PASSWORD_RECOVERY_GLOBAL_WINDOW_SECONDS,
+        ),
+        "password-reauthenticate": RateLimitPolicy(
+            name,
+            settings.PASSWORD_REAUTHENTICATE_RATE_LIMIT,
+            settings.PASSWORD_REAUTHENTICATE_RATE_WINDOW_SECONDS,
+        ),
+        "password-reauthenticate-global": RateLimitPolicy(
+            name,
+            settings.PASSWORD_REAUTHENTICATE_GLOBAL_LIMIT,
+            settings.PASSWORD_REAUTHENTICATE_GLOBAL_WINDOW_SECONDS,
+        ),
+        "password-change": RateLimitPolicy(
+            name,
+            settings.PASSWORD_CHANGE_RATE_LIMIT,
+            settings.PASSWORD_CHANGE_RATE_WINDOW_SECONDS,
+        ),
+        "password-change-global": RateLimitPolicy(
+            name,
+            settings.PASSWORD_CHANGE_GLOBAL_LIMIT,
+            settings.PASSWORD_CHANGE_GLOBAL_WINDOW_SECONDS,
         ),
         "google-survey-attest": RateLimitPolicy(
             name,
@@ -414,6 +447,22 @@ async def enforce_authenticated_survey_rate_limit(
 ) -> None:
     """Apply a verified respondent/session/survey bucket and a global breaker."""
     identifier = f"subject:{auth_user_id}:session:{session_id}:survey:{survey_id}"
+    outcomes = await asyncio.gather(
+        enforce_rate_limit(rate_limit_policy(policy_name), [identifier]),
+        enforce_rate_limit(
+            rate_limit_policy(f"{policy_name}-global"), [f"{policy_name}-global"]
+        ),
+        return_exceptions=True,
+    )
+    await _raise_first_outcome(outcomes)
+
+
+async def enforce_authenticated_password_rate_limit(
+    policy_name: str, subject: object, session_id: object | None
+) -> None:
+    """Rate-limit sensitive password steps by verified identity/session plus a breaker."""
+
+    identifier = f"subject:{subject}:session:{session_id or 'missing'}"
     outcomes = await asyncio.gather(
         enforce_rate_limit(rate_limit_policy(policy_name), [identifier]),
         enforce_rate_limit(

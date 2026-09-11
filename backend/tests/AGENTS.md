@@ -8,7 +8,10 @@ pre-commit configuration currently invokes them automatically.
 - Run from `backend/`: `env DEBUG=false ./.venv/bin/pytest -q`.
 - Integration tests are marked `integration` and skip when `TEST_DATABASE_URL` is absent. Run
   the PostgreSQL integration gate with
-  `TEST_DATABASE_URL=postgresql+psycopg2://... env DEBUG=false ./.venv/bin/pytest -q --require-postgres`.
+  `TEST_DATABASE_URL=postgresql+psycopg2://... TEST_DATABASE_TLS_MODE=disable env DEBUG=false ./.venv/bin/pytest -q --require-postgres`.
+  `TEST_DATABASE_TLS_MODE` applies only to isolated-schema Alembic subprocesses; it defaults to
+  `disable` for local disposable Compose PostgreSQL and accepts `disable`, `require`, or
+  `verify-full`.
 - Keep tests compatible with `pytest.ini`, which discovers `tests/`.
 - Use repo-local tools from `./.venv/bin/` in docs and scripts.
 

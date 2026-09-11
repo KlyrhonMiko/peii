@@ -18,9 +18,12 @@ Phase 3 response-operations implementation. The forward migration chain is:
   -> 3aad20b0fc8a (ml_sentiments)
   -> b0d864b9935b (false_positive_feedbacks)
   -> a6c42481a0d9 (polarity_override)
+  -> 7ac95c493227 (performance composite indexes)
+  -> b43d56b55144 (survey question options/config JSONB)
+  -> bf21a63040a2 (false-positive feedback Data API lockdown)
 ```
 
-`a6c42481a0d9` is the current Alembic head. Fresh environments and the production release job
+`bf21a63040a2` is the current Alembic head. Fresh environments and the production release job
 run `./.venv/bin/alembic upgrade head` once before API replicas are promoted. Phase 3 is **not**
 a rolling or independently deployable frontend/backend release: the request contract and
 retention writes change together. Block public submissions at ingress, drain and stop every old
@@ -50,13 +53,16 @@ survey auth proofs, nullable
 legacy-compatible response identity snapshots, survey-scoped dedupe uniqueness, and the
 `survey_responses.read_identity` capability. It also applies ACL/RLS lockdown to the proof table.
 The default `admin` and `researcher` roles have identity permission; `staff` does not. Existing
-raw, aggregate, and CSV contracts remain identity-free, and the identity endpoint requires both
+raw, aggregate, and CSV contracts omit dedicated Google identity snapshots; answer values may
+identify respondents and aggregate readers intentionally receive those values. The identity endpoint requires both
 `survey_responses.read_raw` and `survey_responses.read_identity`.
 
 After `a8055c9859f5`, `b9055c9859f6` adds the survey `is_template` flag, `f88b9c1d0000` removes the
 distribution table and the response distribution link (see above), and
 `3aad20b0fc8a`/`b0d864b9935b`/`a6c42481a0d9` ship ML sentiments, false-positive feedbacks, and
-survey polarity override respectively. `a6c42481a0d9` is the current head.
+survey polarity override respectively. `7ac95c493227` adds performance indexes,
+`b43d56b55144` converts survey-question options/config to JSONB, and `bf21a63040a2` locks down
+false-positive feedbacks. `bf21a63040a2` is the current head.
 
 The distribution digest-only runtime contract (digest + prefix storage, one-time token reveal,
 30-day default/maximum expiry, nullable legacy expiry) was removed in `f88b9c1d0000`, which
@@ -66,13 +72,13 @@ removed with it.
 
 ## Deployment topology
 
-- Frontend: managed Next.js Node.js host, with provider and region recorded before launch.
-- Backend: managed Python web service in the same region as the database.
+- Frontend: Vercel Next.js, with production domain and region recorded before launch.
+- Backend: one host-native Uvicorn worker on Oracle behind Caddy; record its region and database latency.
 - Database: Supabase PostgreSQL or another managed PostgreSQL provider with automated backups
   and point-in-time recovery (PITR).
 - Authentication: Supabase Auth.
 - Rate limiting: managed Redis; production uses distributed fixed-window limits.
-- Retention purge: one externally scheduled managed job running the backend purge command.
+- Retention purge: one Oracle systemd timer running the backend purge command after approved rehearsal.
 - Docker Compose remains local development only.
 
 ## Phase 4 BFF and traffic-hardening decisions
@@ -298,7 +304,8 @@ PUBLIC_SURVEY_PURPOSE=<approved purpose>
 PUBLIC_SURVEY_RETENTION=<approved retention statement>
 PUBLIC_SURVEY_CONTACT=<approved withdrawal/privacy contact>
 # SURVEY_DISTRIBUTION_DEFAULT_EXPIRY_DAYS / SURVEY_DISTRIBUTION_MAX_EXPIRY_DAYS retired with f88b9c1d0000
-DATABASE_TLS_MODE=require
+DATABASE_TLS_MODE=verify-full
+# DATABASE_TLS_CA_BUNDLE_PATH=/path/to/private-or-provider-ca.pem
 ```
 
 The example and local Compose default use consent version `2026-09-01`; production must set the
@@ -320,12 +327,11 @@ end-user identity. The global breakers are availability safeguards, not per-user
 Requests larger than 64 KiB are rejected before application parsing.
 
 Local Compose uses `DATABASE_TLS_MODE=disable`; Supabase production requires
-`DATABASE_TLS_MODE=require`. This configures psycopg2/Alembic with `sslmode=require`, which
-encrypts transport but does not verify the server certificate or hostname. Asyncpg uses
-`ssl="require"` so the Supavisor pooler connection follows the same encryption-only transition.
-Deploy and verify the TLS-capable client before enabling provider SSL enforcement. Provider SSL
-enforcement and eventual CA-backed `verify-full` for every database path remain manual follow-up
-items with an explicit owner and deadline. `BACKEND_CORS_ORIGINS` is an exact HTTPS-origin allowlist: no wildcard, path,
+`DATABASE_TLS_MODE=verify-full`. Psycopg2/Alembic use `sslmode=verify-full`, and asyncpg uses a
+hostname-checking, certificate-verifying SSL context. Set `DATABASE_TLS_CA_BUNDLE_PATH` only for
+a private or provider-specific CA; otherwise the system trust store is used. Verify the optional
+bundle is readable by both API and Alembic identities before enabling provider SSL enforcement.
+`BACKEND_CORS_ORIGINS` is an exact HTTPS-origin allowlist: no wildcard, path,
 or trailing slash, and the production `APP_ORIGIN` must be included. `DEBUG=false` disables
 Swagger, ReDoc, and OpenAPI routes. Next.js owns browser/document headers; FastAPI owns public
 survey API headers, and the real ingress/provider must be checked rather than assumed.
@@ -348,7 +354,7 @@ Execute this sequence without reordering:
 2. Enable the ingress maintenance/write-drain rule for public survey submissions and withdrawal,
    wait for in-flight writes to finish, and stop every old API replica. Keep submissions blocked
    until step 6; an old writer after the migration can create a null retention deadline.
-3. Run `./.venv/bin/alembic upgrade head` once. Confirm that `a6c42481a0d9` is applied after
+3. Run `./.venv/bin/alembic upgrade head` once. Confirm that `bf21a63040a2` is applied after
    `b0d864b9935b` (which follows `3aad20b0fc8a` after `f88b9c1d0000`), verify the
    `survey_distributions` table is absent and the
    `uq_survey_responses_survey_idempotency` unique constraint is present, inspect the survey
@@ -419,9 +425,10 @@ and rollback owner in the production runbook.
 
 Required provider actions remain manual and are not claimed as completed here: rotate any
 credentials exposed during development; remove `public` from the Supabase Data API exposed
-schemas/tables; enable Supabase SSL enforcement only after the TLS client rollout; track eventual
-CA-backed `verify-full` for all database paths; and configure HSTS on both Vercel and
-Render. Render/provider log redaction, the actual trusted forwarding chain, and the Google
+schemas/tables; enable Supabase SSL enforcement only after the hostname-verifying TLS client
+rollout; verify `DATABASE_TLS_MODE=verify-full` and any required CA bundle for all database paths;
+and configure HSTS on both Vercel and the Oracle Caddy ingress. Oracle/provider log redaction,
+the actual trusted forwarding chain, and the Google
 provider/browser flow remain deployment verification tasks. Manually verify exact CORS,
 production docs-off behavior, application-owned
 headers through the real ingress, service-specific environment exposure, provider redaction and
@@ -449,8 +456,13 @@ tests alone are not proof:
 
 ```bash
 TEST_DATABASE_URL=postgresql+psycopg2://user:password@localhost:5432/peii_test \
+  TEST_DATABASE_TLS_MODE=disable \
   env DEBUG=false ./.venv/bin/pytest -q -m integration --require-postgres
 ```
+
+`TEST_DATABASE_TLS_MODE` applies only to isolated-schema Alembic subprocesses; it defaults to
+`disable` for local disposable Compose PostgreSQL and accepts only `disable`, `require`, or
+`verify-full`.
 
 Rehearse the migration/backfill and rollback on a disposable database, verify the liveness health
 endpoint and RBAC seed,
@@ -464,3 +476,12 @@ scheduling/monitoring, Google provider/browser verification, PostgreSQL migratio
 provider log redaction, and provider public-survey no-store behavior are all verified and
 recorded. Export streaming verification is
 required before any later release sets `CSV_EXPORT_ENABLED=true`.
+
+## Approved survey history and analytics behavior
+
+Once any response history exists, including tombstones, survey content, question/section
+structure, and retention settings are immutable. Authorized status changes, archive, and restore
+remain allowed. Clone a survey to revise its questionnaire. Manual analytics refresh after writes
+is accepted; there is no requirement for live polling. Aggregate answer values may identify
+respondents, and aggregate-reader access deliberately includes them; Google identity snapshots
+remain separately protected by both raw-read and identity-read capabilities.

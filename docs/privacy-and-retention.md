@@ -19,10 +19,12 @@ column after digest reconciliation, and `d5a4f7c91e2b` applies the Supabase Data
 lockdown. `a8055c9859f5` added short-lived Google survey auth proofs, nullable legacy-compatible
 response identity snapshots, survey-scoped dedupe uniqueness, `survey_responses.read_identity`,
 and proof-table ACL/RLS lockdown; the protected-table and proof-table downgrades are intentionally
-fail-closed and irreversible. The current Alembic head is `a6c42481a0d9`; after `a8055c9859f5`
+fail-closed and irreversible. The current Alembic head is `bf21a63040a2`; after `a8055c9859f5`
 the chain continues through `b9055c9859f6` (`is_template`), `f88b9c1d0000` (drops
 distributions), `3aad20b0fc8a` (ML sentiments), `b0d864b9935b` (false-positive feedbacks), and
-`a6c42481a0d9` (polarity override).
+`a6c42481a0d9` (polarity override), `7ac95c493227` (performance indexes),
+`b43d56b55144` (survey-question JSONB), and `bf21a63040a2` (false-positive feedback Data API
+lockdown).
 
 ## Google-authenticated identified survey flow
 
@@ -150,7 +152,9 @@ same-origin Next.js BFF at `/api/survey/[token]`. These operations do not use th
 remains direct and code-only; the frontend withdrawal page is
 `/survey/withdraw` and does not require Google OAuth, a survey link, or portal login.
 
-Raw, aggregate, and CSV response contracts remain identity-free. Identity snapshots are exposed
+Raw, aggregate, and CSV contracts omit dedicated Google identity snapshot fields, but answer
+values can identify respondents (including names and emails in generated questionnaires).
+Aggregate-reader access intentionally includes those identifying answer values. Identity snapshots are exposed
 only through the separately gated identity endpoint, which requires both raw-read and
 identity-read capability.
 
@@ -256,7 +260,7 @@ The purge is an operational command, not an in-process timer:
 The command defaults to batches of 100 and supports `--batch-size` and an ISO-8601 `--cutoff`.
 It purges expired short-lived Google proof rows as well as due live responses and prints
 `proofs` alongside `purged`, `surveys`, `batches`, and `cutoff`. Schedule it from a single
-external managed job at least daily, alert on a non-zero exit or a missed run, and reconcile
+external Oracle systemd timer at least daily, alert on a non-zero exit or a missed run, and reconcile
 response output with `retention_purge` audit events. A dry run counts due rows/proofs without
 mutating or auditing them. The operation locks a survey before bounded response batches and is
 repeat-safe.
@@ -296,11 +300,11 @@ Verify those controls and provider retention settings before accepting real resp
 FastAPI owns these public survey API headers; Next.js owns browser/document headers. Exact
 `BACKEND_CORS_ORIGINS` HTTPS origins are required in production, with no wildcard, path, or
 trailing slash. Local Compose uses `DATABASE_TLS_MODE=disable`; Supabase production requires
-`DATABASE_TLS_MODE=require`. This configures psycopg2/Alembic with `sslmode=require`, which
-encrypts transport but does not verify the server certificate or hostname. Asyncpg uses
-`ssl="require"` so the Supavisor pooler connection follows the same encryption-only transition.
-Provider SSL enforcement and eventual CA-backed `verify-full` for every database path remain
-manual follow-up items with an owner and deadline. Provider/CDN behavior must be verified on the real ingress.
+`DATABASE_TLS_MODE=verify-full`. Psycopg2/Alembic use `sslmode=verify-full`, and asyncpg uses a
+hostname-checking, certificate-verifying SSL context. Set `DATABASE_TLS_CA_BUNDLE_PATH` only for a
+private or provider-specific CA; otherwise the system trust store is used. Verify the optional CA
+bundle is readable by the API and Alembic migration identities before enabling provider SSL
+enforcement. Provider/CDN behavior must be verified on the real ingress.
 
 Before launch, operators must configure Google in Supabase Auth with minimum scopes
 `openid email profile`, allowlist the exact `${APP_ORIGIN}/auth/survey/google/callback`, configure
@@ -308,9 +312,9 @@ the matching Google/Supabase provider callback, and complete a real provider-bac
 verification of Google sign-in, survey GET, and submit. Operators must also execute and verify the
 Alembic migration against PostgreSQL; application tests and a liveness check are not proof of
 either provider or database behavior. Rotate any credentials exposed during development, remove
-`public` from Supabase Data API exposed schemas/tables, enable Supabase SSL enforcement after TLS
-client deployment, track eventual CA-backed `verify-full` for all database paths, configure HSTS
-on Vercel and Render, and verify log redaction, no-store behavior, backups/PITR, and purge
+`public` from Supabase Data API exposed schemas/tables, enable Supabase SSL enforcement after
+verifying `DATABASE_TLS_MODE=verify-full` and any required CA bundle for all database paths, configure HSTS
+on Vercel and the Oracle Caddy ingress, and verify log redaction, no-store behavior, backups/PITR, and purge
 scheduling. This document does not claim those provider actions have run.
 
 Real respondents remain blocked until rate limiting and Redis fail-closed behavior, the approved
@@ -318,3 +322,12 @@ consent and privacy contact, retention and backup/PITR policy, trusted ingress, 
 and monitoring, PostgreSQL migration execution, real Google provider/browser verification,
 provider log redaction, and provider streaming/no-store behavior are all verified and recorded.
 Passing application tests alone does not open this gate.
+
+## Approved survey history and analytics behavior
+
+Once any response history exists, including tombstones, survey content, question/section
+structure, and retention settings are immutable. Authorized status changes, archive, and restore
+remain allowed. Clone a survey to revise its questionnaire. Manual analytics refresh after writes
+is accepted; there is no requirement for live polling. Aggregate answer values may identify
+respondents, and aggregate-reader access deliberately includes them; Google identity snapshots
+remain separately protected by both raw-read and identity-read capabilities.

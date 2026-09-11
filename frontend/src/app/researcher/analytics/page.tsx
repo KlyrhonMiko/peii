@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useMemo } from "react"
+import { useState, useEffect, useMemo, useRef } from "react"
 import { ClientFeedbackClassificationChart } from "@/components/ClientFeedbackClassificationChart"
 import { ClientDemographicsOverview } from "@/components/ClientDemographicsOverview"
 import { ClientPEIIHistoricalTrendChart } from "@/components/ClientPEIIHistoricalTrendChart"
@@ -17,12 +17,11 @@ import { Target, AlertTriangle, Database, Users, TrendingUp, Download, Loader2 }
 import {
   fetchSurveys,
   fetchPEII,
-  fetchResponseAggregates,
   TRACER_STUDY_SURVEY_TITLE,
 } from "@/lib/surveys"
 import { getDimensionColor } from "@/lib/dimension-colors"
 import type { PEIIDomainScore } from "@/components/ClientDomainGainChart"
-import type { PEIIDemographics, PEIIHistoricalTrend, SurveyResponseAggregate, FeedbackClassification, QualitativeFeedback } from "@/lib/surveys"
+import type { PEIIAnalyticsResponse, PEIIDemographics, PEIIHistoricalTrend, FeedbackClassification, QualitativeFeedback } from "@/lib/surveys"
 
 function AnalyticsSkeleton({ filters }: { filters?: { batch: string } }) {
   const showTrends = !filters || filters.batch === "All Batches"
@@ -201,12 +200,16 @@ function AnalyticsSkeleton({ filters }: { filters?: { batch: string } }) {
   )
 }
 
-function ExportableSection({ id, name, children, filters }: { id: string, name: string, children: React.ReactNode, filters: { batch: string, department: string } }) {
+function ExportableSection({ id, name, children, filters }: { id: string, name: string, children: React.ReactNode, filters: { batch: string, department: string, degree: string } }) {
+  const currentFilters = useRef(filters)
+  useEffect(() => { currentFilters.current = filters }, [filters])
   const handleExport = async () => {
+    const exportFilters = filters
     try {
       const exportPromise = (async () => {
         await new Promise(r => setTimeout(r, 150))
         const { toPng } = await import('html-to-image')
+        if (currentFilters.current !== exportFilters) throw new Error("Filters changed during export. Please export again.")
         const el = document.getElementById(id)
         if (!el) throw new Error("Element not found")
         
@@ -225,10 +228,11 @@ function ExportableSection({ id, name, children, filters }: { id: string, name: 
             borderRadius: '0px'
           }
         })
+        if (currentFilters.current !== exportFilters) throw new Error("Filters changed during export. Please export again.")
         const link = document.createElement('a')
         link.href = dataUrl
         const date = new Date().toISOString().split('T')[0]
-        link.download = `peii-${name.toLowerCase().replace(/\s+/g, '-')}-${filters.batch}-${filters.department}-${date}.png`
+        link.download = `peii-${name.toLowerCase().replace(/\s+/g, '-')}-${filters.batch}-${filters.department}${filters.degree === "All Degrees" ? "" : `-${filters.degree}`}-${date}.png`
         link.click()
       })();
 
@@ -268,9 +272,12 @@ export default function AnalyticsPage() {
   const [peiiIndex, setPeiiIndex] = useState<number | null>(null)
   const [historicalTrend, setHistoricalTrend] = useState<PEIIHistoricalTrend[]>([])
   const [qualitativeFeedback, setQualitativeFeedback] = useState<QualitativeFeedback[]>([])
-  const [aggregates, setAggregates] = useState<SurveyResponseAggregate[]>([])
+  const [qualitativeFeedbackTotal, setQualitativeFeedbackTotal] = useState(0)
+  const [qualitativeFeedbackTruncated, setQualitativeFeedbackTruncated] = useState(false)
+  const [outcomes, setOutcomes] = useState<PEIIAnalyticsResponse["outcome_distributions"] | null>(null)
   const [surveyId, setSurveyId] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(true)
+  const [fetchError, setFetchError] = useState<string | null>(null)
   const [refreshKey, setRefreshKey] = useState(0)
   const [availableBatches, setAvailableBatches] = useState<string[]>([])
   const [availableDepartments, setAvailableDepartments] = useState<string[]>([])
@@ -278,6 +285,7 @@ export default function AnalyticsPage() {
   const [isExporting, setIsExporting] = useState(false)
 
   const handleExportDashboard = async () => {
+    if (isLoading || isExporting || !demographics?.total_responses) return
     try {
       setIsExporting(true)
       
@@ -287,7 +295,8 @@ export default function AnalyticsPage() {
         
         const { toPng } = await import('html-to-image')
         const deptSuffix = filters.department === "All Departments" ? "" : ` - ${filters.department}`
-        const baseFilename = `PEII Poster - ${filters.batch}${deptSuffix}`
+        const degreeSuffix = filters.degree === "All Degrees" ? "" : ` - ${filters.degree}`
+        const baseFilename = `PEII Poster - ${filters.batch}${deptSuffix}${degreeSuffix}`
         
         const pages = [
           { id: 'social-export-dashboard-1', suffix: '1-Scorecard' },
@@ -334,7 +343,24 @@ export default function AnalyticsPage() {
     let cancelled = false
 
     async function fetchData() {
-      if (!cancelled) setIsLoading(true)
+      function resetFetchedData() {
+        setChartData([])
+        setDemographics(null)
+        setClassificationData([])
+        setPeiiScore(null)
+        setPeiiIndex(null)
+        setHistoricalTrend([])
+        setQualitativeFeedback([])
+        setQualitativeFeedbackTotal(0)
+        setQualitativeFeedbackTruncated(false)
+        setOutcomes(null)
+        setSurveyId(null)
+      }
+
+      if (!cancelled) {
+        setIsLoading(true)
+        setFetchError(null)
+      }
       try {
         const { surveys } = await fetchSurveys({
           status: "Active",
@@ -343,22 +369,23 @@ export default function AnalyticsPage() {
         })
         const activeTracerSurvey = surveys.find(s => s.title === TRACER_STUDY_SURVEY_TITLE)
         if (!activeTracerSurvey) {
-          if (!cancelled) setChartData([])
+          if (!cancelled) {
+            resetFetchedData()
+            setAvailableBatches([])
+            setAvailableDepartments([])
+            setIsInitialDataLoaded(false)
+          }
           return
         }
         if (!cancelled) setSurveyId(activeTracerSurvey.id)
 
-        const [data, aggData] = await Promise.all([
-          fetchPEII(activeTracerSurvey.id, {
-            batch: filters.batch,
-            department: filters.department,
-            degree: filters.degree
-          }),
-          fetchResponseAggregates(activeTracerSurvey.id)
-        ])
-
+        const data = await fetchPEII(activeTracerSurvey.id, {
+          batch: filters.batch,
+          department: filters.department,
+          degree: filters.degree
+        })
         if (cancelled) return
-        setAggregates(aggData || [])
+        setOutcomes(data.outcome_distributions ?? null)
 
         if (!isInitialDataLoaded) {
           if (data.historical_trend) {
@@ -391,12 +418,16 @@ export default function AnalyticsPage() {
           setPeiiIndex(data.cohort_result.peii_index ?? null)
           setHistoricalTrend(data.historical_trend || [])
           setQualitativeFeedback(data.qualitative_feedback || [])
+          setQualitativeFeedbackTotal(data.qualitative_feedback_total)
+          setQualitativeFeedbackTruncated(data.qualitative_feedback_truncated)
         } else {
           setChartData([])
           setPeiiScore(null)
           setPeiiIndex(null)
           setHistoricalTrend([])
           setQualitativeFeedback([])
+          setQualitativeFeedbackTotal(0)
+          setQualitativeFeedbackTruncated(false)
         }
 
         setDemographics(data.demographics)
@@ -409,14 +440,8 @@ export default function AnalyticsPage() {
       } catch (error) {
         if (cancelled) return
         console.error("Failed to load PEII data", error)
-        setChartData([])
-        setDemographics(null)
-        setClassificationData([])
-        setPeiiScore(null)
-        setPeiiIndex(null)
-        setHistoricalTrend([])
-        setQualitativeFeedback([])
-        setAggregates([])
+        resetFetchedData()
+        setFetchError("Please try again. Your selected filters are preserved.")
       } finally {
         if (!cancelled) setIsLoading(false)
       }
@@ -503,10 +528,15 @@ export default function AnalyticsPage() {
           </p>
         </div>
         {/* Only hide filters if the database is completely empty (no active filters and 0 results) */}
-        {(!isLoading && (!demographics || demographics.total_responses === 0) && filters.department === "All Departments" && filters.batch === "All Batches") ? null : (
+        {(!isLoading && !fetchError && (!demographics || demographics.total_responses === 0) && filters.department === "All Departments" && filters.batch === "All Batches") ? null : (
           <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 sm:gap-6">
             <DashboardFilters 
-              onFilterChange={setFilters} 
+              disabled={isExporting}
+              onFilterChange={(nextFilters) => {
+                if (isExporting) return
+                setIsLoading(true)
+                setFilters(nextFilters)
+              }}
               availableBatches={availableBatches}
               availableDepartments={availableDepartments}
             />
@@ -527,6 +557,16 @@ export default function AnalyticsPage() {
       {/* Main Content Area */}
       {isLoading ? (
         <AnalyticsSkeleton filters={filters} />
+      ) : fetchError ? (
+        <div role="alert" className="mt-8 flex flex-col items-center justify-center gap-4 rounded-2xl border border-slate-300 bg-slate-50/50 px-6 py-24 text-center">
+          <AlertTriangle className="size-8 text-amber-600" aria-hidden="true" />
+          <h3 className="text-xl font-semibold text-slate-900">Unable to load analytics</h3>
+          <p className="max-w-md text-slate-500">{fetchError}</p>
+          <Button onClick={() => {
+            setIsLoading(true)
+            setRefreshKey(key => key + 1)
+          }}>Retry</Button>
+        </div>
       ) : (!demographics || demographics.total_responses === 0) ? (
         <div className="mt-8 flex flex-col items-center justify-center py-32 text-center border border-dashed border-slate-300 rounded-2xl bg-slate-50/50">
           <div className="w-16 h-16 bg-white rounded-2xl shadow-sm border border-slate-100 flex items-center justify-center mb-6">
@@ -583,7 +623,14 @@ export default function AnalyticsPage() {
               {/* Curriculum Feedback */}
               <div className="pb-16">
                 <ExportableSection id="chart-curriculum-feedback" name="Curriculum Feedback" filters={filters}>
-                  <ClientCurriculumFeedback surveyId={surveyId} feedbacks={qualitativeFeedback} isLoading={isLoading} onRefresh={() => setRefreshKey(k => k + 1)} />
+                  <ClientCurriculumFeedback
+                    surveyId={surveyId}
+                    feedbacks={qualitativeFeedback}
+                    qualitativeFeedbackTotal={qualitativeFeedbackTotal}
+                    qualitativeFeedbackTruncated={qualitativeFeedbackTruncated}
+                    isLoading={isLoading}
+                    onRefresh={() => { if (!isExporting) setRefreshKey(k => k + 1) }}
+                  />
                 </ExportableSection>
               </div>
 
@@ -640,14 +687,14 @@ export default function AnalyticsPage() {
               {/* Key Outcomes in sidebar */}
               <div className="pb-16 border-b border-slate-200">
                 <ExportableSection id="chart-key-outcomes" name="Key Outcomes" filters={filters}>
-                  <ClientKeyOutcomes aggregates={aggregates} isLoading={isLoading} />
+                  <ClientKeyOutcomes distribution={outcomes?.employment_stability ?? null} isLoading={isLoading} />
                 </ExportableSection>
               </div>
 
               {/* Degree Alignment in sidebar */}
               <div className="pb-16">
                 <ExportableSection id="chart-degree-alignment" name="Degree Alignment" filters={filters}>
-                  <ClientDegreeAlignment aggregates={aggregates} isLoading={isLoading} />
+                  <ClientDegreeAlignment distribution={outcomes?.degree_alignment ?? null} isLoading={isLoading} />
                 </ExportableSection>
               </div>
 
@@ -658,7 +705,7 @@ export default function AnalyticsPage() {
 
       {/* Hidden off-screen export layout (Social Media Posters) */}
       <div className="fixed top-[-9999px] left-[-9999px] w-[1080px] z-[-1] pointer-events-none">
-        {isExporting && (
+        {isExporting && !isLoading && (
           <div className="flex flex-col gap-[2000px]">
             
             {/* PAGE 1: Scorecard */}
@@ -671,6 +718,7 @@ export default function AnalyticsPage() {
                 <div className="text-right flex flex-col items-end gap-1">
                   <div className="text-3xl font-bold text-slate-900">{filters.batch}</div>
                   <div className="text-xl text-slate-500 font-medium">{filters.department}</div>
+                  {filters.degree !== "All Degrees" && <div className="max-w-sm text-lg text-slate-600 font-medium">{filters.degree}</div>}
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-12 py-12 border-b-2 border-slate-100">
@@ -706,6 +754,7 @@ export default function AnalyticsPage() {
                 <div className="text-right flex flex-col items-end gap-1">
                   <div className="text-3xl font-bold text-slate-900">{filters.batch}</div>
                   <div className="text-xl text-slate-500 font-medium">{filters.department}</div>
+                  {filters.degree !== "All Degrees" && <div className="max-w-sm text-lg text-slate-600 font-medium">{filters.degree}</div>}
                 </div>
               </div>
               <div className="flex flex-col gap-16 py-12 border-b-2 border-slate-100">
@@ -714,10 +763,10 @@ export default function AnalyticsPage() {
                 </div>
                 <div className="grid grid-cols-2 gap-16">
                   <div className="flex flex-col">
-                    <ClientKeyOutcomes aggregates={aggregates} isLoading={false} isExport={true} />
+                    <ClientKeyOutcomes distribution={outcomes?.employment_stability ?? null} isLoading={false} isExport={true} />
                   </div>
                   <div className="flex flex-col">
-                    <ClientDegreeAlignment aggregates={aggregates} isLoading={false} isExport={true} />
+                    <ClientDegreeAlignment distribution={outcomes?.degree_alignment ?? null} isLoading={false} isExport={true} />
                   </div>
                 </div>
               </div>
@@ -734,6 +783,7 @@ export default function AnalyticsPage() {
                   <div className="text-right flex flex-col items-end gap-1">
                     <div className="text-3xl font-bold text-slate-900">{filters.batch}</div>
                     <div className="text-xl text-slate-500 font-medium">{filters.department}</div>
+                    {filters.degree !== "All Degrees" && <div className="max-w-sm text-lg text-slate-600 font-medium">{filters.degree}</div>}
                   </div>
                 </div>
                 <div className="flex flex-col gap-16 pt-12">
@@ -754,4 +804,3 @@ export default function AnalyticsPage() {
     </div>
   )
 }
-

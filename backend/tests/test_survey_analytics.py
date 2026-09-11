@@ -4,10 +4,17 @@ from uuid import UUID, uuid4
 
 import pytest
 
+from core.database import get_analytics_async_session
 from core.deps import Principal, get_current_principal
 from main import app
+from models.question_type import QuestionType
+from models.survey import Survey
+from models.survey_question import SurveyQuestion
+from models.survey_response import SurveyResponse
+from models.survey_section import SurveySection
 from schemas.survey_analytics import SurveyResponseAggregate
 from services import survey_analytics_service
+from services.base_service import utc_now
 
 pytestmark = pytest.mark.anyio
 EXPIRY = (datetime.now(UTC) + timedelta(days=29)).isoformat()
@@ -158,6 +165,121 @@ def test_aggregate_cell_cardinality_is_bounded() -> None:
     assert survey_analytics_service.MAX_AGGREGATE_CELLS_TOTAL == 10000
 
 
+def test_peii_qualitative_feedback_contract_requires_total_and_truncation() -> None:
+    from schemas.peii import PEIIAnalyticsResponse
+
+    assert PEIIAnalyticsResponse.model_fields["qualitative_feedback_total"].is_required()
+    assert PEIIAnalyticsResponse.model_fields["qualitative_feedback_truncated"].is_required()
+    assert survey_analytics_service.MAX_QUALITATIVE_FEEDBACK == 200
+
+
+async def test_peii_sql_filters_and_bounds_qualitative_feedback(client) -> None:
+    session_generator = app.dependency_overrides[get_analytics_async_session]()
+    session = await anext(session_generator)
+    try:
+        survey = Survey(
+            survey_id=f"SURV-{uuid4().hex[:8]}",
+            title="GRADUATE TRACER STUDY SURVEY",
+            status="Active",
+        )
+        session.add(survey)
+        await session.flush()
+        profile = SurveySection(survey_id=survey.id, title="RESPONDENT'S PROFILE")
+        feedback = SurveySection(
+            survey_id=survey.id,
+            title="Feedback and Reflection",
+            order_index=1,
+        )
+        session.add_all([profile, feedback])
+        await session.flush()
+        year_question = SurveyQuestion(
+            survey_id=survey.id,
+            section_id=profile.id,
+            question_text="Year Graduated",
+            question_type=QuestionType.TEXT,
+        )
+        degree_question = SurveyQuestion(
+            survey_id=survey.id,
+            section_id=profile.id,
+            question_text="Degree Program",
+            question_type=QuestionType.TEXT,
+            order_index=1,
+        )
+        feedback_question = SurveyQuestion(
+            survey_id=survey.id,
+            section_id=feedback.id,
+            question_text="Feedback",
+            question_type=QuestionType.TEXT,
+        )
+        session.add_all([year_question, degree_question, feedback_question])
+        await session.flush()
+
+        created_at = utc_now()
+        answer_keys = {
+            str(year_question.id): "2024",
+            str(degree_question.id): "Bachelor of Science in Computer Science",
+        }
+        session.add_all([
+            SurveyResponse(
+                survey_id=survey.id,
+                answers={
+                    **answer_keys,
+                    str(feedback_question.id): f"good {index}",
+                },
+                created_at=created_at + timedelta(seconds=index),
+            )
+            for index in range(201)
+        ])
+        session.add_all([
+            SurveyResponse(
+                survey_id=survey.id,
+                answers={
+                    **answer_keys,
+                    str(degree_question.id): "Bachelor of Science in Nursing",
+                    str(feedback_question.id): "excluded degree",
+                },
+                created_at=created_at + timedelta(seconds=300),
+            ),
+            SurveyResponse(
+                survey_id=survey.id,
+                answers={
+                    **answer_keys,
+                    str(feedback_question.id): "withdrawn",
+                },
+                is_deleted=True,
+                created_at=created_at + timedelta(seconds=301),
+            ),
+            SurveyResponse(
+                survey_id=survey.id,
+                answers={
+                    **answer_keys,
+                    str(feedback_question.id): "expired",
+                },
+                retention_expires_at=created_at - timedelta(seconds=1),
+                created_at=created_at + timedelta(seconds=302),
+            ),
+        ])
+        await session.commit()
+
+        result = await survey_analytics_service.compute_peii_scores(
+            session,
+            survey_ids=[survey.id],
+            batch_year="2024",
+            department="College of Computer Studies",
+            degree="Bachelor of Science in Computer Science",
+        )
+
+        assert result.demographics is not None
+        assert result.demographics.total_responses == 201
+        assert result.qualitative_feedback_total == 201
+        assert result.qualitative_feedback_truncated is True
+        assert len(result.qualitative_feedback) == 200
+        assert result.qualitative_feedback[0].response_text == "good 200"
+        assert result.qualitative_feedback[-1].response_text == "good 1"
+    finally:
+        await session_generator.aclose()
+
+
 async def test_aggregate_cache_invalidates_on_submit(client, monkeypatch) -> None:
     from core.config import settings
 
@@ -209,9 +331,12 @@ async def test_peii_cache_serves_repeat_reads_and_invalidates(client, monkeypatc
     monkeypatch.setattr(settings, "ANALYTICS_CACHE_TTL_SECONDS", 60)
     _override_permissions("surveys.manage", "survey_responses.read_aggregates")
     survey, _, _ = await _create_survey(client, "Active")
+    _override_permissions("survey_responses.read_aggregates")
 
     canned = PEIIAnalyticsResponse(
-        cohort_result=PEIICohortResult(batch_year="2024", domains=[], peii_score=100.0)
+        cohort_result=PEIICohortResult(batch_year="2024", domains=[], peii_score=100.0),
+        qualitative_feedback_total=0,
+        qualitative_feedback_truncated=False,
     )
     calls = {"n": 0}
 

@@ -29,14 +29,14 @@ class SurveyResponseSubmit(BaseModel):
                     "q3": 4,
                 },
                 "consent": {"accepted": True, "version": "20260825_v1"},
-                "withdrawal_code": "QWERTYuiopASDFGHjklZXCVBNM1234567890-_abCdef",
             }
         }
     )
 
     answers: dict[str, Any]
     consent: SurveyConsentSubmit
-    withdrawal_code: str = Field(
+    withdrawal_code: str | None = Field(
+        default=None,
         min_length=43,
         max_length=128,
         pattern=r"^[A-Za-z0-9_-]+$",
@@ -44,7 +44,9 @@ class SurveyResponseSubmit(BaseModel):
 
     @field_validator("withdrawal_code")
     @classmethod
-    def require_256_bit_base64url_secret(cls, value: str) -> str:
+    def require_256_bit_base64url_secret(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
         try:
             decoded = base64.urlsafe_b64decode(value + "=" * (-len(value) % 4))
         except (binascii.Error, ValueError) as exc:

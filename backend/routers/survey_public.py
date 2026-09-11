@@ -1,15 +1,12 @@
 from uuid import UUID
 
-from fastapi import APIRouter, BackgroundTasks, Depends, Header, Response, status
+from fastapi import APIRouter, BackgroundTasks, Header, Response, status
 from sqlmodel import col, select
 
 from core.config import settings
 from core.deps import AsyncDBSession, CurrentGoogleSurveyRespondent
 from core.exceptions import AppError
-from core.rate_limit import (
-    enforce_authenticated_survey_rate_limit,
-    public_survey_withdrawal_rate_limit,
-)
+from core.rate_limit import enforce_authenticated_survey_rate_limit
 from core.responses import success_response
 from models.survey_question import SurveyQuestion
 from models.survey_section import SurveySection
@@ -20,8 +17,6 @@ from schemas.survey_response import (
     SurveyResponseAcknowledgement,
     SurveyResponsePhase2Submit,
     SurveyResponseSubmit,
-    SurveyResponseWithdrawalRequest,
-    SurveyResponseWithdrawalResult,
 )
 from services import response_service, survey_consent
 from services.ml_service import analyze_response_background
@@ -250,19 +245,3 @@ async def submit_phase2_response(
         SurveyResponseAcknowledgement(accepted=True),
         message="Follow-up response submitted." if not replayed else "Response submitted.",
     )
-
-
-@router.post(
-    "/responses/withdraw",
-    response_model=APIResponse[SurveyResponseWithdrawalResult],
-    dependencies=[Depends(public_survey_withdrawal_rate_limit)],
-    status_code=status.HTTP_200_OK,
-    summary="Withdraw Survey Response",
-    description="Withdraw a response using its respondent-held private code.",
-)
-async def withdraw_response(
-    payload: SurveyResponseWithdrawalRequest,
-    session: AsyncDBSession,
-) -> APIResponse[SurveyResponseWithdrawalResult]:
-    result = await response_service.withdraw_response(session, payload)
-    return success_response(result, message="Response withdrawn.")

@@ -16,7 +16,7 @@ Follow the route-area guide when editing a nested route:
 - `researcher/` contains authenticated dashboard, analytics, survey, and model routes.
 - `admin/` contains authenticated, permission-gated user, role, and audit-log management routes.
 - `survey/` contains Google-authenticated tokenized alumni survey routes, loading UI, and the
-  public `/survey/withdraw` response-withdrawal page.
+  removed `/survey/withdraw` route (returns not found).
 - `login/`, `forgot-password/`, `reset-password/`, and `auth/confirm/` implement Supabase
   authentication and recovery flows.
 - `api/backend/[...path]/` is the authenticated, allowlisted backend proxy.
@@ -44,8 +44,7 @@ Follow the route-area guide when editing a nested route:
 - The server-rendered survey page may fetch the survey GET from FastAPI through
   `BACKEND_INTERNAL_URL` after isolated Google authentication; browser submission uses the
   focused same-origin `/api/survey/[token]` BFF and requires backend proof. The portal remains
-  password/invite/recovery based and rejects OAuth sessions. Public withdrawal remains a direct
-  code-only operation.
+  password/invite/recovery based and rejects OAuth sessions. Public response withdrawal is removed.
 - The global `src/proxy.ts` matcher excludes `/api`, so the BFF owns Supabase session lookup.
   It bounds request bodies at 65,536 bytes with a 15-second body deadline, waits up to 15
   seconds only for upstream response headers, propagates client cancellation, performs no

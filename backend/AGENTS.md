@@ -19,7 +19,8 @@ Read this file first, then the guide closest to the files you are changing.
 ## Command Surface
 - Run backend commands from `backend/` unless a command explicitly says otherwise.
 - Use the repo-local virtualenv: `python3.14 -m venv .venv` and
-  `./.venv/bin/pip install -r requirements.txt`.
+  install the chosen Torch CPU/CUDA build first as documented in `README.md`, then run
+  `./.venv/bin/pip install -r requirements.txt -c requirements.lock`.
 - Start the API with `./.venv/bin/uvicorn main:app --reload --no-access-log --no-proxy-headers`.
 - Apply migrations with `./.venv/bin/alembic upgrade head`.
 - Run the backend validation gate with:
@@ -28,9 +29,12 @@ Read this file first, then the guide closest to the files you are changing.
   - `env DEBUG=false ./.venv/bin/pytest -q`
 - PostgreSQL integration tests are marked `integration` and skip when
   `TEST_DATABASE_URL` is absent. Run them explicitly with
-  `TEST_DATABASE_URL=postgresql+psycopg2://... env DEBUG=false ./.venv/bin/pytest -q --require-postgres`.
+  `TEST_DATABASE_URL=postgresql+psycopg2://... TEST_DATABASE_TLS_MODE=disable env DEBUG=false ./.venv/bin/pytest -q --require-postgres`.
+  `TEST_DATABASE_TLS_MODE` controls only isolated-schema Alembic subprocesses, defaults to
+  `disable` for local disposable Compose PostgreSQL, and accepts only `disable`, `require`, or
+  `verify-full`.
 - The committed config is Python 3.14-oriented: `ruff.toml` targets `py314`, `mypy.ini`
-  uses `python_version = 3.14`, and the Docker image is `python:3.14-slim`.
+  uses `python_version = 3.14`, and the Docker image is `python:3.14.7-slim`.
 - No tracked pre-commit configuration currently runs these checks automatically.
 
 ### Runtime Configuration
@@ -60,6 +64,9 @@ Read this file first, then the guide closest to the files you are changing.
   `SURVEY_RESPONDENT_HMAC_SECRET` (random, at least 32 bytes, stable for survey lifetimes),
   `SURVEY_GOOGLE_SESSION_MAX_AGE_SECONDS` (default 300, production maximum 3,600), and
   `GOOGLE_SURVEY_ATTEST_RATE_LIMIT=5` with `GOOGLE_SURVEY_ATTEST_RATE_WINDOW_SECONDS=60`.
+- Invite/recovery password resets use the dedicated `PASSWORD_RESET_GRANT_SECRET` (random,
+  at least 32 bytes, shared with the server-side Next.js deployment). Production rejects the
+  local placeholder; reset grants are short-lived and one-time through the configured Redis.
 - `CSV_EXPORT_ENABLED` is a server-side release flag. Keep it false for the initial online
   deployment; enabling export also requires the existing `survey_responses.export` capability.
 - `BACKEND_CORS_ORIGINS` is parsed as a list by settings. Keep examples valid for Pydantic.
@@ -139,8 +146,7 @@ Read this file first, then the guide closest to the files you are changing.
   `surveys.read`, `surveys.manage`, aggregate reads, raw reads,
   identity reads, export, and erase as separate capabilities. The Google-authenticated survey
   GET and submit flow requires a dedicated respondent session and backend proof; the portal
-  remains password/invite/recovery based and rejects OAuth sessions. Public withdrawal remains
-  direct and code-only.
+  remains password/invite/recovery based and rejects OAuth sessions. Public self-service withdrawal is not available.
 - Phase 3 response routes live in `routers/survey_public.py`, `routers/survey_responses.py`, and
   `routers/survey_analytics.py`; retention and export behavior belongs to the corresponding
   services. `scripts/purge_expired_responses.py` is an externally scheduled operational command,
@@ -160,7 +166,8 @@ Read this file first, then the guide closest to the files you are changing.
 - The database uses the canonical first-release baseline `20260825_v1`, followed by
   `f77a807cf2f9_expand_distribution_security`, `d1f9bad768ad`, the Phase 3 `fb1c93d15474`
   revision, `2bf09a6bc738`, `d5a4f7c91e2b`, `a8055c9859f5`, `b9055c9859f6`, `f88b9c1d0000`,
-  `3aad20b0fc8a`, `b0d864b9935b`, and `a6c42481a0d9`. `a6c42481a0d9` is the current migration head. Fresh environments
+  `3aad20b0fc8a`, `b0d864b9935b`, `a6c42481a0d9`, `7ac95c493227`, `b43d56b55144`, and
+  `bf21a63040a2`. `bf21a63040a2` is the current migration head. Fresh environments
   must run `./.venv/bin/alembic upgrade head`; production runs it once as the protected release
   job before API replicas are promoted.
 - Historically, the `f77a807cf2f9` compatibility revision added SHA-256 token digests and
@@ -184,10 +191,14 @@ Read this file first, then the guide closest to the files you are changing.
   legacy-compatible response identity snapshots, survey-scoped dedupe uniqueness, and
   `survey_responses.read_identity`, with proof-table ACL/RLS lockdown. Admin and the default
   researcher receive identity permission; staff does not. Raw, aggregate, and CSV contracts
-  remain identity-free, and the identity endpoint requires both raw and identity permission.
+  omit dedicated Google identity snapshots; answer values may still identify respondents.
+  Aggregate readers intentionally receive identifying answer values. The identity endpoint
+  requires both raw and identity permission.
 - `b9055c9859f6` adds `is_template`; `f88b9c1d0000` drops `survey_distributions` and
   `survey_responses.distribution_id`; `3aad20b0fc8a`/`b0d864b9935b`/`a6c42481a0d9` add
-  `ml_sentiments`, `false_positive_feedbacks`, and `polarity_override`.
+  `ml_sentiments`, `false_positive_feedbacks`, and `polarity_override`. `7ac95c493227` adds
+  performance indexes, `b43d56b55144` converts survey-question options/config to JSONB, and
+  `bf21a63040a2` applies the same Data API lockdown contract to false-positive feedbacks.
 - Keep model, schema, service/router contract, tests, and migration files in sync when one feature touches all of them.
 
 ## Testing Standards
@@ -200,3 +211,12 @@ Read this file first, then the guide closest to the files you are changing.
 - Cover response-envelope changes, list metadata, filtering, sorting, soft delete/restore,
   conflict behavior, Supabase identity linkage, permissions, and audit side effects.
 - When adding a business id to a resource, cover creation, read-schema exposure, prefix shape, search/sort behavior when applicable, and the fact that create/update payloads do not control the generated value.
+
+## Legacy Supabase database CA
+
+`DATABASE_TLS_SUPABASE_LEGACY_CA_COMPAT` defaults false. Opt-in requires `verify-full`
+and the single audited Supabase 2021 CA at `DATABASE_TLS_CA_BUNDLE_PATH` (fingerprint checked
+by `core/database_tls.py` at settings validation and context construction). It clears only
+Python's `VERIFY_X509_STRICT`; hostname checks and `CERT_REQUIRED` remain enabled. There is
+no failure retry or insecure fallback. Follow `docs/oracle-host-runbook.md` from the root for
+the recorded well-formedness tradeoff and migration back to strict verification.

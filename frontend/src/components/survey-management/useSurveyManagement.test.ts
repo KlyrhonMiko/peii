@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   fetchResponses: vi.fn(),
   fetchResponseAggregates: vi.fn(),
   eraseResponses: vi.fn(),
+  updateSurvey: vi.fn(),
 }))
 
 vi.mock("@/lib/surveys", async () => {
@@ -18,9 +19,11 @@ vi.mock("@/lib/surveys", async () => {
     fetchResponses: mocks.fetchResponses,
     fetchResponseAggregates: mocks.fetchResponseAggregates,
     eraseResponses: mocks.eraseResponses,
+    updateSurvey: mocks.updateSurvey,
   }
 })
 
+import { ApiError } from "@/lib/api"
 import type { Survey, SurveyResponse, SurveyResponseAggregate } from "@/lib/surveys"
 import { useSurveyManagement } from "./useSurveyManagement"
 
@@ -146,4 +149,37 @@ describe("useSurveyManagement aggregate loading", () => {
       await waitFor(() => expect(mocks.fetchResponseAggregates).toHaveBeenCalledWith(currentSurvey.id))
     },
   )
+})
+
+
+describe("survey response history locks", () => {
+  it("keeps content locked after erasure and saves only a changed status", async () => {
+    const locked = { ...survey, responses: 0, hasResponseHistory: true }
+    mocks.fetchSurveys.mockResolvedValue(listResult(locked))
+    mocks.fetchSurvey.mockResolvedValue(locked)
+    mocks.updateSurvey.mockResolvedValue({ ...locked, status: "Closed" })
+    const { result } = renderHook(() => useSurveyManagement({ permissions: ["surveys.manage"], csvExportEnabled: false }))
+    await waitFor(() => expect(result.current.state.loading).toBe(false))
+    await act(async () => { await result.current.actions.handleOpenEdit(locked.id) })
+    expect(result.current.state.structureEditable).toBe(false)
+    act(() => { result.current.actions.setSurveyStatus("Closed") })
+    await act(async () => { await result.current.actions.handleSaveSurvey() })
+    expect(mocks.updateSurvey).toHaveBeenCalledWith(locked.surveyId, { status: "Closed" })
+  })
+})
+
+it("refreshes an authoritative history lock after a concurrent-response 409", async () => {
+  const editable = { ...survey, responses: null, hasResponseHistory: false }
+  mocks.fetchSurveys.mockResolvedValue(listResult(editable))
+  mocks.fetchSurvey.mockResolvedValueOnce(editable).mockResolvedValue({ ...editable, hasResponseHistory: true })
+  mocks.updateSurvey.mockRejectedValueOnce(new ApiError("Survey content is locked", 409, null))
+  const { result } = renderHook(() => useSurveyManagement({ permissions: ["surveys.manage"], csvExportEnabled: false }))
+  await waitFor(() => expect(result.current.state.loading).toBe(false))
+  await act(async () => { await result.current.actions.handleOpenEdit(editable.id) })
+  act(() => { result.current.actions.setSurveyTitle("Changed title") })
+  await act(async () => { await result.current.actions.handleSaveSurvey() })
+  expect(result.current.state.contentLocked).toBe(true)
+  expect(result.current.state.surveyTitle).toBe(survey.title)
+  expect(result.current.state.editedSurvey?.responses).toBeNull()
+  expect(result.current.state.saveError).toBe("Survey content is locked")
 })

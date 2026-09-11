@@ -216,19 +216,31 @@ Sentiment scores are bucketed for the **Feedback Classification** chart:
 
 ### Output Ordering
 
-All qualitative feedbacks are sorted by `sentiment_score` ascending (most negative /
-most critical first) to surface actionable insights at the top of the list.
+All matching qualitative answers are counted for analytics and sentiment classification.
+The API returns the deterministic newest 200 nonblank entries, ordered by response
+`created_at` descending and then response ID descending, before sorting that returned set by
+`sentiment_score` ascending (most negative / most critical first) to surface actionable
+insights. `qualitative_feedback_total` reports the full matching nonblank count and
+`qualitative_feedback_truncated` is true when the newest-entry cap applies.
+
+Qualitative entries contain only the response's pseudonymous ID, question metadata, text, and
+sentiment fields. They are available to authenticated portal principals with
+`survey_responses.read_aggregates`; they do not require raw-response access and contain no
+identity fields.
 
 ---
 
 ## Filters
 
-Both the PEII score and sentiment data respect the same two optional filters:
+Both the PEII score and sentiment data respect the same optional filters. The service applies
+them while selecting live responses in SQL, so deleted/withdrawn and retention-expired responses
+are excluded before answer data is processed:
 
 | Filter | Effect |
 |---|---|
 | `batch_year` | Only include responses where the respondent's "Year Graduated" matches. Pass `"All Batches"` or omit for the full population. |
 | `department` | Only include responses where the respondent's degree maps to the department via `DEPARTMENT_MAPPING`. Pass `"All Departments"` or omit to skip. |
+| `degree` | Only include responses whose "Degree Program" exactly matches. Pass `"All Degrees"` or omit to skip. |
 
 ---
 

@@ -1,3 +1,4 @@
+from pathlib import Path
 from uuid import uuid4
 
 import pytest
@@ -80,9 +81,10 @@ def test_withdrawal_hmac_secret_is_required_in_production() -> None:
         WITHDRAWAL_CODE_HMAC_SECRET=None,
         GOOGLE_OAUTH_CLIENT_ID="production-google-client-id",
         SURVEY_RESPONDENT_HMAC_SECRET="s" * 32,
+        PASSWORD_RESET_GRANT_SECRET="p" * 32,
         REDIS_URL="rediss://redis.example.com:6379/0",
         TRUSTED_PROXY_CIDRS=["198.51.100.0/24"],
-        DATABASE_TLS_MODE="require",
+        DATABASE_TLS_MODE="verify-full",
         APP_ORIGIN="https://app.example.com",
         BACKEND_CORS_ORIGINS=["https://app.example.com"],
     )
@@ -93,3 +95,20 @@ def test_withdrawal_hmac_secret_is_required_in_production() -> None:
     values["WITHDRAWAL_CODE_HMAC_SECRET"] = "x" * 32
     production_settings = Settings.model_validate(values)
     assert production_settings.WITHDRAWAL_CODE_HMAC_SECRET == "x" * 32
+
+
+def test_retention_purge_service_uses_absolute_script_path_with_state_working_directory() -> None:
+    service_path = (
+        Path(__file__).resolve().parents[2] / "deploy/oracle/peii-retention-purge.service"
+    )
+    service = service_path.read_text(encoding="utf-8")
+
+    assert "WorkingDirectory=/var/lib/peii" in service
+    assert (
+        "ExecStart=/opt/peii/backend/.venv/bin/python "
+        "/opt/peii/backend/scripts/purge_expired_responses.py --batch-size 100"
+    ) in service
+
+    timer_path = Path(__file__).resolve().parents[2] / "deploy/oracle/peii-retention-purge.timer"
+    timer = timer_path.read_text(encoding="utf-8")
+    assert "Unit=peii-retention-purge.service" in timer

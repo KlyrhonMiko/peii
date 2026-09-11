@@ -30,6 +30,7 @@ export interface Survey {
   title: string
   status: SurveyStatus
   responses: number | null
+  hasResponseHistory?: boolean | null
   dateCreated: string
   updatedAt: string
   isDeleted: boolean
@@ -101,6 +102,7 @@ export interface ApiSurvey {
   status: SurveyStatus
   target_cohort: string | null
   responses_count: number | null
+  has_response_history?: boolean | null
   created_at: string
   updated_at: string
   is_deleted: boolean
@@ -216,12 +218,18 @@ export interface QualitativeFeedback {
 }
 
 export interface PEIIAnalyticsResponse {
+  outcome_distributions: {
+    employment_stability: SurveyResponseAggregate | null
+    degree_alignment: SurveyResponseAggregate | null
+  }
   cohort_result: PEIICohortResult
   baseline_result: PEIICohortResult | null
   historical_trend: PEIIHistoricalTrend[]
   demographics: PEIIDemographics | null
   feedback_classification: FeedbackClassificationData | null
   qualitative_feedback: QualitativeFeedback[]
+  qualitative_feedback_total: number
+  qualitative_feedback_truncated: boolean
 }
 
 export interface EraseSelectedResponsesPayload {
@@ -294,6 +302,7 @@ export function mapSurvey(api: ApiSurvey): Survey {
     title: api.title,
     status: api.status,
     responses: api.responses_count,
+    hasResponseHistory: api.has_response_history ?? null,
     dateCreated: api.created_at,
     updatedAt: api.updated_at,
     isDeleted: api.is_deleted,

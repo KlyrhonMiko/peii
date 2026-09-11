@@ -136,9 +136,10 @@ def test_withdrawal_rate_limiting_requires_client_ip_in_production() -> None:
         WITHDRAWAL_CODE_HMAC_SECRET="x" * 32,
         GOOGLE_OAUTH_CLIENT_ID="production-google-client-id",
         SURVEY_RESPONDENT_HMAC_SECRET="s" * 32,
+        PASSWORD_RESET_GRANT_SECRET="p" * 32,
         REDIS_URL="rediss://redis.example.com:6379/0",
         TRUSTED_PROXY_CIDRS=["198.51.100.0/24"],
-        DATABASE_TLS_MODE="require",
+        DATABASE_TLS_MODE="verify-full",
         APP_ORIGIN="https://app.example.com",
         BACKEND_CORS_ORIGINS=["https://app.example.com"],
     )
@@ -168,13 +169,14 @@ def test_production_supabase_rejects_insecure_traffic_settings(
     values.update(
         DEBUG=False,
         DB_MODE="supabase",
-        DATABASE_TLS_MODE="require",
+        DATABASE_TLS_MODE="verify-full",
         RATE_LIMIT_ENABLED=True,
         RATE_LIMIT_INCLUDE_CLIENT_IP=True,
         RATE_LIMIT_KEY_HMAC_SECRET="x" * 32,
         WITHDRAWAL_CODE_HMAC_SECRET="x" * 32,
         GOOGLE_OAUTH_CLIENT_ID="production-google-client-id",
         SURVEY_RESPONDENT_HMAC_SECRET="s" * 32,
+        PASSWORD_RESET_GRANT_SECRET="p" * 32,
         REDIS_URL="rediss://redis.example.com:6379/0",
         TRUSTED_PROXY_CIDRS=["198.51.100.0/24"],
         APP_ORIGIN="https://app.example.com",
@@ -193,13 +195,14 @@ def test_production_supabase_accepts_rediss_without_upstash() -> None:
     values.update(
         DEBUG=False,
         DB_MODE="supabase",
-        DATABASE_TLS_MODE="require",
+        DATABASE_TLS_MODE="verify-full",
         RATE_LIMIT_ENABLED=True,
         RATE_LIMIT_INCLUDE_CLIENT_IP=True,
         RATE_LIMIT_KEY_HMAC_SECRET="x" * 32,
         WITHDRAWAL_CODE_HMAC_SECRET="x" * 32,
         GOOGLE_OAUTH_CLIENT_ID="production-google-client-id",
         SURVEY_RESPONDENT_HMAC_SECRET="s" * 32,
+        PASSWORD_RESET_GRANT_SECRET="p" * 32,
         REDIS_URL="rediss://redis.example.com:6379/0",
         TRUSTED_PROXY_CIDRS=["198.51.100.0/24"],
         UPSTASH_REDIS_REST_URL=None,
@@ -226,13 +229,14 @@ def test_production_supabase_rejects_invalid_upstash_configuration(
     values.update(
         DEBUG=False,
         DB_MODE="supabase",
-        DATABASE_TLS_MODE="require",
+        DATABASE_TLS_MODE="verify-full",
         RATE_LIMIT_ENABLED=True,
         RATE_LIMIT_INCLUDE_CLIENT_IP=True,
         RATE_LIMIT_KEY_HMAC_SECRET="x" * 32,
         WITHDRAWAL_CODE_HMAC_SECRET="x" * 32,
         GOOGLE_OAUTH_CLIENT_ID="production-google-client-id",
         SURVEY_RESPONDENT_HMAC_SECRET="s" * 32,
+        PASSWORD_RESET_GRANT_SECRET="p" * 32,
         REDIS_URL="rediss://redis.example.com:6379/0",
         TRUSTED_PROXY_CIDRS=["198.51.100.0/24"],
         UPSTASH_REDIS_REST_URL=url,
@@ -250,13 +254,14 @@ def test_production_supabase_accepts_complete_https_upstash_configuration() -> N
     values.update(
         DEBUG=False,
         DB_MODE="supabase",
-        DATABASE_TLS_MODE="require",
+        DATABASE_TLS_MODE="verify-full",
         RATE_LIMIT_ENABLED=True,
         RATE_LIMIT_INCLUDE_CLIENT_IP=True,
         RATE_LIMIT_KEY_HMAC_SECRET="x" * 32,
         WITHDRAWAL_CODE_HMAC_SECRET="x" * 32,
         GOOGLE_OAUTH_CLIENT_ID="production-google-client-id",
         SURVEY_RESPONDENT_HMAC_SECRET="s" * 32,
+        PASSWORD_RESET_GRANT_SECRET="p" * 32,
         REDIS_URL="redis://redis:6379/0",
         TRUSTED_PROXY_CIDRS=["198.51.100.0/24"],
         UPSTASH_REDIS_REST_URL="https://example.upstash.io",
@@ -293,7 +298,7 @@ def test_rate_limiting_cannot_be_disabled_outside_debug_mode() -> None:
         RATE_LIMIT_ENABLED=False,
         RATE_LIMIT_INCLUDE_CLIENT_IP=False,
         WITHDRAWAL_CODE_HMAC_SECRET="x" * 32,
-        DATABASE_TLS_MODE="require",
+        DATABASE_TLS_MODE="verify-full",
         APP_ORIGIN="https://app.example.com",
         BACKEND_CORS_ORIGINS=["https://app.example.com"],
     )
@@ -475,6 +480,40 @@ async def test_rate_limit_lifecycle_prefers_upstash_rest(monkeypatch) -> None:
         assert isinstance(lifecycle.limiter, FixedWindowRateLimiter)
     finally:
         await lifecycle.stop()
+
+
+@pytest.mark.anyio
+async def test_upstash_ping_uses_the_redis_ping_command() -> None:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        assert json.loads(request.content) == ["PING"]
+        return httpx.Response(200, json={"result": "PONG"})
+
+    client = UpstashRedisRestClient(
+        "https://example.upstash.io",
+        "test-upstash-token",
+        transport=httpx.MockTransport(handler),
+    )
+    try:
+        assert await client.ping() is True
+    finally:
+        await client.aclose()
+
+
+@pytest.mark.anyio
+async def test_upstash_set_supports_atomic_reset_grant_consumption() -> None:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        assert json.loads(request.content) == ["SET", "grant-key", "1", "NX", "EX", 300]
+        return httpx.Response(200, json={"result": "OK"})
+
+    client = UpstashRedisRestClient(
+        "https://example.upstash.io",
+        "test-upstash-token",
+        transport=httpx.MockTransport(handler),
+    )
+    try:
+        assert await client.set("grant-key", "1", nx=True, ex=300) is True
+    finally:
+        await client.aclose()
 
 
 @pytest.mark.anyio

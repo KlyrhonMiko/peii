@@ -181,6 +181,34 @@ class FakeOtherIntegrityViolation(Exception):
     constraint_name = "some_other_constraint"
 
 
+class FakeAsyncpgUniqueViolation(Exception):
+    def __init__(self, constraint_name: str) -> None:
+        self.constraint_name = constraint_name
+
+
+class FakeSQLAlchemyAsyncpgWrapper(Exception):
+    orig: object | None = None
+
+
+@pytest.mark.parametrize("link", ("orig", "__cause__", "__context__"))
+def test_google_proof_primary_conflict_finds_asyncpg_error_through_wrappers(link: str) -> None:
+    asyncpg_error = FakeAsyncpgUniqueViolation("google_survey_auth_proofs_pkey")
+    wrapper = FakeSQLAlchemyAsyncpgWrapper()
+    setattr(wrapper, link, asyncpg_error)
+    error = IntegrityError("duplicate proof", {}, wrapper)
+
+    assert google_survey_auth_service._is_google_proof_primary_key_conflict(error) is True
+
+
+def test_google_proof_primary_conflict_rejects_other_constraints_and_cycles() -> None:
+    wrapper = FakeSQLAlchemyAsyncpgWrapper()
+    wrapper.orig = wrapper
+    wrapper.__cause__ = FakeAsyncpgUniqueViolation("some_other_constraint")
+    error = IntegrityError("duplicate proof", {}, wrapper)
+
+    assert google_survey_auth_service._is_google_proof_primary_key_conflict(error) is False
+
+
 async def _seed_racing_proof(session) -> None:
     authenticated_at = google_survey_auth_service.utc_now()
     session.add(
@@ -708,10 +736,9 @@ async def test_withdrawal_tombstones_direct_identity_but_keeps_dedupe_digest(
     finally:
         await generator.aclose()
 
-    withdrawn = await client.post(
-        "/api/v1/survey/responses/withdraw", json={"withdrawal_code": withdrawal_code}
-    )
-    assert withdrawn.status_code == 200
+    from tests.test_response_withdrawal import _withdraw_stored_response
+
+    assert (await _withdraw_stored_response(withdrawal_code)).withdrawn
     session, generator = await _session()
     try:
         response = (await session.exec(select(SurveyResponse))).one()

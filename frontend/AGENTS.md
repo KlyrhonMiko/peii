@@ -24,8 +24,7 @@ Read this file first, then the guide closest to the files you are changing:
 - `src/hooks/` owns reusable React hooks.
 - `src/lib/` owns API clients and domain types, authentication/RBAC helpers, Supabase
   server integration, backend-proxy and redirect policy, and utilities such as `cn()`.
-- `src/app/survey/withdraw/` is the public response-withdrawal page. `ClientSurveyForm` creates
-  and displays respondent-held withdrawal codes; authenticated survey response operations remain
+- Public response withdrawal is removed. Authenticated response operations remain
   capability-gated in the researcher surface.
 - `public/` contains static assets served directly by Next.js.
 
@@ -44,8 +43,9 @@ Run frontend commands from `frontend/`:
 configuration from the repository root. `lint` and `test` invoke their tools directly.
 Runtime keys include `BACKEND_INTERNAL_URL`, `NEXT_PUBLIC_API_URL`, `SUPABASE_URL`,
 `SUPABASE_PUBLISHABLE_KEY`, `APP_ORIGIN`, the server-only `SURVEY_OAUTH_STATE_KEY`, and the
-server-only `CSV_EXPORT_ENABLED` release flag. `SURVEY_OAUTH_STATE_KEY` must be a random value
-of at least 32 bytes and must never be exposed as `NEXT_PUBLIC_*`.
+server-only `CSV_EXPORT_ENABLED` release flag. `SURVEY_OAUTH_STATE_KEY` and
+`PASSWORD_RESET_GRANT_SECRET` must be random values of at least 32 bytes and must never be
+exposed as `NEXT_PUBLIC_*`; the reset-grant secret must match the backend deployment.
 The root Compose file passes these through an explicit frontend-only environment allowlist; it
 never passes the root `.env` wholesale and never exposes `SUPABASE_SECRET_KEY` to this service.
 
@@ -156,8 +156,7 @@ before assuming it is not active.
   after the dedicated Google OAuth respondent session is verified; browser submission uses the
   focused same-origin `/api/survey/[token]` BFF and backend proof. The development sentiment page
   may use `NEXT_PUBLIC_API_URL` directly.
-- Public withdrawal remains the direct, code-only `${NEXT_PUBLIC_API_URL}/survey/responses/withdraw`
-  operation and does not use the survey OAuth session.
+- There is no public response-withdrawal operation.
 - Next.js owns browser/document security headers, including the stricter no-store/no-referrer
   policy for `/survey`; FastAPI owns the corresponding public survey API headers. Production
   `DEBUG=false` keeps backend API documentation routes disabled.
@@ -174,3 +173,14 @@ before assuming it is not active.
 - Keep guide text aligned with live files. If commands, TypeScript settings, lint rules,
   aliases, theme files, or shadcn configuration change, update the relevant `AGENTS.md`
   file in the same change.
+
+## Startup and release packaging
+
+The Next wrapper resolves the CLI from its installed package, runs in the frontend directory,
+and loads repository-root env files without replacing provider process environment values.
+Compose fixes its internal API URL to `http://backend:8000/api/v1` and keeps the frontend
+environment allowlist. Provision dedicated HMAC secrets once in private environment storage;
+never generate or rotate them at startup. Production uses Vercel plus one Oracle Uvicorn worker
+and Caddy; follow `docs/oracle-host-runbook.md` from the repository root.
+
+Validate startup packaging with `node --test scripts/run-next.check.mjs` from `frontend/`.

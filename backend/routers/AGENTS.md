@@ -11,7 +11,7 @@ parsing, status codes, response models, and response assembly.
 - Routes return `APIResponse[...]` and declare `response_model=APIResponse[...]`.
 - Routes call service functions for data access and business behavior.
 - Response routes are split between `survey_public.py` (Google-authenticated survey loading,
-  Phase 1 POST, Phase 2 PATCH, and direct code-only `POST /survey/responses/withdraw`), `survey_responses.py`
+  Phase 1 POST and Phase 2 PATCH), `survey_responses.py`
   (identity-aware protected response reads, raw listing, prepared export with signed download URL, and erasure), and
   `survey_analytics.py` (aggregates). They are registered through `routers/api.py`.
 
@@ -65,5 +65,5 @@ parsing, status codes, response models, and response assembly.
   guard separate from the `survey_responses.export` permission dependency.
 - Survey token routes require the dedicated Google OAuth respondent session and backend proof;
   they are not portal routes and must not expose respondent session or proof secrets in metadata
-  responses. Public withdrawal remains direct and code-only.
+  responses. Public self-service withdrawal is not available.
 - Frontend guards never replace backend authorization.

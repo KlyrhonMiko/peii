@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, Request, Response, status
 from sqlmodel import col, select
 
 from core.cache import build_cache_key, cache_get, cache_invalidate_prefix, cache_set
+from core.client_ip import resolve_client_ip
 from core.deps import AsyncDBSession, CurrentPrincipal, require_permissions
 from core.exceptions import AppError
 from core.responses import success_response
@@ -17,7 +18,7 @@ router = APIRouter()
 
 
 def _ip_address(request: Request) -> str | None:
-    return request.client.host if request.client else None
+    return resolve_client_ip(request)
 
 
 def _role_read(role: Role, permissions: list[Permission]) -> RoleRead:

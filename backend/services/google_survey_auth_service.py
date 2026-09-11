@@ -214,11 +214,29 @@ def _proof_matches_google_identity(
 
 
 def _is_google_proof_primary_key_conflict(error: IntegrityError) -> bool:
-    diagnostic = getattr(error.orig, "diag", None)
-    constraint_name = getattr(diagnostic, "constraint_name", None) or getattr(
-        error.orig, "constraint_name", None
-    )
-    return constraint_name == GOOGLE_AUTH_PROOF_PRIMARY_KEY_CONSTRAINT
+    pending: list[object] = [error]
+    visited: set[int] = set()
+
+    while pending:
+        wrapped_error = pending.pop()
+        object_id = id(wrapped_error)
+        if object_id in visited:
+            continue
+        visited.add(object_id)
+
+        diagnostic = getattr(wrapped_error, "diag", None)
+        constraint_name = getattr(diagnostic, "constraint_name", None) or getattr(
+            wrapped_error, "constraint_name", None
+        )
+        if constraint_name == GOOGLE_AUTH_PROOF_PRIMARY_KEY_CONSTRAINT:
+            return True
+
+        for attribute in ("orig", "__cause__", "__context__"):
+            nested_error = getattr(wrapped_error, attribute, None)
+            if nested_error is not None:
+                pending.append(nested_error)
+
+    return False
 
 
 async def attest_google_survey_session(

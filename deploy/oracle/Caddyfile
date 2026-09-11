@@ -1,0 +1,24 @@
+# Set PEII_DOMAIN and ACME_EMAIL in Caddy's root-owned environment file.
+{$PEII_DOMAIN} {
+	tls {$ACME_EMAIL}
+	header Strict-Transport-Security "max-age=31536000"
+
+	# Readiness opens database and Redis connections, so expose it only to host-local probes.
+	@public_readiness {
+		path /api/v1/ready
+		not remote_ip 127.0.0.1 ::1
+	}
+	respond @public_readiness 404
+
+	reverse_proxy 127.0.0.1:8000 {
+		# Discard client-supplied forwarding headers, then send only Caddy's values.
+		header_up -X-Forwarded-For
+		header_up -X-Forwarded-Host
+		header_up -X-Forwarded-Proto
+		header_up -X-Real-IP
+		header_up X-Forwarded-For {remote_host}
+		header_up X-Forwarded-Host {host}
+		header_up X-Forwarded-Proto {scheme}
+		header_up X-Real-IP {remote_host}
+	}
+}

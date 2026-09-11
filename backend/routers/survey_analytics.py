@@ -6,6 +6,7 @@ from pydantic import BaseModel
 
 from core.analytics_cache import get_analytics_cached, set_analytics_cached
 from core.cache import build_cache_key, cache_get, cache_set
+from core.client_ip import resolve_client_ip
 from core.deps import AnalyticsAsyncDBSession, AsyncDBSession, CurrentPrincipal, require_permissions
 from core.responses import APIResponse, success_response
 from schemas.peii import PEIIAnalyticsResponse
@@ -79,12 +80,17 @@ async def compute_peii(
 ) -> APIResponse[PEIIAnalyticsResponse]:
     http_response.headers["Cache-Control"] = "private, no-store, max-age=0"
     http_response.headers["Pragma"] = "no-cache"
-    l1_key = ("peii", str(survey_id), batch or "", department or "", degree or "")
+    batch, department, degree = survey_analytics_service.normalize_peii_filters(
+        batch, department, degree
+    )
+    l1_key = ("peii", str(survey_id), "outcomes-v1", batch or "", department or "", degree or "")
     cached = get_analytics_cached(l1_key)
     if cached is not None:
         http_response.headers["X-Cache"] = "HIT"
         return success_response(cast(PEIIAnalyticsResponse, cached))
-    redis_key = build_cache_key(survey_id, batch or "", department or "", degree or "")
+    redis_key = build_cache_key(
+        survey_id, "outcomes-v1", batch or "", department or "", degree or ""
+    )
     redis_cached = await cache_get("peii", redis_key)
     if isinstance(redis_cached, dict):
         try:
@@ -120,7 +126,7 @@ async def mark_false_positive(
     principal: CurrentPrincipal,
     request: Request,
 ) -> APIResponse[dict[str, str]]:
-    ip_address = request.client.host if request.client else None
+    ip_address = resolve_client_ip(request)
     await false_positive_service.mark_false_positive(
         session=session,
         survey_id=survey_id,

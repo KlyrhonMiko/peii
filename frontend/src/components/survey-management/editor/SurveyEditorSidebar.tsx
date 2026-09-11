@@ -8,6 +8,7 @@ import { SURVEY_STATUSES } from "../constants"
 import type { SurveyStatus } from "@/lib/surveys"
 
 interface SurveyEditorSidebarProps {
+  contentLocked?: boolean
   surveyTitle: string
   setSurveyTitle: (val: string) => void
   surveyStatus: SurveyStatus
@@ -23,6 +24,7 @@ interface SurveyEditorSidebarProps {
 }
 
 export function SurveyEditorSidebar({
+  contentLocked = false,
   surveyTitle,
   setSurveyTitle,
   surveyStatus,
@@ -38,6 +40,52 @@ export function SurveyEditorSidebar({
 }: SurveyEditorSidebarProps) {
   return (
     <div className="w-[340px] shrink-0 border-r border-slate-100 bg-white p-8 overflow-y-auto">
+      <fieldset className="mb-6 flex flex-col gap-3 rounded-lg border border-slate-200 bg-slate-50/50 p-3.5">
+        <legend className="px-1 text-[13px] font-semibold text-slate-700">Collection status</legend>
+        {contentLocked && <p className="text-xs leading-relaxed text-slate-500">You can activate, pause, or close collection. Changing status does not unlock the survey content.</p>}
+        <Popover open={statusOpen} onOpenChange={setStatusOpen}>
+          <PopoverTrigger
+            render={
+              <Button
+                variant="outline"
+                type="button"
+                className="h-8 w-full justify-between font-normal text-sm border border-input bg-transparent hover:bg-slate-50/50 hover:border-slate-300 transition-colors cursor-pointer outline-none focus-visible:ring-3 focus-visible:ring-ring/50 select-none text-left"
+              >
+                <span>{surveyStatus}</span>
+                <ChevronDown className="size-4 text-slate-400 shrink-0 opacity-60" />
+              </Button>
+            }
+          />
+          <PopoverContent
+            align="start"
+            style={{ width: "var(--anchor-width)" }}
+            className="p-1 flex flex-col gap-0.5 bg-white border border-slate-200 rounded-lg shadow-md animate-in fade-in-0 zoom-in-95 duration-100"
+          >
+            {SURVEY_STATUSES.map((statusOption) => {
+              const isSelected = surveyStatus === statusOption
+              return (
+                <button
+                  type="button"
+                  key={statusOption}
+                  onClick={() => {
+                    setSurveyStatus(statusOption)
+                    setStatusOpen(false)
+                  }}
+                  className={cn(
+                    "flex items-center justify-between w-full px-2.5 py-1.5 text-xs font-medium rounded-md text-left transition-colors cursor-pointer outline-none",
+                    isSelected
+                      ? "bg-indigo-50 text-indigo-700 font-semibold"
+                      : "text-slate-650 hover:bg-slate-50 hover:text-slate-900"
+                  )}
+                >
+                  <span>{statusOption}</span>
+                  {isSelected && <Check className="size-3.5 text-indigo-600" />}
+                </button>
+              )
+            })}
+          </PopoverContent>
+        </Popover>
+      </fieldset>
       <fieldset className="space-y-5">
         <legend className="text-xs font-semibold uppercase tracking-widest text-slate-400 mb-2">
           Survey Details
@@ -46,58 +94,12 @@ export function SurveyEditorSidebar({
         <div className="space-y-1.5">
           <label className="text-[13px] font-medium text-slate-700">Title</label>
           <Input
+            disabled={contentLocked}
+            aria-label="Title"
             placeholder="e.g. Class of 2025 Mid-Year Check-in"
             value={surveyTitle}
             onChange={(e) => setSurveyTitle(e.target.value)}
           />
-        </div>
-
-
-
-        <div className="space-y-1.5">
-          <label className="text-[13px] font-medium text-slate-700">Status</label>
-          <Popover open={statusOpen} onOpenChange={setStatusOpen}>
-            <PopoverTrigger
-              render={
-                <Button
-                  variant="outline"
-                  type="button"
-                  className="h-8 w-full justify-between font-normal text-sm border border-input bg-transparent hover:bg-slate-50/50 hover:border-slate-300 transition-colors cursor-pointer outline-none focus-visible:ring-3 focus-visible:ring-ring/50 select-none text-left"
-                >
-                  <span>{surveyStatus}</span>
-                  <ChevronDown className="size-4 text-slate-400 shrink-0 opacity-60" />
-                </Button>
-              }
-            />
-            <PopoverContent
-              align="start"
-              style={{ width: "var(--anchor-width)" }}
-              className="p-1 flex flex-col gap-0.5 bg-white border border-slate-200 rounded-lg shadow-md animate-in fade-in-0 zoom-in-95 duration-100"
-            >
-              {SURVEY_STATUSES.map((statusOption) => {
-                const isSelected = surveyStatus === statusOption
-                return (
-                  <button
-                    type="button"
-                    key={statusOption}
-                    onClick={() => {
-                      setSurveyStatus(statusOption)
-                      setStatusOpen(false)
-                    }}
-                    className={cn(
-                      "flex items-center justify-between w-full px-2.5 py-1.5 text-xs font-medium rounded-md text-left transition-colors cursor-pointer outline-none",
-                      isSelected
-                        ? "bg-indigo-50 text-indigo-700 font-semibold"
-                        : "text-slate-650 hover:bg-slate-50 hover:text-slate-900"
-                    )}
-                  >
-                    <span>{statusOption}</span>
-                    {isSelected && <Check className="size-3.5 text-indigo-600" />}
-                  </button>
-                )
-              })}
-            </PopoverContent>
-          </Popover>
         </div>
 
         <div className="space-y-1.5">
@@ -106,6 +108,8 @@ export function SurveyEditorSidebar({
           </label>
           <div className="grid">
             <textarea
+              disabled={contentLocked}
+              aria-label="Description"
               className="w-full [grid-area:1/1] rounded-lg border border-input bg-transparent px-2.5 py-2 text-sm outline-none transition-colors placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 resize-none overflow-hidden min-h-[80px]"
               placeholder="Brief description of this survey's goals…"
               value={surveyDescription}
@@ -134,6 +138,7 @@ export function SurveyEditorSidebar({
                 Automatically delete responses
               </label>
               <Switch
+                disabled={contentLocked}
                 id="retention-enabled"
                 aria-label="Automatically delete responses"
                 aria-describedby="retention-policy-help"
@@ -153,7 +158,7 @@ export function SurveyEditorSidebar({
               min={1}
               step={1}
               value={retentionDays}
-              disabled={!retentionEnabled}
+              disabled={contentLocked || !retentionEnabled}
               onChange={(event) => setRetentionDays(Number(event.target.value))}
               aria-describedby="retention-policy-help"
             />

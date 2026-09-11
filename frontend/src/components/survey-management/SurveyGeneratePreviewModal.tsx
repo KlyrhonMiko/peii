@@ -11,6 +11,39 @@ import {
   GRADUATE_TRACER_STUDY_SURVEY_TITLE,
 } from "./constants"
 import type { useSurveyManagement } from "./useSurveyManagement"
+import type { SurveyQuestion } from "@/lib/surveys"
+
+type StaticPreviewQuestion = (typeof GRADUATE_TRACER_STUDY_SURVEY.sections)[number]["questions"][number]
+type PreviewQuestion = StaticPreviewQuestion | SurveyQuestion
+
+interface NormalizedPreviewQuestion {
+  text: string
+  type: string
+  options: string[]
+  isDropdown: boolean
+  min: number
+  max: number
+  minLabel: string | null
+  maxLabel: string | null
+}
+
+function normalizePreviewQuestion(question: PreviewQuestion): NormalizedPreviewQuestion {
+  const isStaticQuestion = "question_text" in question
+  const config = question.config
+  const min = typeof config?.min === "number" ? config.min : 1
+  const max = typeof config?.max === "number" ? config.max : 5
+
+  return {
+    text: isStaticQuestion ? question.question_text : question.text,
+    type: isStaticQuestion ? question.question_type : question.type,
+    options: question.options ?? [],
+    isDropdown: config?.presentation === "dropdown",
+    min,
+    max,
+    minLabel: typeof config?.min_label === "string" ? config.min_label : null,
+    maxLabel: typeof config?.max_label === "string" ? config.max_label : null,
+  }
+}
 
 export interface SurveyGeneratePreviewModalProps {
   store: ReturnType<typeof useSurveyManagement>
@@ -75,16 +108,19 @@ export function SurveyGeneratePreviewModal({ store }: SurveyGeneratePreviewModal
                 </div>
                 
                 <div className="space-y-8">
-                  {sec.questions.map((q, qIdx) => (
-                    <div key={qIdx} className="flex items-start gap-4">
+                  {sec.questions.map((q, qIdx) => {
+                    const question = normalizePreviewQuestion(q)
+
+                    return (
+                      <div key={qIdx} className="flex items-start gap-4">
                        <span className="mt-0.5 text-sm font-medium text-slate-400 w-6 shrink-0">
-                         {qIdx + 1}.
-                       </span>
+                          {qIdx + 1}.
+                        </span>
                        <div className="min-w-0 flex-1">
-                         <p className="text-sm font-medium text-slate-800 leading-snug">
-                           {'text' in q ? q.text : (q as unknown as ApiQuestion).question_text}
-                         </p>
-                         {q.config?.presentation === "dropdown" ? (
+                          <p className="text-sm font-medium text-slate-800 leading-snug">
+                            {question.text}
+                          </p>
+                          {question.isDropdown ? (
                            <Button
                              type="button"
                              variant="outline"
@@ -94,30 +130,30 @@ export function SurveyGeneratePreviewModal({ store }: SurveyGeneratePreviewModal
                              Select a degree program…
                              <ChevronDown className="size-4 text-slate-400" />
                            </Button>
-                         ) : ('type' in q ? q.type : (q as unknown as ApiQuestion).question_type) !== "scale" && q.options && q.options.length > 0 && (
-                           <div className="mt-4 flex flex-col gap-3">
-                             {q.options.map((opt, optIdx) => (
-                               <label key={optIdx} className="flex items-center gap-3 cursor-pointer">
-                                 <div className={cn("size-4 border border-slate-300 bg-white shadow-sm", ('type' in q ? q.type : (q as unknown as ApiQuestion).question_type) === "multiple_choice" ? "rounded-[4px]" : "rounded-full")} />
-                                 <span className="text-sm text-slate-600">{opt}</span>
-                               </label>
-                             ))}
-                           </div>
-                         )}
-                         {('type' in q ? q.type : (q as unknown as ApiQuestion).question_type) === "text" && (
+                          ) : question.type !== "scale" && question.options.length > 0 && (
+                            <div className="mt-4 flex flex-col gap-3">
+                              {question.options.map((opt, optIdx) => (
+                                <label key={optIdx} className="flex items-center gap-3 cursor-pointer">
+                                  <div className={cn("size-4 border border-slate-300 bg-white shadow-sm", question.type === "multiple_choice" ? "rounded-[4px]" : "rounded-full")} />
+                                  <span className="text-sm text-slate-600">{opt}</span>
+                                </label>
+                              ))}
+                            </div>
+                          )}
+                          {question.type === "text" && (
                            <div className="mt-4 h-10 w-full max-w-lg rounded-none border-b border-slate-300 bg-transparent flex items-center text-slate-400 text-sm">
                              Your answer...
                            </div>
                          )}
-                         {('type' in q ? q.type : (q as unknown as ApiQuestion).question_type) === "scale" && (
-                           <div className="mt-5 flex flex-wrap gap-x-8 gap-y-4">
-                             {Array.from({ length: (q.config?.max || 5) - (q.config?.min || 1) + 1 }, (_, i) => {
-                               const rating = (q.config?.min || 1) + i;
-                               const optText = q.options && q.options[i] ? q.options[i] : null;
-                               const isMinMax = i === 0 ? q.config?.min_label : (i === ((q.config?.max || 5) - (q.config?.min || 1)) ? q.config?.max_label : null);
-                               const labelText = optText || isMinMax;
-                               return (
-                                 <label key={rating} className="flex flex-col items-center gap-2 cursor-pointer w-20 text-center">
+                          {question.type === "scale" && (
+                            <div className="mt-5 flex flex-wrap gap-x-8 gap-y-4">
+                              {Array.from({ length: question.max - question.min + 1 }, (_, i) => {
+                                const rating = question.min + i;
+                                const optText = question.options[i] ?? null;
+                                const isMinMax = i === 0 ? question.minLabel : (i === question.max - question.min ? question.maxLabel : null);
+                                const labelText = optText || isMinMax;
+                                return (
+                                  <label key={rating} className="flex flex-col items-center gap-2 cursor-pointer w-20 text-center">
                                    <div className="size-4 rounded-full border border-slate-300 bg-white shadow-sm" />
                                    <span className="text-sm font-medium text-slate-700">{rating}</span>
                                    {labelText && (
@@ -125,12 +161,13 @@ export function SurveyGeneratePreviewModal({ store }: SurveyGeneratePreviewModal
                                    )}
                                  </label>
                                );
-                             })}
-                           </div>
-                         )}
-                       </div>
-                    </div>
-                  ))}
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )
+                  })}
                 </div>
               </div>
             ))}

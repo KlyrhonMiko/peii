@@ -66,7 +66,8 @@ Frontend commands run from `frontend/`:
 Backend commands run from `backend/`:
 
 - `python3.14 -m venv .venv`
-- `./.venv/bin/pip install -r requirements.txt`
+- Install the chosen Torch CPU/CUDA build first (see `backend/README.md`), then
+  `./.venv/bin/pip install -r requirements.txt -c requirements.lock`
 - `./.venv/bin/uvicorn main:app --reload --no-access-log --no-proxy-headers`
 - `./.venv/bin/ruff check .`
 - `./.venv/bin/mypy .`
@@ -142,3 +143,14 @@ Use short imperative commits, such as `Add user service pagination` or
 
 PRs should describe scope, note env or migration changes, include screenshots for UI
 updates, and list the validation commands that ran.
+
+## Startup and release packaging
+
+The Next wrapper resolves the CLI from its installed package, runs in the frontend directory,
+and loads repository-root env files without replacing provider process environment values.
+Compose fixes its internal API URL to `http://backend:8000/api/v1` and keeps the frontend
+environment allowlist. Provision dedicated HMAC secrets once in private environment storage;
+never generate or rotate them at startup. Production uses Vercel plus one Oracle Uvicorn worker
+and Caddy; follow `docs/oracle-host-runbook.md` from the repository root.
+
+Validate startup packaging with `node --test scripts/run-next.check.mjs` from `frontend/`.

@@ -3,6 +3,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Request, status
 
 from core.cache import cache_invalidate_prefix
+from core.client_ip import resolve_client_ip
 from core.deps import AsyncDBSession, Principal, require_permissions
 from core.responses import success_response
 from schemas.common import APIResponse
@@ -51,7 +52,7 @@ async def create_section(
     principal: Principal = Depends(require_permissions("surveys.manage")),
 ) -> APIResponse[SurveySectionRead]:
     await survey_service.resolve_survey(session, survey_id)
-    ip_address = request.client.host if request.client else None
+    ip_address = resolve_client_ip(request)
     section = await survey_section_service.create_section(
         session,
         survey_id,
@@ -80,7 +81,7 @@ async def reorder_sections(
     principal: Principal = Depends(require_permissions("surveys.manage")),
 ) -> APIResponse[list[SurveySectionRead]]:
     await survey_service.resolve_survey(session, survey_id)
-    ip_address = request.client.host if request.client else None
+    ip_address = resolve_client_ip(request)
     sections = await survey_section_service.reorder_sections(
         session,
         survey_id,
@@ -133,7 +134,7 @@ async def update_section(
     principal: Principal = Depends(require_permissions("surveys.manage")),
 ) -> APIResponse[SurveySectionRead]:
     await survey_service.resolve_survey(session, survey_id)
-    ip_address = request.client.host if request.client else None
+    ip_address = resolve_client_ip(request)
     section = await survey_section_service.update_section(
         session,
         survey_id,
@@ -164,7 +165,7 @@ async def delete_section(
     payload: SurveySectionDelete | None = None,
 ) -> APIResponse[SurveySectionRead]:
     await survey_service.resolve_survey(session, survey_id)
-    ip_address = request.client.host if request.client else None
+    ip_address = resolve_client_ip(request)
     section = await survey_section_service.delete_section(
         session,
         survey_id,
