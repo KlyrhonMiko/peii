@@ -584,3 +584,27 @@ describe("backend BFF", () => {
     expect(fetchMock).not.toHaveBeenCalled()
   })
 })
+
+
+it("requests the canonical audit URL over HTTPS with authorization intact", async () => {
+  vi.stubEnv("BACKEND_INTERNAL_URL", "https://peii-api.duckdns.org/api/v1")
+  mocks.getClaims.mockResolvedValue({ data: { claims: { sub: "user-id" } } })
+  mocks.getSession.mockResolvedValue({ data: { session: { access_token: "test-token" } } })
+  const fetchMock = vi.fn(async (_url: string | URL | Request, _init?: RequestInit) => new Response('{"data":[]}', {
+    headers: { "content-type": "application/json" },
+  }))
+  vi.stubGlobal("fetch", fetchMock)
+
+  const response = await GET(new NextRequest(
+    "https://peii.vercel.app/api/backend/audit-logs?limit=20&offset=0",
+  ), context(["audit-logs"]))
+
+  expect(response.status).toBe(200)
+  expect(fetchMock).toHaveBeenCalledTimes(1)
+  expect(fetchMock).toHaveBeenCalledWith(
+    "https://peii-api.duckdns.org/api/v1/audit-logs/?limit=20&offset=0",
+    expect.objectContaining({ method: "GET" }),
+  )
+  const init = fetchMock.mock.calls[0]?.[1]
+  expect(new Headers(init?.headers).get("authorization")).toBe("Bearer test-token")
+})
