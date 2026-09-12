@@ -24,14 +24,13 @@ import {
   SidebarHeader,
   SidebarFooter,
 } from "@/components/ui/sidebar"
-import { LayoutDashboard, BarChart3, Settings, FlaskConical, LogOut, ClipboardList, Cpu, ShieldCheck, UsersRound, History } from "lucide-react"
+import { LayoutDashboard, Settings, LogOut, ClipboardList, ShieldCheck, UsersRound, History } from "lucide-react"
 import { logoutAction } from "@/app/login/actions"
 import type { PortalUser } from "@/lib/auth"
 
 const mainItems = [
   { title: "Dashboard", url: "/researcher/dashboard", icon: LayoutDashboard },
   { title: "Surveys", url: "/researcher/survey", icon: ClipboardList, permission: "surveys.read" },
-  { title: "Models", url: "/researcher/models", icon: Cpu },
 ]
 
 const managementItems = [

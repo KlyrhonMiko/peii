@@ -2,13 +2,12 @@
 
 ## Scope
 This guide covers `src/app/researcher/`, including the researcher layout, dashboard,
-analytics, survey management/detail/settings, and model routes.
+and survey management/detail/settings routes.
 
 ## Current Responsibilities
 - `layout.tsx` owns the researcher shell, sticky top bar, and `SidebarProvider`.
 - `dashboard/page.tsx` owns department/batch filter state, derives summary values, and
-  renders the cohort trend chart wrapper.
-- `analytics/page.tsx` owns interactive filters and renders PEII dimensions and sentiment
+  renders the unified analytics dashboard including cohort trends, PEII dimensions, and sentiment
   divergence chart wrappers.
 - `survey/page.tsx` authenticates with `surveys.read` and composes the live
    `SurveyManagement` client component. That component owns survey CRUD, structure
@@ -18,8 +17,6 @@ analytics, survey management/detail/settings, and model routes.
    still exclude expired/deleted responses; identity reads are separately capability-gated;
    nested detail/settings pages remain placeholders but require `surveys.read` and
    `surveys.manage` respectively.
-- `models/page.tsx` authenticates with `ml.models.read` and loads the authenticated model
-  catalog server-side from `BACKEND_INTERNAL_URL`.
 
 ## Researcher Rules
 - Keep shared portal chrome in `layout.tsx`; do not duplicate it in child pages.
