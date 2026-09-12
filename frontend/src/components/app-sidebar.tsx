@@ -24,7 +24,7 @@ import {
   SidebarHeader,
   SidebarFooter,
 } from "@/components/ui/sidebar"
-import { LayoutDashboard, Settings, LogOut, ClipboardList, ShieldCheck, UsersRound, History } from "lucide-react"
+import { LayoutDashboard, Settings, FlaskConical, LogOut, ClipboardList, ShieldCheck, UsersRound, History } from "lucide-react"
 import { logoutAction } from "@/app/login/actions"
 import type { PortalUser } from "@/lib/auth"
 
