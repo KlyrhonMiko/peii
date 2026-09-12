@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { Suspense } from "react";
 import {
   ArrowRight,
@@ -90,17 +89,6 @@ export default function Home() {
                   </Button>
                 </LoginModal>
               </Suspense>
-
-              <Link href="/survey/demo-token" className="w-full sm:w-auto">
-                <Button
-                  size="lg"
-                  variant="outline"
-                  className="w-full sm:w-auto h-14 px-8 text-[15px] border-slate-200 bg-white hover:bg-slate-50 text-slate-700 hover:text-slate-900 rounded-xl font-semibold transition-all"
-                >
-                  <ClipboardCheck className="mr-2 h-5 w-5" />
-                  Take Alumni Survey
-                </Button>
-              </Link>
             </motion.div>
           </div>
         </section>
