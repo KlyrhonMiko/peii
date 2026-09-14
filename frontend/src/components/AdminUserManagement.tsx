@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState, useTransition } from "react"
+import { useEffect, useMemo, useRef, useState, useTransition } from "react"
 import { Check, ChevronDown, KeyRound, Loader2, Mail, Pencil, Plus, RotateCcw, Search, ShieldCheck, Trash2, UserRoundPlus, User, Users } from "lucide-react"
 import { toast } from "sonner"
 
@@ -11,7 +11,9 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Skeleton } from "@/components/ui/skeleton"
 import { Switch } from "@/components/ui/switch"
 import { ApiError } from "@/lib/api"
-import { assignUserRoles, createUser, createUsers, deleteUser, listRoles, listUsers, resendInvitation, restoreUser, revokeUserSessions, updateUser, type UserInput, type UserRecord, type UserRole } from "@/lib/users"
+import { parseBulkInviteCsv } from "@/lib/bulk-invite-csv"
+import { formatBackendUtcTimestamp } from "@/lib/dates"
+import { assignUserRoles, createUser, createUsers, deleteUser, listRoles, listUsers, resendInvitation, restoreUser, revokeUserSessions, updateUser, type UserRecord, type UserRole } from "@/lib/users"
 import { cn } from "@/lib/utils"
 
 export interface AdminUserPermissions {
@@ -74,16 +76,23 @@ export function AdminUserManagement({ permissions }: AdminUserManagementProps) {
   const [confirmation, setConfirmation] = useState<{ action: ConfirmationAction; user: UserRecord } | null>(null)
   const [initialLoad, setInitialLoad] = useState(true)
   const [isPending, startTransition] = useTransition()
+  const userRequestId = useRef(0)
 
   const refresh = () => {
+    const requestId = ++userRequestId.current
     startTransition(() => {
       void listUsers({ offset, search, isActive: active, deleted })
         .then(({ users: records, total: recordTotal }) => {
+          if (requestId !== userRequestId.current) return
           setUsers(records)
           setTotal(recordTotal)
         })
-        .catch((error: unknown) => toast.error(message(error)))
-        .finally(() => setInitialLoad(false))
+        .catch((error: unknown) => {
+          if (requestId === userRequestId.current) toast.error(message(error))
+        })
+        .finally(() => {
+          if (requestId === userRequestId.current) setInitialLoad(false)
+        })
     })
   }
 
@@ -141,16 +150,12 @@ export function AdminUserManagement({ permissions }: AdminUserManagementProps) {
   }
 
   const saveBatch = (formData: FormData) => {
-    const rows = String(formData.get("csv") ?? "").trim().split("\n").filter(Boolean)
-    const usersToCreate: UserInput[] = rows.map((row) => {
-      const [email = "", username = "", firstName = "", lastName = "", middleName = "", contact = ""] = row.split(",").map((value) => value.trim())
-      return { email, username, first_name: firstName, last_name: lastName, middle_name: middleName || null, contact: contact || null, is_active: true }
-    })
-    if (!usersToCreate.length || usersToCreate.some((user) => !user.email || !user.username || !user.first_name || !user.last_name)) {
-      toast.error("Each row needs email, username, first name, and last name.")
+    const result = parseBulkInviteCsv(String(formData.get("csv") ?? ""))
+    if (result.errors.length > 0 || result.users.length === 0) {
+      toast.error(result.errors[0] ?? "Add at least one valid CSV row.")
       return
     }
-    mutate(() => createUsers(usersToCreate), `${usersToCreate.length} users created and invitations requested.`)
+    mutate(() => createUsers(result.users), `${result.users.length} users created and invitations requested.`)
     setBulkDialogOpen(false)
   }
 
@@ -393,7 +398,7 @@ export function AdminUserManagement({ permissions }: AdminUserManagementProps) {
                     </div>
                   </td>
                   <td className="px-2 py-4 text-[13px] text-zinc-500 font-medium">
-                    {user.last_login_at ? new Date(user.last_login_at).toLocaleString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" }) : "Never"}
+                    {user.last_login_at ? formatBackendUtcTimestamp(user.last_login_at, { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" }) : "Never"}
                   </td>
                   <td className="px-2 py-4 text-right">
                     <div className="flex items-center justify-end gap-1 text-zinc-400">
@@ -459,7 +464,7 @@ export function AdminUserManagement({ permissions }: AdminUserManagementProps) {
       )}
 
       <UserDialog mode={dialog === "create" ? "create" : dialog === "edit" ? "edit" : null} user={selected} canChangeStatus={permissions.canChangeStatus} onClose={() => setDialog(null)} onSave={saveUser} />
-      <BulkInviteDialog open={bulkDialogOpen} onClose={() => setBulkDialogOpen(false)} onSave={saveBatch} />
+      <BulkInviteDialog key={String(bulkDialogOpen)} open={bulkDialogOpen} onClose={() => setBulkDialogOpen(false)} onSave={saveBatch} />
       <RoleDialog user={dialog === "roles" ? selected : null} roles={roles} onClose={() => setDialog(null)} onSave={saveRoles} />
       <ConfirmationDialog confirmation={confirmation} pending={isPending} onClose={() => setConfirmation(null)} onConfirm={runConfirmation} />
     </div>
@@ -467,18 +472,35 @@ export function AdminUserManagement({ permissions }: AdminUserManagementProps) {
 }
 
 function BulkInviteDialog({ open, onClose, onSave }: { open: boolean; onClose: () => void; onSave: (data: FormData) => void }) {
+  const [csv, setCsv] = useState("")
+  const preview = useMemo(() => parseBulkInviteCsv(csv), [csv])
+  const close = () => {
+    setCsv("")
+    onClose()
+  }
+
   return (
-    <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
+    <Dialog open={open} onOpenChange={(next) => !next && close()}>
       <DialogContent className="sm:max-w-[480px]">
         <DialogHeader>
           <DialogTitle>Bulk invite users</DialogTitle>
           <DialogDescription>Paste one CSV row per user: email, username, first name, last name, middle name, contact.</DialogDescription>
         </DialogHeader>
         <form action={onSave} className="mt-4">
-          <textarea name="csv" required rows={8} className="w-full rounded-xl border border-zinc-200/80 bg-zinc-50/30 p-3.5 font-mono text-[13px] text-zinc-800 placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-zinc-900/20 focus:border-zinc-900 hover:border-zinc-300 transition-all resize-none shadow-sm" placeholder="jane@example.com, janedoe, Jane, Doe" />
+          <textarea name="csv" required rows={8} value={csv} onChange={(event) => setCsv(event.target.value)} className="w-full rounded-xl border border-zinc-200/80 bg-zinc-50/30 p-3.5 font-mono text-[13px] text-zinc-800 placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-zinc-900/20 focus:border-zinc-900 hover:border-zinc-300 transition-all resize-none shadow-sm" placeholder="jane@example.com, janedoe, Jane, Doe" />
+          <div className="mt-3 text-[12px]" aria-live="polite">
+            {preview.errors.length > 0 ? (
+              <ul className="space-y-1 text-red-600">
+                {preview.errors.slice(0, 3).map((error, index) => <li key={`${index}-${error}`}>{error}</li>)}
+                {preview.errors.length > 3 && <li>{preview.errors.length - 3} more error(s).</li>}
+              </ul>
+            ) : (
+              <p className="text-zinc-500">{preview.users.length} valid user{preview.users.length === 1 ? "" : "s"} ready to invite.</p>
+            )}
+          </div>
           <DialogFooter className="mt-6">
-            <DialogClose render={<Button variant="outline" type="button" className="shadow-none active:scale-[0.98] transition-transform">Cancel</Button>} />
-            <Button type="submit" className="active:scale-[0.98] transition-transform">Create and invite</Button>
+            <Button variant="outline" type="button" onClick={close} className="shadow-none active:scale-[0.98] transition-transform">Cancel</Button>
+            <Button type="submit" disabled={preview.errors.length > 0 || preview.users.length === 0} className="active:scale-[0.98] transition-transform">Create and invite</Button>
           </DialogFooter>
         </form>
       </DialogContent>
@@ -630,4 +652,3 @@ function ConfirmationDialog({ confirmation, pending, onClose, onConfirm }: { con
     </Dialog>
   )
 }
-

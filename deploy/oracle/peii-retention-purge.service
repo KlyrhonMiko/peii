@@ -12,6 +12,7 @@ EnvironmentFile=/etc/peii/backend.env
 Environment=PYTHONPATH=/opt/peii/backend
 Environment=HF_HOME=/var/lib/peii/huggingface
 ExecStart=/opt/peii/backend/.venv/bin/python /opt/peii/backend/scripts/purge_expired_responses.py --batch-size 100
+TimeoutStartSec=30min
 UMask=0077
 NoNewPrivileges=true
 PrivateTmp=true

@@ -39,20 +39,11 @@ GRADUATE_TRACER_STUDY_PURPOSE = (
 GRADUATE_TRACER_STUDY_INSTRUCTIONS = (
     "Please answer the following questions honestly and completely."
 )
-GRADUATE_TRACER_STUDY_DATA_PRIVACY_NOTICE = (
-    "In accordance with the Data Privacy Act of 2012 (Republic Act No. 10173), all personal "
-    "information collected will be treated with strict confidentiality. The data will be used "
-    "solely for academic and research purposes. Participation in this survey is voluntary, and "
-    "you may choose to withdraw at any time without any penalty. All information will be securely "
-    "stored and protected. You may also visit https://privacy.gov.ph/data-privacy-act/ to learn "
-    "more about your rights."
-)
 GRADUATE_TRACER_STUDY_REQUIRED_FIELDS_NOTE = "Required fields are marked with an asterisk (*)"
 GRADUATE_TRACER_STUDY_SURVEY_DESCRIPTION = "\n\n".join(
     (
         f"Purpose: {GRADUATE_TRACER_STUDY_PURPOSE}",
         f"Instructions: {GRADUATE_TRACER_STUDY_INSTRUCTIONS}",
-        f"Data Privacy Notice: {GRADUATE_TRACER_STUDY_DATA_PRIVACY_NOTICE}",
         GRADUATE_TRACER_STUDY_REQUIRED_FIELDS_NOTE,
     )
 )

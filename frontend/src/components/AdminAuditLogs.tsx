@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useState, useTransition } from "react"
+import { useCallback, useEffect, useRef, useState, useTransition } from "react"
 import { AlertCircle, ChevronLeft, ChevronRight, RefreshCw, ScrollText } from "lucide-react"
 import { toast } from "sonner"
 
@@ -10,19 +10,12 @@ import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
 import { ApiError } from "@/lib/api"
 import { getAuditLog, listAuditLogs, type AuditLog, type AuditLogListParams, type AuditLogListResult } from "@/lib/audit"
+import { formatBackendUtcTimestamp } from "@/lib/dates"
 
 const PAGE_SIZE = 20
 
 function errorMessage(error: unknown) {
   return error instanceof ApiError ? error.message : "Unable to load audit logs."
-}
-
-function formatTimestamp(value: string): string {
-  // Backend timestamps are naive UTC; normalize before formatting as local time.
-  const iso = /(?:Z|[+-]\d{2}:\d{2})$/.test(value) ? value : `${value}Z`
-  const date = new Date(iso)
-  if (Number.isNaN(date.getTime())) return value
-  return date.toLocaleString()
 }
 
 function formatActor(performedBy: string) {
@@ -56,7 +49,7 @@ function AuditLogDetail({ log, onClose }: { log: AuditLog; onClose: () => void }
           </div>
           <div>
             <dt className="font-semibold text-foreground">Created at</dt>
-            <dd className="text-muted-foreground mt-0.5">{formatTimestamp(log.created_at)}</dd>
+            <dd className="text-muted-foreground mt-0.5">{formatBackendUtcTimestamp(log.created_at)}</dd>
           </div>
           {log.changes !== null && (
             <div className="sm:col-span-2">
@@ -97,8 +90,11 @@ export function AdminAuditLogs() {
   const [error, setError] = useState<string | null>(null)
   const [isPending, startTransition] = useTransition()
   const [selectedLog, setSelectedLog] = useState<AuditLog | null>(null)
+  const listRequestId = useRef(0)
+  const detailRequestId = useRef(0)
 
   const refresh = useCallback((nextOffset: number) => {
+    const requestGeneration = ++listRequestId.current
     const params: AuditLogListParams = { limit: PAGE_SIZE, offset: nextOffset }
     const trimmedResourceType = resourceType.trim()
     const trimmedAction = action.trim()
@@ -110,6 +106,7 @@ export function AdminAuditLogs() {
     startTransition(() => {
       void listAuditLogs(params)
         .then((result) => {
+          if (requestGeneration !== listRequestId.current) return
           setLogs(result.logs)
           setPagination(result.pagination)
           setOffset(result.pagination.offset)
@@ -117,6 +114,7 @@ export function AdminAuditLogs() {
           setHasLoaded(true)
         })
         .catch((err: unknown) => {
+          if (requestGeneration !== listRequestId.current) return
           setError(errorMessage(err))
           setHasLoaded(true)
         })
@@ -130,9 +128,14 @@ export function AdminAuditLogs() {
   }, [action, requestId, resourceType])
 
   const openDetail = (log: AuditLog) => {
+    const requestId = ++detailRequestId.current
     void getAuditLog(log.id)
-      .then(setSelectedLog)
-      .catch((error: unknown) => toast.error(errorMessage(error)))
+      .then((detail) => {
+        if (requestId === detailRequestId.current) setSelectedLog(detail)
+      })
+      .catch((error: unknown) => {
+        if (requestId === detailRequestId.current) toast.error(errorMessage(error))
+      })
   }
 
   const from = pagination.total === 0 ? 0 : offset + 1
@@ -233,7 +236,7 @@ export function AdminAuditLogs() {
                 onClick={() => openDetail(log)}
                 className="w-full grid grid-cols-1 md:grid-cols-12 gap-2 md:gap-6 py-3.5 px-2 text-left hover:bg-zinc-50/60 transition-colors"
               >
-                <div className="col-span-2 text-[13px] text-zinc-500">{formatTimestamp(log.created_at)}</div>
+                <div className="col-span-2 text-[13px] text-zinc-500">{formatBackendUtcTimestamp(log.created_at)}</div>
                 <div className="col-span-2">
                   <span className="inline-flex px-2 py-0.5 rounded-md bg-zinc-100 text-zinc-800 text-[12px] font-medium">
                     {log.action}
@@ -274,7 +277,7 @@ export function AdminAuditLogs() {
         </>
       )}
 
-      {selectedLog && <AuditLogDetail log={selectedLog} onClose={() => setSelectedLog(null)} />}
+      {selectedLog && <AuditLogDetail log={selectedLog} onClose={() => { detailRequestId.current += 1; setSelectedLog(null) }} />}
     </div>
   )
 }

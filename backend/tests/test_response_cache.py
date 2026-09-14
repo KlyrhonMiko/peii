@@ -51,9 +51,21 @@ def _patch_redis(monkeypatch: pytest.MonkeyPatch, client: FakeRedis) -> None:
     monkeypatch.setattr(settings, "CACHE_ENABLED", True)
 
 
-def test_build_cache_key_sanitizes_parts() -> None:
-    assert cache.build_cache_key("a:b", "c|d", " e ", None, "") == "a-b:c-d:e:_:_"
-    assert cache.build_cache_key() == "_"
+def test_build_cache_key_encodes_parts_without_collisions() -> None:
+    assert cache.build_cache_key("a:b", "c|d", " e ", None, "") == (
+        "s:a%3Ab|s:c%7Cd|s:%20e%20|n|s:"
+    )
+    assert cache.build_cache_key("a:b") != cache.build_cache_key("a-b")
+    assert cache.build_cache_key("1") != cache.build_cache_key(1)
+    assert cache.build_cache_key(None) != cache.build_cache_key("")
+    assert cache.build_cache_key() != cache.build_cache_key(None)
+    assert cache.build_cache_key() == "z"
+
+
+def test_build_cache_key_keeps_single_part_prefix_invalidation() -> None:
+    prefix = cache.build_cache_key("survey:a")
+    full_key = cache.build_cache_key("survey:a", "2026", "department")
+    assert full_key.startswith(prefix)
 
 
 async def test_roundtrip_returns_stored_value(monkeypatch: pytest.MonkeyPatch) -> None:

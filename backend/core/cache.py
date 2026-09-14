@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 from typing import Any
+from urllib.parse import quote
 
 import structlog
 
@@ -27,16 +28,24 @@ _NAMESPACE_TTLS = {
 
 
 def build_cache_key(*parts: object) -> str:
-    """Join key parts with ':' after sanitizing separators and empties."""
-    cleaned: list[str] = []
+    """Encode typed key parts without allowing distinct inputs to collide."""
+    encoded: list[str] = []
     for part in parts:
-        text = "" if part is None else str(part).strip()
-        if not text:
-            cleaned.append("_")
-            continue
-        text = text.replace(":", "-").replace("|", "-").replace(" ", "-")
-        cleaned.append(text)
-    return ":".join(cleaned) if cleaned else "_"
+        if part is None:
+            encoded.append("n")
+        else:
+            if isinstance(part, str):
+                tag = "s"
+            elif isinstance(part, bool):
+                tag = "b"
+            elif isinstance(part, int):
+                tag = "i"
+            elif isinstance(part, float):
+                tag = "f"
+            else:
+                tag = f"o:{type(part).__module__}.{type(part).__qualname__}"
+            encoded.append(f"{tag}:{quote(str(part), safe='')}")
+    return "|".join(encoded) if encoded else "z"
 
 
 def get_cache_ttl(namespace: str) -> int:

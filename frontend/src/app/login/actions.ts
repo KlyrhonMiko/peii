@@ -54,18 +54,26 @@ export async function loginAction(state: LoginState, formData: FormData): Promis
 
 export async function logoutAction() {
   const supabase = await createSupabaseServerClient()
-  const { data } = await supabase.auth.getSession()
-  if (data.session) {
-    const backendUrl = process.env.BACKEND_INTERNAL_URL
-    if (!backendUrl) throw new Error("BACKEND_INTERNAL_URL is not configured")
-    const response = await fetch(`${backendUrl}/auth/logout`, {
-      method: "POST",
-      headers: { Authorization: `Bearer ${data.session.access_token}` },
-      cache: "no-store",
-    })
-    if (!response.ok) throw new Error("Backend logout failed")
+  try {
+    const { data } = await supabase.auth.getSession()
+    if (data.session) {
+      const backendUrl = process.env.BACKEND_INTERNAL_URL
+      if (!backendUrl) throw new Error("BACKEND_INTERNAL_URL is not configured")
+      const response = await fetch(`${backendUrl}/auth/logout`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${data.session.access_token}` },
+        cache: "no-store",
+      })
+      if (!response.ok) throw new Error("Backend logout failed")
+    }
+  } catch (error) {
+    console.error(
+      "Backend logout did not complete; clearing the local session.",
+      error instanceof Error ? error.name : "UnknownError",
+    )
+  } finally {
+    await supabase.auth.signOut({ scope: "local" })
   }
-  await supabase.auth.signOut()
   redirect("/")
 }
 

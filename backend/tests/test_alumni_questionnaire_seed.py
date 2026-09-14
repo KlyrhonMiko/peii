@@ -12,13 +12,6 @@ def test_alumni_questionnaire_matches_canonical_graduate_tracer_definition() -> 
         "compute the Pasig Education Impact Index (PEII) and to support the "
         "continuous improvement of educational programs and policies.\n\n"
         "Instructions: Please answer the following questions honestly and completely.\n\n"
-        "Data Privacy Notice: In accordance with the Data Privacy Act of 2012 "
-        "(Republic Act No. 10173), all personal information collected will be "
-        "treated with strict confidentiality. The data will be used solely for "
-        "academic and research purposes. Participation in this survey is voluntary, "
-        "and you may choose to withdraw at any time without any penalty. All "
-        "information will be securely stored and protected. You may also visit "
-        "https://privacy.gov.ph/data-privacy-act/ to learn more about your rights.\n\n"
         "Required fields are marked with an asterisk (*)"
     )
     expected_common_description = (

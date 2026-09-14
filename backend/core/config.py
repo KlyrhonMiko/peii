@@ -109,6 +109,15 @@ def _is_secure_redis_url(redis_url: str) -> bool:
     return parsed_url.scheme == "rediss" and bool(parsed_url.hostname)
 
 
+def _validate_postgresql_database_url(database_url: str, setting_name: str) -> None:
+    try:
+        parsed_url = make_url(database_url)
+    except Exception as exc:
+        raise ValueError(f"{setting_name} must be a valid PostgreSQL URL") from exc
+    if parsed_url.drivername not in {"postgresql", "postgresql+psycopg2"}:
+        raise ValueError(f"{setting_name} must use PostgreSQL")
+
+
 class Settings(BaseSettings):
     PROJECT_NAME: str
     PROJECT_VERSION: str
@@ -344,6 +353,16 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_production_origins_and_database_tls(self) -> Self:
+        if self.DB_MODE == "supabase":
+            _validate_postgresql_database_url(
+                self.SUPABASE_DATABASE_URL,
+                "SUPABASE_DATABASE_URL",
+            )
+        if self.READ_REPLICA_DATABASE_URL:
+            _validate_postgresql_database_url(
+                self.READ_REPLICA_DATABASE_URL,
+                "READ_REPLICA_DATABASE_URL",
+            )
         if self.DATABASE_TLS_SUPABASE_LEGACY_CA_COMPAT:
             if self.DATABASE_TLS_MODE != "verify-full":
                 raise ValueError("Legacy Supabase CA compatibility requires verify-full")

@@ -17,6 +17,7 @@ def _production_values() -> dict[str, object]:
     values.update(
         DEBUG=False,
         DB_MODE="supabase",
+        SUPABASE_DATABASE_URL="postgresql://peii:secret@db.example.com/peii",
         DATABASE_TLS_MODE="verify-full",
         RATE_LIMIT_ENABLED=True,
         RATE_LIMIT_INCLUDE_CLIENT_IP=True,
@@ -65,6 +66,18 @@ def test_database_tls_mode_requires_hostname_verified_tls_for_production() -> No
     assert not isinstance(async_ssl_context, str)
     assert async_ssl_context.check_hostname is True
     assert async_ssl_context.verify_mode.name == "CERT_REQUIRED"
+
+
+def test_supabase_and_replica_database_urls_require_postgresql() -> None:
+    values = _production_values()
+    values["SUPABASE_DATABASE_URL"] = "sqlite:///peii.db"
+    with pytest.raises(ValidationError, match="SUPABASE_DATABASE_URL must use PostgreSQL"):
+        Settings.model_validate(values)
+
+    values = _production_values()
+    values["READ_REPLICA_DATABASE_URL"] = "https://db.example.com/peii"
+    with pytest.raises(ValidationError, match="READ_REPLICA_DATABASE_URL must use PostgreSQL"):
+        Settings.model_validate(values)
 
 
 def test_database_tls_ca_bundle_is_used_by_both_database_drivers(
