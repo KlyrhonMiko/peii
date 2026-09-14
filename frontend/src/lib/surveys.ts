@@ -367,12 +367,16 @@ export function buildSurveyListQuery(options: SurveyListOptions = {}): string {
   return value ? `?${value}` : ""
 }
 
-export async function fetchSurveys(options: SurveyListOptions = {}): Promise<{
+export async function fetchSurveys(
+  options: SurveyListOptions = {},
+  signal?: AbortSignal,
+): Promise<{
   surveys: Survey[]
   pagination: ApiPagination
 }> {
   const res = await api.get<ApiSurvey[]>(
     `/surveys/${buildSurveyListQuery(options)}`,
+    signal ? { signal } : undefined,
   )
   return {
     surveys: (res.data ?? []).map(mapSurvey),
@@ -621,6 +625,7 @@ export async function fetchResponseAggregates(
 export async function fetchPEII(
   surveyUuid: string,
   options: { batch?: string; department?: string; degree?: string } = {},
+  signal?: AbortSignal,
 ): Promise<PEIIAnalyticsResponse> {
   const query = new URLSearchParams()
   if (options.batch && options.batch !== "All Batches") query.set("batch", options.batch)
@@ -630,7 +635,7 @@ export async function fetchPEII(
   const queryString = query.toString() ? `?${query.toString()}` : ""
   const res = await api.get<PEIIAnalyticsResponse>(
     `/surveys/${surveyUuid}/responses/peii${queryString}`,
-    { timeout: 120000 }
+    { timeout: 20000, ...(signal ? { signal } : {}) }
   )
   return res.data!
 }

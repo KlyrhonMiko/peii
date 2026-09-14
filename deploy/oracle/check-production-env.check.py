@@ -15,6 +15,7 @@ class ProductionEnvironmentTests(unittest.TestCase):
             "DEBUG": "false",
             "DB_MODE": "supabase",
             "DATABASE_TLS_MODE": "verify-full",
+            "SUPABASE_DATABASE_URL": "postgresql://peii:secret@db.test/peii",
             "RATE_LIMIT_ENABLED": "true",
             "RATE_LIMIT_INCLUDE_CLIENT_IP": "true",
             "RATE_LIMIT_READ_FAILURE_POLICY": "fail_closed",
@@ -25,6 +26,7 @@ class ProductionEnvironmentTests(unittest.TestCase):
             "REDIS_URL": "rediss://redis.test:6379",
             "SUPABASE_URL": "https://auth.test",
             "SUPABASE_PUBLISHABLE_KEY": "publishable-test",
+            "GOOGLE_OAUTH_CLIENT_ID": "production-client-id.apps.googleusercontent.com",
             "RATE_LIMIT_KEY_HMAC_SECRET": "a" * 40,
             "WITHDRAWAL_CODE_HMAC_SECRET": "b" * 40,
             "SURVEY_RESPONDENT_HMAC_SECRET": "c" * 40,
@@ -87,6 +89,57 @@ class ProductionEnvironmentTests(unittest.TestCase):
         self.assertTrue(
             validate(
                 self.backend, {**self.frontend, "SURVEY_OAUTH_STATE_KEY": "a" * 40}
+            )
+        )
+
+    def test_rejects_incomplete_upstash_pair_even_with_rediss_fallback(self):
+        for overrides in (
+            {"UPSTASH_REDIS_REST_URL": "https://cache.upstash.io"},
+            {"UPSTASH_REDIS_REST_TOKEN": "token"},
+        ):
+            with self.subTest(overrides=overrides):
+                self.assertTrue(validate({**self.backend, **overrides}, self.frontend))
+
+    def test_rejects_invalid_complete_upstash_pair_even_with_rediss_fallback(self):
+        for url in (
+            "http://cache.upstash.io",
+            "https://cache.example.net",
+            "https://cache.upstash.io/path",
+        ):
+            with self.subTest(url=url):
+                configured = {
+                    **self.backend,
+                    "UPSTASH_REDIS_REST_URL": url,
+                    "UPSTASH_REDIS_REST_TOKEN": "token",
+                }
+                self.assertTrue(validate(configured, self.frontend))
+
+    def test_accepts_valid_upstash_pair_without_rediss_fallback(self):
+        configured = {
+            **self.backend,
+            "UPSTASH_REDIS_REST_URL": "https://cache.upstash.io",
+            "UPSTASH_REDIS_REST_TOKEN": "token",
+            "REDIS_URL": "",
+        }
+        self.assertEqual(validate(configured, self.frontend), [])
+
+    def test_rejects_wrong_database_schemes_and_google_placeholder(self):
+        self.assertTrue(
+            validate(
+                {**self.backend, "SUPABASE_DATABASE_URL": "sqlite:///peii.db"},
+                self.frontend,
+            )
+        )
+        self.assertTrue(
+            validate(
+                {**self.backend, "READ_REPLICA_DATABASE_URL": "https://db.test/peii"},
+                self.frontend,
+            )
+        )
+        self.assertTrue(
+            validate(
+                {**self.backend, "GOOGLE_OAUTH_CLIENT_ID": "replace-with-client-id"},
+                self.frontend,
             )
         )
 

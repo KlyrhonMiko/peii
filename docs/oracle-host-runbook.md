@@ -11,9 +11,18 @@ configuration.
 2. Copy `deploy/oracle/peii-backend.service`, `peii-retention-purge.service`, and
    `peii-retention-purge.timer` to `/etc/systemd/system/`. Copy `deploy/oracle/Caddyfile` to
    `/etc/caddy/Caddyfile`.
-3. Put `PEII_DOMAIN=<api-domain>` and `ACME_EMAIL=<operations-email>` in Caddy's root-owned
-   environment configuration. Put application settings only in `/etc/peii/backend.env`, owned by
-   `root:root` with mode `0600`; systemd reads it before dropping to the `peii` account.
+3. Put `PEII_DOMAIN=<api-domain>` and `ACME_EMAIL=<operations-email>` in a root-owned Caddy
+   environment file at `/etc/caddy/peii.env` with mode `0600`, then wire that exact file into
+   Caddy with `systemctl edit caddy`:
+
+   ```ini
+   [Service]
+   EnvironmentFile=/etc/caddy/peii.env
+   ```
+
+   Run `systemctl daemon-reload` after saving the drop-in. Put application settings only in
+   `/etc/peii/backend.env`, owned by `root:root` with mode `0600`; systemd reads it before dropping
+   to the `peii` account.
 4. Allow only TCP 80 and 443 to Caddy at the host/cloud firewall. Do **not** expose port 8000,
    PostgreSQL, Redis, Adminer, or SSH to the public internet; restrict SSH to the operations
    network and use key-based access. Confirm Uvicorn is bound only to `127.0.0.1:8000`.
@@ -226,6 +235,19 @@ The checker enforces this one-origin Oracle/Vercel topology, explicit frontend a
 matching reset-grant/Supabase settings, dedicated secrets, fail-closed Redis, CSV-off and
 `verify-full`. It never provisions or rotates values. Run its synthetic regression checks with
 `backend/.venv/bin/python deploy/oracle/check-production-env.check.py`.
+
+After deploying the corrected canonical survey definition, inspect existing deployed surveys
+without changing them, then apply only the exact known legacy notice correction:
+
+```bash
+cd /opt/peii/backend
+./.venv/bin/python scripts/update_canonical_survey_notice.py
+./.venv/bin/python scripts/update_canonical_survey_notice.py --confirm
+```
+
+The first command is mandatory dry-run evidence. The confirmed command targets only non-deleted
+records with the exact canonical title and exact legacy paragraph, is idempotent, and writes an
+audit event under the configured system actor. It does not relax normal survey history locks.
 
 ## Explicit legacy Supabase CA compatibility
 

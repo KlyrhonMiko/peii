@@ -5,8 +5,12 @@ const mocks = vi.hoisted(() => {
     throw new Error(`REDIRECT:${destination}`)
   })
   const setSession = vi.fn()
-  const createSupabaseServerClient = vi.fn(async () => ({ auth: { setSession } }))
-  return { createSupabaseServerClient, redirect, setSession }
+  const getSession = vi.fn()
+  const signOut = vi.fn()
+  const createSupabaseServerClient = vi.fn(async () => ({
+    auth: { getSession, setSession, signOut },
+  }))
+  return { createSupabaseServerClient, getSession, redirect, setSession, signOut }
 })
 
 vi.mock("next/navigation", () => ({ redirect: mocks.redirect }))
@@ -14,7 +18,7 @@ vi.mock("@/lib/supabase/server", () => ({
   createSupabaseServerClient: mocks.createSupabaseServerClient,
 }))
 
-import { loginAction } from "./actions"
+import { loginAction, logoutAction } from "./actions"
 
 function loginForm() {
   const formData = new FormData()
@@ -38,6 +42,9 @@ describe("loginAction", () => {
     mocks.redirect.mockClear()
     mocks.setSession.mockReset()
     mocks.setSession.mockResolvedValue({ error: null })
+    mocks.getSession.mockReset()
+    mocks.signOut.mockReset()
+    mocks.signOut.mockResolvedValue({ error: null })
   })
 
   it("keeps ordinary credential failures generic", async () => {
@@ -60,5 +67,20 @@ describe("loginAction", () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response(503)))
 
     await expect(loginAction(null, loginForm())).resolves.toEqual({ error: "unavailable", retryAfter: null })
+  })
+})
+
+describe("logoutAction", () => {
+  it("clears the local session when backend logout fails", async () => {
+    mocks.getSession.mockResolvedValue({
+      data: { session: { access_token: "access" } },
+    })
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(null, { status: 503 })))
+    vi.spyOn(console, "error").mockImplementation(() => undefined)
+
+    await expect(logoutAction()).rejects.toThrow("REDIRECT:/")
+
+    expect(mocks.signOut).toHaveBeenCalledWith({ scope: "local" })
+    expect(mocks.redirect).toHaveBeenCalledWith("/")
   })
 })

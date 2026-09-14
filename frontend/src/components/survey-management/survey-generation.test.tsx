@@ -15,7 +15,6 @@ describe("Graduate Tracer Study survey definition", () => {
     const expectedDescription = [
       "Purpose: This survey aims to assess the outcomes of graduates from Pamantasan ng Lungsod ng Pasig (PLP) and determine how their education has contributed to their employment, financial stability, personal development, and community engagement. The results will be used to compute the Pasig Education Impact Index (PEII) and to support the continuous improvement of educational programs and policies.",
       "Instructions: Please answer the following questions honestly and completely.",
-      "Data Privacy Notice: In accordance with the Data Privacy Act of 2012 (Republic Act No. 10173), all personal information collected will be treated with strict confidentiality. The data will be used solely for academic and research purposes. Participation in this survey is voluntary, and you may choose to withdraw at any time without any penalty. All information will be securely stored and protected. You may also visit https://privacy.gov.ph/data-privacy-act/ to learn more about your rights.",
       "Required fields are marked with an asterisk (*)",
     ].join("\n\n")
 

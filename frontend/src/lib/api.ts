@@ -21,6 +21,7 @@ interface ApiResponseEnvelope<T> {
 export interface ApiRequestOptions {
   headers?: Record<string, string>
   timeout?: number
+  signal?: AbortSignal
 }
 
 async function request<T>(
@@ -36,13 +37,16 @@ async function request<T>(
   
   const controller = new AbortController()
   const timeoutId = setTimeout(() => controller.abort(), options?.timeout ?? 15000)
+  const signal = options?.signal
+    ? AbortSignal.any([options.signal, controller.signal])
+    : controller.signal
 
   try {
     const res = await fetch(`${API_BASE}${path}`, {
       method,
       headers,
       body: body ? JSON.stringify(body) : null,
-      signal: controller.signal,
+      signal,
     })
     const json: ApiResponseEnvelope<T> = await res.json()
     if (!res.ok) {
@@ -50,7 +54,7 @@ async function request<T>(
     }
     return json
   } catch (error) {
-    if (error instanceof Error && error.name === "AbortError") {
+    if (error instanceof Error && error.name === "AbortError" && controller.signal.aborted) {
       throw new ApiError("Request timed out", 408, null)
     }
     throw error
@@ -70,13 +74,16 @@ async function requestRaw(
   
   const controller = new AbortController()
   const timeoutId = setTimeout(() => controller.abort(), options?.timeout ?? 15000)
+  const signal = options?.signal
+    ? AbortSignal.any([options.signal, controller.signal])
+    : controller.signal
 
   try {
     const response = await fetch(`${API_BASE}${path}`, {
       method,
       headers,
       body: body === undefined ? null : JSON.stringify(body),
-      signal: controller.signal,
+      signal,
     })
     if (!response.ok) {
       let payload: unknown = null
@@ -92,7 +99,7 @@ async function requestRaw(
     }
     return response
   } catch (error) {
-    if (error instanceof Error && error.name === "AbortError") {
+    if (error instanceof Error && error.name === "AbortError" && controller.signal.aborted) {
       throw new ApiError("Request timed out", 408, null)
     }
     throw error

@@ -189,16 +189,21 @@ export function AdminRoleManagement({ canManage, canManageUsers }: AdminRoleMana
   )
 }
 
-function RoleDialog({ role, permissions, pending, onClose, onCreate, onUpdate }: { role: Role | null; permissions: Permission[]; pending: boolean; onClose: () => void; onCreate: (input: RoleInput) => void; onUpdate: (role: Role, input: RoleUpdateInput) => void }) {
+export function RoleDialog({ role, permissions, pending, onClose, onCreate, onUpdate }: { role: Role | null; permissions: Permission[]; pending: boolean; onClose: () => void; onCreate: (input: RoleInput) => void; onUpdate: (role: Role, input: RoleUpdateInput) => void }) {
   const [search, setSearch] = useState("")
-  const selectedIds = new Set(role?.permissions.map((permission) => permission.id) ?? [])
+  const originalSelectedIds = new Set(role?.permissions.map((permission) => permission.id) ?? [])
+  const [selectedIds, setSelectedIds] = useState(
+    () => new Set(role?.permissions.map((permission) => permission.id) ?? []),
+  )
   const protectedAdmin = role !== null && isProtectedAdmin(role)
   const filteredPermissions = permissions.filter((permission) => `${permission.code} ${permission.description}`.toLowerCase().includes(search.toLowerCase()))
 
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     const formData = new FormData(event.currentTarget)
-    const permissionIds = permissions.filter((permission) => formData.get(`permission-${permission.id}`) === "on").map((permission) => permission.id)
+    const permissionIds = permissions
+      .filter((permission) => selectedIds.has(permission.id))
+      .map((permission) => permission.id)
     const description = String(formData.get("description") ?? "").trim() || null
     
     if (role === null) {
@@ -214,7 +219,7 @@ function RoleDialog({ role, permissions, pending, onClose, onCreate, onUpdate }:
       if (isActive !== role.is_active) input.is_active = isActive
     }
     
-    if (!protectedAdmin && (permissionIds.length !== selectedIds.size || permissionIds.some((id) => !selectedIds.has(id)))) input.permission_ids = permissionIds
+    if (!protectedAdmin && (permissionIds.length !== originalSelectedIds.size || permissionIds.some((id) => !originalSelectedIds.has(id)))) input.permission_ids = permissionIds
     
     if (Object.keys(input).length === 0) {
       onClose()
@@ -289,7 +294,21 @@ function RoleDialog({ role, permissions, pending, onClose, onCreate, onUpdate }:
                             protectedAdmin && "opacity-70 grayscale"
                           )} key={permission.id}>
                             <div className="relative flex items-center justify-center shrink-0 mt-0.5">
-                               <input name={`permission-${permission.id}`} type="checkbox" defaultChecked={selectedIds.has(permission.id)} disabled={protectedAdmin} className="peer appearance-none size-4 rounded-[4px] border border-zinc-300 bg-white checked:bg-zinc-900 checked:border-zinc-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900/20 focus-visible:ring-offset-1 transition-all cursor-pointer disabled:cursor-default" />
+                               <input
+                                 name={`permission-${permission.id}`}
+                                 type="checkbox"
+                                 checked={selectedIds.has(permission.id)}
+                                 onChange={(event) => {
+                                   setSelectedIds((current) => {
+                                     const next = new Set(current)
+                                     if (event.target.checked) next.add(permission.id)
+                                     else next.delete(permission.id)
+                                     return next
+                                   })
+                                 }}
+                                 disabled={protectedAdmin}
+                                 className="peer appearance-none size-4 rounded-[4px] border border-zinc-300 bg-white checked:bg-zinc-900 checked:border-zinc-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900/20 focus-visible:ring-offset-1 transition-all cursor-pointer disabled:cursor-default"
+                               />
                                <Check className="absolute size-3 text-white pointer-events-none opacity-0 peer-checked:opacity-100 transition-opacity" strokeWidth={3} />
                             </div>
                             <span className="flex flex-col gap-0.5">

@@ -281,7 +281,7 @@ export default function DashboardPage() {
   const [refreshKey, setRefreshKey] = useState(0)
   const [availableBatches, setAvailableBatches] = useState<string[]>([])
   const [availableDepartments, setAvailableDepartments] = useState<string[]>([])
-  const [isInitialDataLoaded, setIsInitialDataLoaded] = useState(false)
+  const isInitialDataLoaded = useRef(false)
   const [isExporting, setIsExporting] = useState(false)
 
   const handleExportDashboard = async () => {
@@ -341,6 +341,7 @@ export default function DashboardPage() {
 
   useEffect(() => {
     let cancelled = false
+    const controller = new AbortController()
 
     async function fetchData() {
       function resetFetchedData() {
@@ -362,32 +363,39 @@ export default function DashboardPage() {
         setFetchError(null)
       }
       try {
-        const { surveys } = await fetchSurveys({
-          status: "Active",
-          search: TRACER_STUDY_SURVEY_TITLE,
-          limit: 100,
-        })
+        const { surveys } = await fetchSurveys(
+          {
+            status: "Active",
+            search: TRACER_STUDY_SURVEY_TITLE,
+            limit: 100,
+          },
+          controller.signal,
+        )
         const activeTracerSurvey = surveys.find(s => s.title === TRACER_STUDY_SURVEY_TITLE)
         if (!activeTracerSurvey) {
           if (!cancelled) {
             resetFetchedData()
             setAvailableBatches([])
             setAvailableDepartments([])
-            setIsInitialDataLoaded(false)
+            isInitialDataLoaded.current = false
           }
           return
         }
         if (!cancelled) setSurveyId(activeTracerSurvey.id)
 
-        const data = await fetchPEII(activeTracerSurvey.id, {
-          batch: filters.batch,
-          department: filters.department,
-          degree: filters.degree
-        })
+        const data = await fetchPEII(
+          activeTracerSurvey.id,
+          {
+            batch: filters.batch,
+            department: filters.department,
+            degree: filters.degree,
+          },
+          controller.signal,
+        )
         if (cancelled) return
         setOutcomes(data.outcome_distributions ?? null)
 
-        if (!isInitialDataLoaded) {
+        if (!isInitialDataLoaded.current) {
           if (data.historical_trend) {
             const batches = Array.from(new Set(data.historical_trend.map(t => t.batch_year))).sort().reverse()
             setAvailableBatches(batches)
@@ -405,7 +413,7 @@ export default function DashboardPage() {
             const depts = Array.from(activeDepartments).sort()
             setAvailableDepartments(depts)
           }
-          setIsInitialDataLoaded(true)
+          isInitialDataLoaded.current = true
         }
 
         if (data.cohort_result && data.cohort_result.domains) {
@@ -438,7 +446,7 @@ export default function DashboardPage() {
           setClassificationData([])
         }
       } catch (error) {
-        if (cancelled) return
+        if (cancelled || controller.signal.aborted) return
         console.error("Failed to load PEII data", error)
         resetFetchedData()
         setFetchError("Please try again. Your selected filters are preserved.")
@@ -448,8 +456,11 @@ export default function DashboardPage() {
     }
 
     void fetchData()
-    return () => { cancelled = true }
-  }, [filters, refreshKey, isInitialDataLoaded])
+    return () => {
+      cancelled = true
+      controller.abort()
+    }
+  }, [filters, refreshKey])
 
   const analyticsMetrics = useMemo(() => {
     if (!demographics) return []

@@ -50,6 +50,31 @@ def https(value: str, path: str | None = None) -> bool:
         return False
 
 
+def postgresql(value: str) -> bool:
+    try:
+        url = urlsplit(value)
+        _ = url.port
+        return url.scheme in {"postgresql", "postgresql+psycopg2"} and bool(
+            url.hostname and url.path not in {"", "/"}
+        )
+    except ValueError:
+        return False
+
+
+def upstash_https(value: str) -> bool:
+    if not https(value, ""):
+        return False
+    hostname = urlsplit(value).hostname
+    return bool(hostname and hostname.lower().endswith(".upstash.io"))
+
+
+def placeholder(value: str) -> bool:
+    return any(
+        marker in value.lower()
+        for marker in ("replace", "placeholder", "example", "change-me", "local-google")
+    )
+
+
 def validate(backend: dict[str, str], frontend: dict[str, str]) -> list[str]:
     errors: list[str] = []
     compatibility = backend.get("DATABASE_TLS_SUPABASE_LEGACY_CA_COMPAT", "false")
@@ -102,9 +127,19 @@ def validate(backend: dict[str, str], frontend: dict[str, str]) -> list[str]:
             errors.append(f"{key}: backend/frontend must match")
     if not https(backend.get("SUPABASE_URL", "")):
         errors.append("SUPABASE_URL: HTTPS required")
-    redis_rest = https(backend.get("UPSTASH_REDIS_REST_URL", "")) and bool(
-        backend.get("UPSTASH_REDIS_REST_TOKEN")
-    )
+    if not postgresql(backend.get("SUPABASE_DATABASE_URL", "")):
+        errors.append("SUPABASE_DATABASE_URL: PostgreSQL database URL required")
+    if backend.get("READ_REPLICA_DATABASE_URL") and not postgresql(
+        backend["READ_REPLICA_DATABASE_URL"]
+    ):
+        errors.append("READ_REPLICA_DATABASE_URL: PostgreSQL database URL required")
+    upstash_url = backend.get("UPSTASH_REDIS_REST_URL", "").strip()
+    upstash_token = backend.get("UPSTASH_REDIS_REST_TOKEN", "").strip()
+    if bool(upstash_url) != bool(upstash_token):
+        errors.append("Upstash Redis REST URL and token must be configured together")
+    redis_rest = upstash_https(upstash_url) and bool(upstash_token)
+    if upstash_url and upstash_token and not redis_rest:
+        errors.append("UPSTASH_REDIS_REST_URL: exact HTTPS Upstash origin required")
     try:
         redis_url = urlsplit(backend.get("REDIS_URL", ""))
         _ = redis_url.port
@@ -118,11 +153,11 @@ def validate(backend: dict[str, str], frontend: dict[str, str]) -> list[str]:
         ("SURVEY_OAUTH_STATE_KEY", frontend.get("SURVEY_OAUTH_STATE_KEY", ""))
     )
     for key, value in secrets:
-        if len(value.encode()) < 32 or any(
-            marker in value.lower()
-            for marker in ("replace", "placeholder", "example", "change-me")
-        ):
+        if len(value.encode()) < 32 or placeholder(value):
             errors.append(f"{key}: dedicated provisioned secret required")
+    google_client_id = backend.get("GOOGLE_OAUTH_CLIENT_ID", "")
+    if not google_client_id or placeholder(google_client_id):
+        errors.append("GOOGLE_OAUTH_CLIENT_ID: provisioned client ID required")
     if len({value for _, value in secrets}) != len(secrets):
         errors.append("HMAC secrets must be independently provisioned")
     if not hmac.compare_digest(

@@ -29,4 +29,19 @@ describe("api requests", () => {
     expect(url).toBe("/api/backend/surveys/survey-id/responses/export")
     expect(init.method).toBe("GET")
   })
+
+  it("propagates caller cancellation instead of reporting a timeout", async () => {
+    const fetchMock = vi.fn((_url: string, init: RequestInit) => new Promise((_, reject) => {
+      init.signal?.addEventListener("abort", () => {
+        reject(new DOMException("Cancelled", "AbortError"))
+      })
+    }))
+    vi.stubGlobal("fetch", fetchMock)
+    const controller = new AbortController()
+
+    const pending = api.get("/surveys/", { signal: controller.signal, timeout: 10_000 })
+    controller.abort()
+
+    await expect(pending).rejects.toMatchObject({ name: "AbortError" })
+  })
 })
