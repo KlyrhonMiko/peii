@@ -83,6 +83,76 @@ _CRITICAL_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
+# Heuristic keyword-to-dimension map used as a cross-check layer on top of
+# zero-shot ML results. Compiled once at import time for performance.
+# Includes Tagalog terms to handle code-switching in Filipino graduate responses.
+_DIMENSION_REGEXES: dict[str, re.Pattern[str]] = {
+    "Employability and Economic Mobility": re.compile(
+        r"\b(job|work|career|salary|employ|income|trabaho|sweldo|pera|promot|"
+        r"hire|opportunity|business|negosyo|workplace|professional)\b",
+        re.IGNORECASE,
+    ),
+    "Family Upliftment and Financial Stability": re.compile(
+        r"\b(family|pamilya|financial|children|parents|anak|magulang|"
+        r"bahay|house|budget|gastos|kapatid|tulong\s+sa\s+pamilya|provide)\b",
+        re.IGNORECASE,
+    ),
+    "Personal Development and Life Quality": re.compile(
+        r"\b(skill|learn|grow|develop|confidence|happy|health|buhay|sarili|"
+        r"improve|training|aral|knowledge|natutunan|experience|mindset)\b",
+        re.IGNORECASE,
+    ),
+    "Civic Engagement and Community Contribution": re.compile(
+        r"\b(community|help|others|society|volunteer|tulong|kapwa|barangay|"
+        r"lipunan|tao|serve|serbisyo|contribute)\b",
+        re.IGNORECASE,
+    ),
+    "Government Trust and LGU Support Valuation": re.compile(
+        r"\b(gov|mayor|lgu|support|trust|gobyerno|program|scholar|city|"
+        r"pasig|officials|leader|public)\b",
+        re.IGNORECASE,
+    ),
+}
+
+# Keyword hints extracted from question text to pre-bias dimension scoring
+# before running the keyword regex scan over the answer text.
+_QUESTION_DIM_HINTS: list[tuple[str, str]] = [
+    ("skills", "Personal Development and Life Quality"),
+    ("leaders", "Government Trust and LGU Support Valuation"),
+    ("pasig", "Government Trust and LGU Support Valuation"),
+]
+
+
+def _heuristic_dimension(answer_lower: str, question_lower: str) -> str:
+    """Return the best-matching PEII dimension using keyword scoring.
+
+    Combines a question-text pre-bias with keyword regex scanning of the
+    answer body. Falls back to ``"General Feedback"`` when no dimension
+    keyword is found.
+    """
+    dim_scores: dict[str, float] = {
+        "Employability and Economic Mobility": 0.0,
+        "Family Upliftment and Financial Stability": 0.0,
+        "Personal Development and Life Quality": 0.0,
+        "Civic Engagement and Community Contribution": 0.0,
+        "Government Trust and LGU Support Valuation": 0.0,
+        "General Feedback": 0.3,  # small prior so empty answers stay here
+    }
+    # Pre-bias from question text
+    for hint_kw, hint_dim in _QUESTION_DIM_HINTS:
+        if hint_kw in question_lower:
+            dim_scores[hint_dim] += 1.0
+            break
+    # Keyword regex scan of answer body
+    for dim, pattern in _DIMENSION_REGEXES.items():
+        if pattern.search(answer_lower):
+            dim_scores[dim] += 2.0
+    best = max(dim_scores, key=lambda d: dim_scores[d])
+    # Only promote away from "General Feedback" if a real dimension won
+    if best == "General Feedback" or dim_scores[best] <= 0.3:
+        return "General Feedback"
+    return best
+
 
 class _DomainQuestionMap(TypedDict):
     pre: list[str]
@@ -1030,7 +1100,14 @@ async def compute_peii_scores(
                                 sum(p for _, p in sentiments_for_q)
                                 / len(sentiments_for_q)
                             )
-                            primary_dim = sentiments_for_q[0][0]
+                            # Normalize legacy "General" entries stored by
+                            # older model runs before the fallback bug was fixed.
+                            raw_ml_dim = sentiments_for_q[0][0]
+                            primary_dim = (
+                                "General Feedback"
+                                if raw_ml_dim in ("General", "General Feedback")
+                                else raw_ml_dim
+                            )
                             if is_fp:
                                 avg_polarity = (
                                     fp_polarity_override
@@ -1038,10 +1115,9 @@ async def compute_peii_scores(
                                     else -avg_polarity
                                 )
                             else:
-                                # Cross-check ML result against keyword scoring.
+                                # Cross-check ML polarity against keyword signals.
                                 # Handles Tagalog text and mixed-intent responses
                                 # that English-trained ML models misclassify.
-                                # Only runs when no manual correction (is_fp) is active.
                                 lower_text = text_ans_clean.lower()
                                 positive_score = sum(
                                     1 for w in _POSITIVE_KEYWORDS if w in lower_text
@@ -1050,11 +1126,16 @@ async def compute_peii_scores(
                                     _CRITICAL_PATTERN.findall(lower_text)
                                 )
                                 if avg_polarity < -0.3 and positive_score > critical_score:
-                                    # ML says negative but keyword signals say positive
                                     avg_polarity = 0.5
                                 elif avg_polarity > 0.3 and critical_score > positive_score:
-                                    # ML says positive but keyword signals say negative
                                     avg_polarity = -0.5
+                                # Apply heuristic dimension cross-check: if ML
+                                # returned a generic bucket, try to promote to a
+                                # more specific PEII dimension via keyword scoring.
+                                if primary_dim == "General Feedback":
+                                    primary_dim = _heuristic_dimension(
+                                        lower_text, qtext.lower()
+                                    )
                         else:
                             lower_text = text_ans_clean.lower()
                             # Score positives (substring) vs negatives (word-boundary)
@@ -1079,54 +1160,11 @@ async def compute_peii_scores(
                                 else:
                                     avg_polarity = 0.0
 
-                            import re
-                            dimension_regexes = {
-                                "Employability and Economic Mobility": re.compile(
-                                    r"\b(job|work|career|salary|employ|income|trabaho|sweldo|pera|promot|hire|opportunity|business|negosyo|workplace|professional)\b",
-                                    re.IGNORECASE
-                                ),
-                                "Family Upliftment and Financial Stability": re.compile(
-                                    r"\b(family|pamilya|financial|children|parents|anak|magulang|"
-                                    r"bahay|house|budget|gastos|kapatid|tulong\s+sa\s+pamilya|"
-                                    r"provide)\b",
-                                    re.IGNORECASE,
-                                ),
-                                "Personal Development and Life Quality": re.compile(
-                                    r"\b(skill|learn|grow|develop|confidence|happy|health|buhay|sarili|improve|training|aral|knowledge|natutunan|experience|mindset)\b",
-                                    re.IGNORECASE
-                                ),
-                                "Civic Engagement and Community Contribution": re.compile(
-                                    r"\b(community|help|others|society|volunteer|tulong|kapwa|barangay|lipunan|tao|serve|serbisyo|contribute)\b",
-                                    re.IGNORECASE
-                                ),
-                                "Government Trust and LGU Support Valuation": re.compile(
-                                    r"\b(gov|mayor|lgu|support|trust|gobyerno|program|scholar|city|pasig|officials|leader|public)\b",
-                                    re.IGNORECASE
-                                ),
-                            }
-                            
-                            dim_scores = {
-                                "Employability and Economic Mobility": 0.0,
-                                "Family Upliftment and Financial Stability": 0.0,
-                                "Personal Development and Life Quality": 0.0,
-                                "Civic Engagement and Community Contribution": 0.0,
-                                "Government Trust and LGU Support Valuation": 0.0,
-                                "General Feedback": 0.5,
-                            }
-                            
-                            qtext_lower = qtext.lower()
-                            if "skills" in qtext_lower:
-                                dim_scores["Personal Development and Life Quality"] = 1.0
-                            elif "leaders" in qtext_lower or "pasig" in qtext_lower:
-                                dim_scores["Government Trust and LGU Support Valuation"] = 1.0
-                            elif "improve" in qtext_lower or "better support" in qtext_lower:
-                                dim_scores["General Feedback"] = 1.0
-                                
-                            for dim, pattern in dimension_regexes.items():
-                                if pattern.search(lower_text):
-                                    dim_scores[dim] += 2.0
-                                    
-                            primary_dim = max(dim_scores.items(), key=lambda x: x[1])[0]
+                            # Use heuristic dimension mapper for responses
+                            # without ML sentiment data.
+                            primary_dim = _heuristic_dimension(
+                                lower_text, qtext.lower()
+                            )
                             if is_fp:
                                 avg_polarity = (
                                     fp_polarity_override
@@ -1164,13 +1202,16 @@ async def compute_peii_scores(
 
                         if sentiments_for_q and not is_placeholder:
                             for dim, polarity in sentiments_for_q:
-                                if dim in classification_counts:
+                                # Normalize legacy "General" label from stale cache
+                                # entries written before the fallback bug was fixed.
+                                norm_dim = "General Feedback" if dim == "General" else dim
+                                if norm_dim in classification_counts:
                                     if polarity >= 0.3:
-                                        classification_counts[dim]["positive"] += 1
+                                        classification_counts[norm_dim]["positive"] += 1
                                     elif polarity <= -0.3:
-                                        classification_counts[dim]["negative"] += 1
+                                        classification_counts[norm_dim]["negative"] += 1
                                     else:
-                                        classification_counts[dim]["neutral"] += 1
+                                        classification_counts[norm_dim]["neutral"] += 1
         finally:
             await responses_result.close()
 
