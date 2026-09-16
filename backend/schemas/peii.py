@@ -21,10 +21,14 @@ class PEIICohortResult(BaseModel):
 
 
 class PEIIDemographics(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     total_responses: int
     gender_distribution: dict[str, int]
     location_distribution: dict[str, int]
     department_distribution: dict[str, int]
+    first_gen_distribution: dict[str, int] | None = None
+    barangay_distribution: dict[str, int] | None = None
 
 
 class FeedbackClassification(BaseModel):
@@ -64,6 +68,15 @@ class PEIIOutcomeDistributions(BaseModel):
 
     employment_stability: SurveyResponseAggregate | None = None
     degree_alignment: SurveyResponseAggregate | None = None
+    monthly_income: SurveyResponseAggregate | None = None
+    time_to_first_job: SurveyResponseAggregate | None = None
+    job_search_channel: SurveyResponseAggregate | None = None
+    employment_status: SurveyResponseAggregate | None = None
+    employment_type: SurveyResponseAggregate | None = None
+    job_level: SurveyResponseAggregate | None = None
+    job_search_difficulty: SurveyResponseAggregate | None = None
+    work_location: SurveyResponseAggregate | None = None
+    top_industries: SurveyResponseAggregate | None = None
 
 
 class PEIIAnalyticsResponse(BaseModel):

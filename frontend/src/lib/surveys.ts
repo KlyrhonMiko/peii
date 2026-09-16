@@ -190,6 +190,8 @@ export interface PEIIDemographics {
   gender_distribution: Record<string, number>
   location_distribution: Record<string, number>
   department_distribution: Record<string, number>
+  first_gen_distribution?: Record<string, number> | null
+  barangay_distribution?: Record<string, number> | null
 }
 
 export interface FeedbackClassification {
@@ -220,11 +222,22 @@ export interface QualitativeFeedback {
   is_placeholder?: boolean
 }
 
+export interface PEIIOutcomeDistributions {
+  employment_stability: SurveyResponseAggregate | null
+  degree_alignment: SurveyResponseAggregate | null
+  monthly_income?: SurveyResponseAggregate | null
+  time_to_first_job?: SurveyResponseAggregate | null
+  job_search_channel?: SurveyResponseAggregate | null
+  employment_status?: SurveyResponseAggregate | null
+  employment_type?: SurveyResponseAggregate | null
+  job_level?: SurveyResponseAggregate | null
+  job_search_difficulty?: SurveyResponseAggregate | null
+  work_location?: SurveyResponseAggregate | null
+  top_industries?: SurveyResponseAggregate | null
+}
+
 export interface PEIIAnalyticsResponse {
-  outcome_distributions: {
-    employment_stability: SurveyResponseAggregate | null
-    degree_alignment: SurveyResponseAggregate | null
-  }
+  outcome_distributions: PEIIOutcomeDistributions
   cohort_result: PEIICohortResult
   baseline_result: PEIICohortResult | null
   historical_trend: PEIIHistoricalTrend[]

@@ -34,39 +34,77 @@ export function ClientDemographicsOverview({
   const topGender = getTop(demographics.gender_distribution)
   const topLocation = getTop(demographics.location_distribution)
   const topDept = getTop(demographics.department_distribution)
+  const topBarangay = demographics.barangay_distribution ? getTop(demographics.barangay_distribution) : null
+
+  // First-generation graduate percentage
+  const firstGenYes = demographics.first_gen_distribution?.["Yes"] || 0
+  const firstGenTotal = Object.values(demographics.first_gen_distribution || {}).reduce((a, b) => a + b, 0)
+  const firstGenPct = firstGenTotal > 0 ? Math.round((firstGenYes / firstGenTotal) * 100) : null
 
   const labelClass = `font-bold uppercase tracking-[0.2em] text-slate-500 ${isExport ? 'text-xs' : 'text-[10px]'}`
 
   return (
-    <div className={isExport ? "flex flex-row items-start justify-between w-full" : "flex flex-col gap-12 animate-in fade-in slide-in-from-bottom-4 duration-700 fill-mode-both"}>
+    <div className={isExport ? "flex flex-row items-start justify-between w-full" : "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8 animate-in fade-in slide-in-from-bottom-4 duration-700 fill-mode-both"}>
       
-      {/* Total Responses */}
+      {/* Primary Demographic */}
       <div className="flex flex-col">
-        <div className="mb-6">
-          <span className={labelClass}>Total Respondents</span>
+        <div className="mb-2">
+          <span className={labelClass}>Gender Majority</span>
         </div>
-        <div className="mt-auto flex flex-col gap-2">
-          <span className="text-5xl font-light tracking-tighter text-slate-900 leading-[1.1] break-words">
-            {demographics.total_responses}
-          </span>
-          {topGender && (
-            <span className="text-sm font-medium text-slate-500">
-              {Math.round((topGender[1] / demographics.total_responses) * 100)}% {topGender[0]}
-            </span>
+        <div className="flex flex-col gap-1">
+          {topGender ? (
+            <>
+              <span className="text-4xl font-light tracking-tighter text-slate-900 leading-[1.1] break-words">
+                {Math.round((topGender[1] / demographics.total_responses) * 100)}%
+              </span>
+              <span className="text-sm font-medium text-slate-500">
+                {topGender[0]} ({demographics.total_responses} respondents)
+              </span>
+            </>
+          ) : (
+            <>
+              <span className="text-4xl font-light tracking-tighter text-slate-900 leading-[1.1] break-words">
+                {demographics.total_responses}
+              </span>
+              <span className="text-sm font-medium text-slate-500">
+                Total Respondents
+              </span>
+            </>
           )}
         </div>
       </div>
 
-      {/* Top Location */}
+      {/* First Generation Graduate Indicator */}
+      {firstGenPct !== null && (
+        <div className="flex flex-col" style={{ animationDelay: '50ms' }}>
+          <div className="mb-2">
+            <span className={labelClass}>First-Gen College Graduate</span>
+          </div>
+          <div className="flex flex-col gap-1">
+            <span className="text-4xl font-light tracking-tighter text-indigo-900 leading-[1.1] break-words">
+              {firstGenPct}%
+            </span>
+            <span className="text-sm font-medium text-slate-500">
+              {firstGenYes} first-in-family graduates
+            </span>
+          </div>
+        </div>
+      )}
+
+      {/* Top Location & Barangay */}
       <div className="flex flex-col" style={{ animationDelay: '100ms' }}>
-        <div className="mb-6">
+        <div className="mb-2">
           <span className={labelClass}>Primary Location</span>
         </div>
-        <div className="mt-auto flex flex-col gap-2">
-          <span className="text-5xl font-light tracking-tighter text-slate-900 leading-[1.1] break-words">
+        <div className="flex flex-col gap-1">
+          <span className={`font-light tracking-tighter text-slate-900 leading-[1.1] break-words ${(topLocation?.[0]?.length || 0) > 15 ? 'text-2xl' : 'text-4xl'}`}>
             {topLocation ? topLocation[0] : "—"}
           </span>
-          {topLocation && (
+          {topBarangay ? (
+            <span className="text-sm font-medium text-slate-500">
+              Top: Brgy. {topBarangay[0]} ({topBarangay[1]})
+            </span>
+          ) : topLocation && (
             <span className="text-sm font-medium text-slate-500">
               {Math.round((topLocation[1] / demographics.total_responses) * 100)}% of cohort
             </span>
@@ -76,11 +114,11 @@ export function ClientDemographicsOverview({
 
       {/* Top Department */}
       <div className="flex flex-col" style={{ animationDelay: '200ms' }}>
-        <div className="mb-6">
+        <div className="mb-2">
           <span className={labelClass}>Top Program</span>
         </div>
-        <div className="mt-auto flex flex-col gap-2">
-          <span className="text-5xl font-light tracking-tighter text-slate-900 leading-[1.1] break-words">
+        <div className="flex flex-col gap-1">
+          <span className={`font-light tracking-tighter text-slate-900 leading-[1.1] break-words ${(topDept?.[0]?.length || 0) > 15 ? 'text-2xl' : 'text-4xl'}`}>
             {topDept ? topDept[0] : "—"}
           </span>
           {topDept && (

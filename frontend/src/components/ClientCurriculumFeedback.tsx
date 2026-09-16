@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useMemo, useRef, useCallback } from "react"
-import { ThumbsDown, ThumbsUp, Minus, Flag } from "lucide-react"
+import { ThumbsDown, ThumbsUp, Minus } from "lucide-react"
 import { type QualitativeFeedback, markFalsePositive } from "@/lib/surveys"
 import { getDimensionColor } from "@/lib/dimension-colors"
 

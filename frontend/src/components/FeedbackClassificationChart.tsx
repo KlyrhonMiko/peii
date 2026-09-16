@@ -34,13 +34,16 @@ export function FeedbackClassificationChart({
 
   return (
     <div className="flex flex-col h-full w-full relative">
-      <div className={isExport ? "mb-8 flex flex-col gap-1" : "mb-6 flex flex-col gap-1"}>
-        <h3 className={tTitle}>
-          Feedback Sentiment by Dimension
-        </h3>
-        <p className={tSub}>
-          Distribution of positive, neutral, and negative feedback across dimensions
-        </p>
+      {/* Editorial Header */}
+      <div className={isExport ? "mb-10 flex items-start justify-between" : "mb-8 flex items-start justify-between"}>
+        <div>
+          <h3 className={tTitle}>
+            Feedback Sentiment by Dimension
+          </h3>
+          <p className={tSub}>
+            Distribution of positive, neutral, and negative feedback across dimensions
+          </p>
+        </div>
       </div>
 
       <div className="flex flex-col gap-8 flex-1 justify-center px-2">

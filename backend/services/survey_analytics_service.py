@@ -45,7 +45,8 @@ AGGREGATE_BATCH_SIZE = 1000
 MAX_QUALITATIVE_FEEDBACK = 200
 
 _PLACEHOLDER_REGEX = re.compile(
-    r"^(none|n/?a|wala|wala naman po|wala po|wala naman|\.|asd|sad|no|na|-|nothing|none so far|nothing so far|n / a|all good|okay lang|ok lang)$",
+    r"^(none|n/?a|wala|wala naman po|wala po|wala naman|\.|asd|sad|no|na|-"
+    r"|nothing|none so far|nothing so far|n / a|all good|okay lang|ok lang)$",
     re.IGNORECASE,
 )
 
@@ -93,8 +94,11 @@ class _SurveyQuestionMap(TypedDict):
     degree_q: str | None
     gender_q: str | None
     location_q: str | None
+    first_gen_q: str | None
+    barangay_q: str | None
     domains: dict[str, _DomainQuestionMap]
     feedback_qs: list[tuple[str, str]]
+    outcome_qs: dict[str, str]
 
 
 class _DomainStats(TypedDict):
@@ -110,10 +114,13 @@ def _new_survey_question_map() -> _SurveyQuestionMap:
         "degree_q": None,
         "gender_q": None,
         "location_q": None,
+        "first_gen_q": None,
+        "barangay_q": None,
         "domains": {
             domain: {"pre": [], "post": []} for domain in DOMAIN_WEIGHTS
         },
         "feedback_qs": [],
+        "outcome_qs": {},
     }
 
 
@@ -686,8 +693,14 @@ def _accumulate_outcome_answer(state: _AggregateState, answer: object) -> None:
         if type(answer) not in (int, float) or answer not in state.counts:
             return
     elif state.question_type == QuestionType.SINGLE_CHOICE:
-        if not isinstance(answer, str) or answer not in state.counts:
+        if not isinstance(answer, str):
             return
+        if answer not in state.counts:
+            stripped = answer.strip()
+            if stripped in state.counts:
+                answer = stripped
+            else:
+                return
     elif state.question_type == QuestionType.BOOLEAN:
         if not isinstance(answer, bool):
             return
@@ -772,14 +785,43 @@ async def compute_peii_scores(
         # Profile section
         if "RESPONDENT'S PROFILE" in sec.title:
             for q in sec_qs:
-                if "Year Graduated" in q.question_text:
+                qtext = q.question_text
+                qtext_lower = qtext.lower()
+                if "Year Graduated" in qtext:
                     smap["year_q"] = str(q.id)
-                elif "Degree Program" in q.question_text:
+                elif "Degree Program" in qtext:
                     smap["degree_q"] = str(q.id)
-                elif "Sex Assigned At Birth" in q.question_text:
+                elif "Sex Assigned At Birth" in qtext:
                     smap["gender_q"] = str(q.id)
-                elif "Current Location" in q.question_text:
+                elif "Current Location" in qtext:
                     smap["location_q"] = str(q.id)
+                elif "first-generation graduate" in qtext_lower:
+                    smap["first_gen_q"] = str(q.id)
+                elif "barangay do you live in" in qtext_lower:
+                    smap["barangay_q"] = str(q.id)
+
+        # Post-Graduation Employment Profile section
+        if "EMPLOYMENT PROFILE" in sec.title.upper():
+            for q in sec_qs:
+                qtext_lower = q.question_text.lower()
+                if "current employment status" in qtext_lower:
+                    smap["outcome_qs"]["employment_status"] = str(q.id)
+                elif "type of employment" in qtext_lower:
+                    smap["outcome_qs"]["employment_type"] = str(q.id)
+                elif "monthly income range" in qtext_lower:
+                    smap["outcome_qs"]["monthly_income"] = str(q.id)
+                elif "long did it take to find your first job" in qtext_lower:
+                    smap["outcome_qs"]["time_to_first_job"] = str(q.id)
+                elif "obtain your first job" in qtext_lower:
+                    smap["outcome_qs"]["job_search_channel"] = str(q.id)
+                elif "job level" in qtext_lower:
+                    smap["outcome_qs"]["job_level"] = str(q.id)
+                elif "difficult was it to find your first job" in qtext_lower:
+                    smap["outcome_qs"]["job_search_difficulty"] = str(q.id)
+                elif "where do you work" in qtext_lower:
+                    smap["outcome_qs"]["work_location"] = str(q.id)
+                elif "industry do you work in" in qtext_lower:
+                    smap["outcome_qs"]["top_industries"] = str(q.id)
                     
         # Domains
         for domain_name in DOMAIN_WEIGHTS.keys():
@@ -816,6 +858,13 @@ async def compute_peii_scores(
                 outcome_states.setdefault(name, state)
                 outcome_by_survey.setdefault(sid, []).append(state)
 
+        for name, qid in smap["outcome_qs"].items():
+            question = question_by_id.get(qid)
+            if question is not None:
+                state = _new_aggregate_state(question)
+                outcome_states.setdefault(name, state)
+                outcome_by_survey.setdefault(sid, []).append(state)
+
     # 3. Process Responses
     # We will accumulate scores per cohort (batch_year)
     cohort_stats: dict[str, dict[str, _DomainStats]] = {}
@@ -824,6 +873,8 @@ async def compute_peii_scores(
     gender_dist: Counter[str] = Counter()
     location_dist: Counter[str] = Counter()
     dept_dist: Counter[str] = Counter()
+    first_gen_dist: Counter[str] = Counter()
+    barangay_dist: Counter[str] = Counter()
     
     classification_counts = {
         domain_name.split(". ", 1)[-1]: {"positive": 0, "neutral": 0, "negative": 0}
@@ -927,6 +978,22 @@ async def compute_peii_scores(
                     )
                     if isinstance(loc_ans, str) and loc_ans:
                         location_dist[loc_ans] += 1
+                    first_gen_question_id = smap["first_gen_q"]
+                    first_gen_ans = (
+                        ans.get(first_gen_question_id)
+                        if isinstance(first_gen_question_id, str)
+                        else None
+                    )
+                    if isinstance(first_gen_ans, str) and first_gen_ans:
+                        first_gen_dist[first_gen_ans] += 1
+                    barangay_question_id = smap["barangay_q"]
+                    barangay_ans = (
+                        ans.get(barangay_question_id)
+                        if isinstance(barangay_question_id, str)
+                        else None
+                    )
+                    if isinstance(barangay_ans, str) and barangay_ans:
+                        barangay_dist[barangay_ans] += 1
 
                     stats = cohort_stats[resp_year]
                     for domain_name, phases in smap["domains"].items():
@@ -944,11 +1011,10 @@ async def compute_peii_scores(
                     for qid, qtext in smap["feedback_qs"]:
                         text_ans = ans.get(qid)
                         text_ans_clean = text_ans.strip()
+                        qualitative_feedback_total += 1
                         is_placeholder = _is_placeholder(text_ans_clean)
                         if is_placeholder:
                             qualitative_feedback_placeholder_count += 1
-                        else:
-                            qualitative_feedback_total += 1
                         sentiments_dict = ml_sentiments if isinstance(ml_sentiments, dict) else {}
                         sentiments_for_q = sentiments_dict.get(qid) or []
                         fp_key = (str(response_id), qid)
@@ -1005,9 +1071,10 @@ async def compute_peii_scores(
                             elif critical_score > positive_score:
                                 avg_polarity = -0.5
                             else:
-                                if "improve" in qtext.lower() or "skills do you wish" in qtext.lower():
+                                q_lower = qtext.lower()
+                                if "improve" in q_lower or "skills do you wish" in q_lower:
                                     avg_polarity = -0.5
-                                elif "leaders" in qtext.lower():
+                                elif "leaders" in q_lower:
                                     avg_polarity = 0.5
                                 else:
                                     avg_polarity = 0.0
@@ -1019,8 +1086,10 @@ async def compute_peii_scores(
                                     re.IGNORECASE
                                 ),
                                 "Family Upliftment and Financial Stability": re.compile(
-                                    r"\b(family|pamilya|financial|children|parents|anak|magulang|bahay|house|budget|gastos|kapatid|tulong sa pamilya|provide)\b",
-                                    re.IGNORECASE
+                                    r"\b(family|pamilya|financial|children|parents|anak|magulang|"
+                                    r"bahay|house|budget|gastos|kapatid|tulong\s+sa\s+pamilya|"
+                                    r"provide)\b",
+                                    re.IGNORECASE,
                                 ),
                                 "Personal Development and Life Quality": re.compile(
                                     r"\b(skill|learn|grow|develop|confidence|happy|health|buhay|sarili|improve|training|aral|knowledge|natutunan|experience|mindset)\b",
@@ -1168,7 +1237,9 @@ async def compute_peii_scores(
         total_responses=total_valid_responses,
         gender_distribution=dict(gender_dist),
         location_distribution=dict(location_dist),
-        department_distribution=dict(dept_dist)
+        department_distribution=dict(dept_dist),
+        first_gen_distribution=dict(first_gen_dist) if first_gen_dist else None,
+        barangay_distribution=dict(barangay_dist) if barangay_dist else None,
     )
 
 

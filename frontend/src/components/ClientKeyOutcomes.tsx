@@ -50,18 +50,16 @@ export function ClientKeyOutcomes({ distribution, isLoading, isExport }: ClientK
 
   return (
     <div className="flex flex-col">
-      <div className={isExport ? "mb-4 flex flex-col min-h-[130px]" : "mb-6 flex flex-col"}>
-        <div className="mb-2">
-          <span className={`border-l-2 border-violet-500 pl-2 font-bold uppercase tracking-[0.2em] text-violet-600 ${isExport ? 'text-xs' : 'text-[10px]'}`}>
-            Employability Domain
-          </span>
+      {/* Editorial Header */}
+      <div className={isExport ? "mb-10 flex items-start justify-between min-h-[130px]" : "mb-8 flex items-start justify-between"}>
+        <div>
+          <h3 className={isExport ? "text-3xl font-bold tracking-tight text-slate-900" : "text-2xl font-bold tracking-tight text-slate-900"}>
+            Employment Stability
+          </h3>
+          <p className={isExport ? "text-base text-slate-500 mt-2" : "text-sm text-slate-500 mt-1"}>
+            &ldquo;I have a stable source of income or employment&rdquo; (Post-Grad)
+          </p>
         </div>
-        <h3 className={isExport ? "text-2xl font-bold tracking-tight text-slate-900" : "text-xl font-bold tracking-tight text-slate-900"}>
-          Employment Stability
-        </h3>
-        <p className={isExport ? "text-base text-slate-500 mt-1.5" : "text-sm text-slate-500 mt-1"}>
-          &ldquo;I have a stable source of income or employment&rdquo; (Post-Grad)
-        </p>
       </div>
 
       <div className="flex flex-col">
@@ -94,9 +92,23 @@ export function ClientKeyOutcomes({ distribution, isLoading, isExport }: ClientK
                     ))}
                   </Pie>
                   <Tooltip 
-                    contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 12px -2px rgb(0 0 0 / 0.1)', fontSize: '13px' }}
-                    itemStyle={{ color: '#334155' }}
-                    formatter={(value: unknown, name: unknown) => [`${String(value)} responses (${Math.round((Number(value) / chartData.total) * 100)}%)`, String(name)]}
+                    cursor={false}
+                    wrapperStyle={{ zIndex: 100 }}
+                    contentStyle={{ 
+                      backgroundColor: '#ffffff',
+                      borderRadius: '8px', 
+                      border: '1px solid #e2e8f0', 
+                      boxShadow: '0 4px 12px -2px rgb(0 0 0 / 0.08)', 
+                      color: '#0f172a',
+                      fontSize: '12px',
+                      padding: '8px 12px'
+                    }}
+                    itemStyle={{ color: '#334155', fontWeight: 500 }}
+                    formatter={(value: unknown, name: unknown) => {
+                      const count = Number(value);
+                      const pct = chartData.total > 0 ? Math.round((count / chartData.total) * 100) : 0;
+                      return [`${count} (${pct}%)`, String(name)];
+                    }}
                   />
                 </PieChart>
               </ResponsiveContainer>

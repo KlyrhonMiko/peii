@@ -199,6 +199,15 @@ async def test_peii_sentinel_filters_share_versioned_cache_and_invalidate(client
         assert response.json()["data"]["outcome_distributions"] == {
             "employment_stability": None,
             "degree_alignment": None,
+            "monthly_income": None,
+            "time_to_first_job": None,
+            "job_search_channel": None,
+            "employment_status": None,
+            "employment_type": None,
+            "job_level": None,
+            "job_search_difficulty": None,
+            "work_location": None,
+            "top_industries": None,
         }
     assert len(calls) == 1
     assert calls[0]["batch_year"] is None
