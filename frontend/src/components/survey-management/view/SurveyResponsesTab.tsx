@@ -29,6 +29,7 @@ export function SurveyResponsesTab({ survey, store }: SurveyResponsesTabProps) {
       identityLoaded={state.identityLoaded}
       selectedResponseIds={state.selectedResponseIds}
       responseAction={state.responseAction}
+      onImportComplete={() => actions.handleRefreshResponseState(survey)}
       onLoadRaw={(offset = 0) => void actions.handleLoadRawResponses(survey, offset)}
       onLoadIdentity={(offset = 0) => void actions.handleLoadIdentityResponses(survey, offset)}
       onPageChange={(offset) => void actions.handleLoadRawResponses(survey, offset)}

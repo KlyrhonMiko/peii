@@ -37,6 +37,7 @@ export interface Survey {
   retentionEnabled: boolean
   retentionDays: number
   targetCohort?: string
+  isTemplate?: boolean
   description?: string
   questions?: SurveyQuestion[]
   sections?: SurveySection[]
@@ -110,6 +111,7 @@ export interface ApiSurvey {
   performed_by: string | null
   retention_enabled: boolean
   retention_days: number
+  is_template?: boolean
   questions?: ApiQuestion[]
   sections?: ApiSection[]
 }
@@ -252,6 +254,26 @@ export interface ResponseErasureResult {
   erased_count: number
 }
 
+export interface SurveyResponseImportIssue {
+  row: number | null
+  column: string | null
+  code: string
+  message: string
+}
+
+export interface SurveyResponseImportValidation {
+  survey_id: string
+  valid: boolean
+  row_count: number
+  error_count: number
+  errors: SurveyResponseImportIssue[]
+}
+
+export interface SurveyResponseImportResult {
+  survey_id: string
+  imported_count: number
+}
+
 export interface ApiPagination {
   total: number
   count: number
@@ -308,6 +330,7 @@ export function mapSurvey(api: ApiSurvey): Survey {
     isDeleted: api.is_deleted,
     retentionEnabled: api.retention_enabled ?? DEFAULT_RETENTION_ENABLED,
     retentionDays: api.retention_days ?? DEFAULT_RETENTION_DAYS,
+    ...(api.is_template !== undefined ? { isTemplate: api.is_template } : {}),
     ...(api.target_cohort ? { targetCohort: api.target_cohort } : {}),
     ...(api.description ? { description: api.description } : {}),
     ...(api.questions ? { questions: api.questions.map(mapQuestion) } : {}),
@@ -680,6 +703,96 @@ export async function eraseResponses(
   )
   if (!res.data) throw new Error("Backend did not return the erasure result")
   return res.data
+}
+
+const CSV_IMPORT_TIMEOUT_MS = 60_000
+
+interface ApiEnvelope<T> {
+  data: T | null
+  message?: string
+}
+
+function importData<T>(envelope: unknown): T {
+  if (typeof envelope !== "object" || envelope === null || !("data" in envelope)) {
+    throw new Error("Backend returned an invalid CSV import response.")
+  }
+  const data = (envelope as ApiEnvelope<T>).data
+  if (data === null || data === undefined) {
+    throw new Error("Backend did not return CSV import details.")
+  }
+  return data
+}
+
+async function parseImportResponse<T>(response: Response): Promise<T> {
+  let envelope: unknown
+  try {
+    envelope = await response.json()
+  } catch {
+    throw new Error("Backend returned an invalid CSV import response.")
+  }
+  return importData<T>(envelope)
+}
+
+function filenameFromContentDisposition(value: string | null): string | undefined {
+  if (!value) return undefined
+  const match = value.match(/filename\*?=(?:UTF-8''|\")?([^;\"]+)/i)
+  const filename = match?.[1]?.trim()
+  if (!filename) return undefined
+  try {
+    return decodeURIComponent(filename)
+  } catch {
+    return filename
+  }
+}
+
+export async function downloadSurveyResponseImportTemplate(
+  surveyUuid: string,
+): Promise<{ blob: Blob; filename?: string }> {
+  const response = await api.raw.get(
+    `/surveys/${surveyUuid}/responses/import-template`,
+    { headers: { Accept: "text/csv" }, timeout: CSV_IMPORT_TIMEOUT_MS },
+  )
+  const filename = filenameFromContentDisposition(response.headers.get("Content-Disposition"))
+  return {
+    blob: await response.blob(),
+    ...(filename ? { filename } : {}),
+  }
+}
+
+export async function validateSurveyResponseImport(
+  surveyUuid: string,
+  csvText: string,
+): Promise<SurveyResponseImportValidation> {
+  const response = await api.raw.post(
+    `/surveys/${surveyUuid}/responses/import/validate`,
+    csvText,
+    {
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "text/csv; charset=utf-8",
+      },
+      timeout: CSV_IMPORT_TIMEOUT_MS,
+    },
+  )
+  return parseImportResponse<SurveyResponseImportValidation>(response)
+}
+
+export async function importSurveyResponses(
+  surveyUuid: string,
+  csvText: string,
+): Promise<SurveyResponseImportResult> {
+  const response = await api.raw.post(
+    `/surveys/${surveyUuid}/responses/import`,
+    csvText,
+    {
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "text/csv; charset=utf-8",
+      },
+      timeout: CSV_IMPORT_TIMEOUT_MS,
+    },
+  )
+  return parseImportResponse<SurveyResponseImportResult>(response)
 }
 
 export async function reorderQuestions(

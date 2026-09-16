@@ -2,6 +2,8 @@ type BackendMethod = "DELETE" | "GET" | "PATCH" | "POST" | "PUT"
 
 const CONTROL_CHARACTERS = /[\u0000-\u001F\u007F-\u009F]/u
 const ENCODED_BYTE = /%[0-9a-f]{2}/iu
+// PEII resource IDs are UUIDv7; do not restrict the upload cap to older UUID versions.
+const UUID_SEGMENT = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu
 
 function decodePathSegment(segment: string): string | undefined {
   let decoded = segment
@@ -76,6 +78,22 @@ function matchesSurveyResponseAction(path: string[], action: string): boolean {
   return path.length === 4 && path[0] === "surveys" && hasValue(path[1]) && path[2] === "responses" && path[3] === action
 }
 
+export function isSurveyResponseImportPath(path: string[]): boolean {
+  return (
+    matchesSurveyResponseAction(path, "import") ||
+    (path.length === 5 &&
+      path[0] === "surveys" &&
+      hasValue(path[1]) &&
+      path[2] === "responses" &&
+      path[3] === "import" &&
+      path[4] === "validate")
+  )
+}
+
+export function isUuidSurveyResponseImportPath(path: string[]): boolean {
+  return isSurveyResponseImportPath(path) && UUID_SEGMENT.test(path[1] ?? "")
+}
+
 function matchesUserResource(path: string[]): boolean {
   return path.length === 2 && path[0] === "users" && hasValue(path[1])
 }
@@ -101,6 +119,7 @@ export function isAllowedBackendRequest(method: string, path: string[]): boolean
         matchesSurveyResponseAction(path, "export") ||
         matchesSurveyResponseAction(path, "identity") ||
         matchesSurveyResponseAction(path, "peii") ||
+        matchesSurveyResponseAction(path, "import-template") ||
         (path.length === 1 && path[0] === "audit-logs") ||
         (path.length === 2 && path[0] === "audit-logs" && hasValue(path[1]))
       )
@@ -117,6 +136,7 @@ export function isAllowedBackendRequest(method: string, path: string[]): boolean
         matchesSurveyChild(path, "sections") ||
         matchesSurveyChild(path, "questions") ||
         (path.length === 3 && path[0] === "surveys" && hasValue(path[1]) && path[2] === "restore") ||
+        isSurveyResponseImportPath(path) ||
          matchesSurveyResponseAction(path, "erase") ||
          (path.length === 5 && path[0] === "surveys" && hasValue(path[1]) &&
            path[2] === "responses" && path[3] === "peii" && path[4] === "false-positive")

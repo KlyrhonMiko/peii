@@ -3,6 +3,7 @@ import hmac
 import json
 import math
 import secrets
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from typing import Literal
@@ -208,12 +209,18 @@ async def get_public_survey_phase_state(
         return PublicSurveyPhaseState("withdrawn", None, None, question_phases)
 
     answer_ids = set(response.answers or {})
+    question_key_to_id = _question_key_to_id(questions)
     phase1_ids = {question_id for question_id, phase in question_phases.items() if phase == 1}
     phase2_ids = {question_id for question_id, phase in question_phases.items() if phase == 2}
+    visible_phase2_ids = {
+        question_id
+        for question_id in phase2_ids
+        if _question_is_visible(questions[question_id], response.answers or {}, question_key_to_id)
+    }
     # Phase-2 answers imply Phase 1 was submitted (PATCH requires an existing
     # row), so treat them as completed even if Phase-1 questions were edited
     # after the respondent submitted.
-    if phase2_ids.issubset(answer_ids):
+    if visible_phase2_ids and visible_phase2_ids.issubset(answer_ids):
         return PublicSurveyPhaseState("completed", None, None, question_phases)
     if phase1_ids.issubset(answer_ids) or answer_ids:
         # Any stored answers mean Phase 1 was submitted at the time. New
@@ -224,12 +231,107 @@ async def get_public_survey_phase_state(
     return PublicSurveyPhaseState("phase1", 1, 1, question_phases)
 
 
+def _question_config(question: SurveyQuestion) -> dict[str, object]:
+    try:
+        config = _load_json(question.config, "config")
+    except ValueError:
+        return {}
+    return config if isinstance(config, dict) else {}
+
+
+def _question_key_to_id(questions: Mapping[str, SurveyQuestion]) -> dict[str, str]:
+    question_ids: dict[str, str] = {}
+    duplicate_keys: set[str] = set()
+    for question_id, question in questions.items():
+        key = _question_config(question).get("question_key")
+        if not isinstance(key, str) or not key.strip() or key in duplicate_keys:
+            continue
+        if key in question_ids:
+            del question_ids[key]
+            duplicate_keys.add(key)
+            continue
+        question_ids[key] = question_id
+    return question_ids
+
+
+def _question_is_visible(
+    question: SurveyQuestion,
+    answers: Mapping[str, object],
+    question_key_to_id: Mapping[str, str],
+) -> bool:
+    config = _question_config(question)
+
+    if "visible_when" in config:
+        condition = config["visible_when"]
+        if not isinstance(condition, dict):
+            return False
+        source_key = condition.get("question_key")
+        source_id = (
+            question_key_to_id.get(source_key) if isinstance(source_key, str) else None
+        )
+        if source_id is None:
+            return False
+        source_answer = answers.get(source_id)
+        if "equals" in condition:
+            if not isinstance(condition["equals"], str) or source_answer != condition["equals"]:
+                return False
+        elif "one_of" in condition:
+            one_of = condition["one_of"]
+            if not isinstance(one_of, list) or source_answer not in one_of:
+                return False
+        else:
+            return False
+
+    if "options_by_answer" in config:
+        dependency = config["options_by_answer"]
+        if not isinstance(dependency, dict):
+            return False
+        source_key = dependency.get("question_key")
+        source_id = (
+            question_key_to_id.get(source_key) if isinstance(source_key, str) else None
+        )
+        choices = dependency.get("choices")
+        if source_id is None or not isinstance(choices, dict):
+            return False
+        source_answer = answers.get(source_id)
+        if not isinstance(source_answer, str) or source_answer not in choices:
+            return False
+
+    return True
+
+
+def _effective_option_values(
+    options: list[str],
+    config: Mapping[str, object],
+    answers: Mapping[str, object],
+    question_key_to_id: Mapping[str, str],
+) -> list[str]:
+    dependency = config.get("options_by_answer")
+    if not isinstance(dependency, dict):
+        return options
+    source_key = dependency.get("question_key")
+    choices = dependency.get("choices")
+    source_id = question_key_to_id.get(source_key) if isinstance(source_key, str) else None
+    source_answer = answers.get(source_id) if source_id is not None else None
+    if not isinstance(choices, dict) or not isinstance(source_answer, str):
+        return []
+    selected_options = choices.get(source_answer)
+    return selected_options if isinstance(selected_options, list) else []
+
+
 def _validate_phase_answer_ids(
     answers: dict[str, object],
     questions: dict[str, SurveyQuestion],
     expected_question_ids: set[str],
 ) -> None:
     validation_errors: list[dict[str, str]] = []
+    question_key_to_id = _question_key_to_id(questions)
+    visible_expected_question_ids = {
+        question_id
+        for question_id in expected_question_ids
+        if question_id in questions
+        and _question_is_visible(questions[question_id], answers, question_key_to_id)
+    }
     for question_id in sorted(set(answers) - expected_question_ids):
         validation_errors.append(
             {
@@ -242,7 +344,7 @@ def _validate_phase_answer_ids(
                 ),
             }
         )
-    for question_id in sorted(expected_question_ids - set(answers)):
+    for question_id in sorted(visible_expected_question_ids - set(answers)):
         validation_errors.append(
             {
                 "question_id": question_id,
@@ -258,12 +360,25 @@ def _validate_phase_answer_ids(
         )
 
 
-def _validate_answer(question: SurveyQuestion, answer: object) -> None:
+def _validate_answer(
+    question: SurveyQuestion,
+    answer: object,
+    *,
+    answers: Mapping[str, object],
+    question_key_to_id: Mapping[str, str],
+) -> None:
     options = _load_json(question.options, "options")
     config = _load_json(question.config, "config")
     validate_question_definition(question.question_type, options, config)
     question_type = question.question_type
     option_values = options if isinstance(options, list) else []
+    if isinstance(config, dict):
+        option_values = _effective_option_values(
+            option_values,
+            config,
+            answers,
+            question_key_to_id,
+        )
 
     if question_type == QuestionType.SINGLE_CHOICE:
         if not isinstance(answer, str):
@@ -349,10 +464,15 @@ async def _validate_answers(
     questions: dict[str, SurveyQuestion] | None = None,
     expected_question_ids: set[str] | None = None,
 ) -> None:
-    active_questions = questions or await _load_active_questions(session, survey_id)
+    active_questions = (
+        questions if questions is not None else await _load_active_questions(session, survey_id)
+    )
 
     validation_errors: list[dict[str, str]] = []
-    allowed_question_ids = expected_question_ids or set(active_questions)
+    allowed_question_ids = (
+        set(active_questions) if expected_question_ids is None else expected_question_ids
+    )
+    question_key_to_id = _question_key_to_id(active_questions)
     for question_id in sorted(set(answers) - allowed_question_ids):
         validation_errors.append(
             {
@@ -370,6 +490,17 @@ async def _validate_answers(
 
     for question_id, question in active_questions.items():
         if expected_question_ids is not None and question_id not in expected_question_ids:
+            continue
+        visible = _question_is_visible(question, answers, question_key_to_id)
+        if not visible:
+            if question_id in answers:
+                validation_errors.append(
+                    {
+                        "question_id": question_id,
+                        "code": "hidden_question",
+                        "message": "Question is not visible for the selected answers.",
+                    }
+                )
             continue
         if question_id not in answers:
             if expected_question_ids is not None or question.is_required:
@@ -393,7 +524,12 @@ async def _validate_answers(
         try:
             if _is_blank_answer(answers[question_id]) and not question.is_required:
                 continue
-            _validate_answer(question, answers[question_id])
+            _validate_answer(
+                question,
+                answers[question_id],
+                answers=answers,
+                question_key_to_id=question_key_to_id,
+            )
         except (TypeError, ValueError, json.JSONDecodeError) as exc:
             validation_errors.append(
                 {
@@ -820,6 +956,7 @@ async def submit_phase2_response(
             errors={"code": "phase1_required"},
         )
     stored_answers = matching_response.answers or {}
+    question_key_to_id = _question_key_to_id(questions)
     phase1_ids = {question_id for question_id, phase in question_phases.items() if phase == 1}
     if not phase1_ids.issubset(stored_answers) and not stored_answers:
         # The row exists but holds no answers at all. A non-empty row means
@@ -832,7 +969,12 @@ async def submit_phase2_response(
             status_code=status.HTTP_409_CONFLICT,
             errors={"code": "phase1_required"},
         )
-    if phase2_ids.issubset(stored_answers):
+    visible_phase2_ids = {
+        question_id
+        for question_id in phase2_ids
+        if _question_is_visible(questions[question_id], stored_answers, question_key_to_id)
+    }
+    if visible_phase2_ids and visible_phase2_ids.issubset(stored_answers):
         raise AppError(
             "Follow-up already submitted for this Google account. Reload to see status.",
             status_code=status.HTTP_409_CONFLICT,

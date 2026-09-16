@@ -12,6 +12,7 @@ from core.handlers import register_exception_handlers
 from core.http_client import close_http_client, get_http_client
 from core.logging import get_logger, setup_logging
 from core.middleware import (
+    IMPORT_REQUEST_BODY_BYTES,
     PublicSurveySecurityHeadersMiddleware,
     RequestIdMiddleware,
     RequestSizeLimitMiddleware,
@@ -104,7 +105,10 @@ def create_app(app_settings: Settings = settings) -> FastAPI:
     )
 
     application.add_middleware(
-        RequestSizeLimitMiddleware, max_body_bytes=app_settings.MAX_REQUEST_BODY_BYTES
+        RequestSizeLimitMiddleware,
+        max_body_bytes=app_settings.MAX_REQUEST_BODY_BYTES,
+        api_prefix=app_settings.API_V1_PREFIX,
+        import_body_bytes=IMPORT_REQUEST_BODY_BYTES,
     )
     application.add_middleware(
         PublicSurveySecurityHeadersMiddleware,

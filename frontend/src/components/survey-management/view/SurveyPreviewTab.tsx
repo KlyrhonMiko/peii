@@ -40,6 +40,12 @@ export function SurveyPreviewTab({ sections }: SurveyPreviewTabProps) {
                     <span className="font-medium text-slate-900 block text-[15px] leading-snug">
                       {secIdx + 1}.{qIdx + 1} {q.text || "Untitled Question"}
                     </span>
+                    {q.config?.visible_when !== undefined && (
+                      <span className="mt-1 block text-xs text-slate-500">Shown only when its earlier answer matches.</span>
+                    )}
+                    {q.config?.options_by_answer !== undefined && (
+                      <span className="mt-1 block text-xs text-slate-500">Choices depend on the selected job industry.</span>
+                    )}
                   </div>
 
                   {q.type === "scale" && (
@@ -78,14 +84,14 @@ export function SurveyPreviewTab({ sections }: SurveyPreviewTabProps) {
                     </div>
                   )}
 
-                  {q.config?.presentation === "dropdown" ? (
+                  {q.config?.presentation === "dropdown" || q.config?.presentation === "searchable_dropdown" ? (
                     <Button
                       type="button"
                       variant="outline"
                       disabled
                       className="mt-4 h-9 w-full max-w-xs justify-between text-sm font-normal text-slate-500"
                     >
-                      Select a degree program…
+                      Select an option…
                       <ChevronDown className="size-4 text-slate-400" />
                     </Button>
                   ) : ["single_choice", "multiple_choice", "ranking"].includes(q.type) && (

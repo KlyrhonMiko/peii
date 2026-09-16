@@ -26,7 +26,7 @@ import type {
 import { toast } from "sonner"
 import { validateSurveyStructure } from "@/lib/survey-structure"
 
-import { createGraduateTracerStudySurveyPayload } from "./constants"
+import { createGraduateTracerStudyTemplatePayload, GRADUATE_TRACER_STUDY_TEMPLATE_VERSION } from "./constants"
 import type { ModalState, DragItem, EditorSection, EditorQuestion, PendingAction } from "./types"
 import {
   createClientId,
@@ -41,6 +41,182 @@ import {
 } from "./utils"
 
 const RAW_RESPONSE_PAGE_SIZE = 25
+
+interface DependentChoicesConfig {
+  questionKey: string
+  choices: Record<string, unknown>
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+}
+
+function questionKey(question: Pick<EditorQuestion, "config">): string | null {
+  const key = question.config?.question_key
+  return typeof key === "string" && key.trim() ? key : null
+}
+
+function dependentChoices(question: Pick<EditorQuestion, "config">): DependentChoicesConfig | null {
+  const value = question.config?.options_by_answer
+  if (!isRecord(value) || typeof value.question_key !== "string" || !isRecord(value.choices)) {
+    return null
+  }
+  return { questionKey: value.question_key, choices: value.choices }
+}
+
+function copyChoiceList(value: unknown): unknown[] {
+  return Array.isArray(value) ? [...value] : []
+}
+
+function choiceUnion(choices: Readonly<Record<string, unknown>>): string[] {
+  const result: string[] = []
+  for (const value of Object.values(choices)) {
+    if (!Array.isArray(value)) continue
+    for (const option of value) {
+      if (typeof option === "string" && option.trim() && !result.includes(option)) {
+        result.push(option)
+      }
+    }
+  }
+  return result
+}
+
+function synchronizedFlatOptions(
+  currentOptions: readonly string[],
+  previousChoices: Readonly<Record<string, unknown>>,
+  nextChoices: Readonly<Record<string, unknown>>,
+  change?: { replaced?: { from: string; to: string } },
+): string[] {
+  const previousMappedOptions = new Set(choiceUnion(previousChoices))
+  const nextMappedOptions = choiceUnion(nextChoices)
+  const nextMappedOptionSet = new Set(nextMappedOptions)
+  const result: string[] = []
+
+  for (const option of currentOptions) {
+    if (change?.replaced?.from === option && change.replaced.to.trim() && nextMappedOptionSet.has(change.replaced.to)) {
+      if (!result.includes(change.replaced.to)) result.push(change.replaced.to)
+      continue
+    }
+    if (previousMappedOptions.has(option) && !nextMappedOptionSet.has(option)) continue
+    if (!result.includes(option)) result.push(option)
+  }
+  for (const option of nextMappedOptions) {
+    if (!result.includes(option)) result.push(option)
+  }
+  return result
+}
+
+function hasVisibleOptionReference(
+  sections: readonly EditorSection[],
+  sourceKey: string,
+  sourceAnswer: string,
+): boolean {
+  return sections.some((section) => section.questions.some((question) => {
+    const condition = question.config?.visible_when
+    if (!isRecord(condition) || condition.question_key !== sourceKey) return false
+    if (condition.equals === sourceAnswer) return true
+    return Array.isArray(condition.one_of) && condition.one_of.includes(sourceAnswer)
+  }))
+}
+
+function synchronizeDependentChoices(
+  sections: EditorSection[],
+  sourceKey: string,
+  sourceOptions: readonly string[],
+  change?: { renamed?: { from: string; to: string }; removed?: string },
+): EditorSection[] {
+  const sourceOptionSet = new Set(sourceOptions.filter((option) => option.trim()))
+  return sections.map((section) => ({
+    ...section,
+    questions: section.questions.map((question) => {
+      const dependency = dependentChoices(question)
+      let nextQuestion = question
+      let nextConfig: Record<string, unknown> | null = question.config ?? null
+      if (dependency?.questionKey === sourceKey) {
+        const nextChoices: Record<string, unknown> = {}
+        for (const [sourceAnswer, options] of Object.entries(dependency.choices)) {
+          if (change?.removed === sourceAnswer) continue
+          const nextAnswer = change?.renamed?.from === sourceAnswer
+            ? change.renamed.to
+            : sourceAnswer
+          if (!sourceOptionSet.has(nextAnswer)) continue
+
+          const existing = nextChoices[nextAnswer]
+          if (Array.isArray(existing) && Array.isArray(options)) {
+            nextChoices[nextAnswer] = Array.from(new Set([...existing, ...options]))
+          } else if (existing === undefined) {
+            nextChoices[nextAnswer] = Array.isArray(options) ? [...options] : options
+          }
+        }
+
+        nextConfig = {
+          ...(question.config ?? {}),
+          options_by_answer: {
+            question_key: dependency.questionKey,
+            choices: nextChoices,
+          },
+        }
+        nextQuestion = {
+          ...question,
+          options: synchronizedFlatOptions(question.options ?? [], dependency.choices, nextChoices),
+        }
+      }
+
+      const visibleWhen = question.config?.visible_when
+      const renamed = change?.renamed
+      if (
+        renamed &&
+        isRecord(visibleWhen) &&
+        visibleWhen.question_key === sourceKey &&
+        visibleWhen.equals === renamed.from
+      ) {
+        nextConfig = {
+          ...(nextConfig ?? {}),
+          visible_when: { ...visibleWhen, equals: renamed.to },
+        }
+      } else if (
+        renamed &&
+        isRecord(visibleWhen) &&
+        visibleWhen.question_key === sourceKey &&
+        Array.isArray(visibleWhen.one_of)
+      ) {
+        nextConfig = {
+          ...(nextConfig ?? {}),
+          visible_when: {
+          ...visibleWhen,
+            one_of: Array.from(new Set(visibleWhen.one_of.map((answer) =>
+              answer === renamed.from ? renamed.to : answer,
+            ))),
+          },
+        }
+      }
+
+      return nextConfig === (question.config ?? null) && nextQuestion === question
+        ? question
+        : { ...nextQuestion, config: nextConfig }
+    }),
+  }))
+}
+
+function questionWithDependentChoices(
+  question: EditorQuestion,
+  choices: Record<string, unknown>,
+  change?: { replaced?: { from: string; to: string } },
+): EditorQuestion {
+  const dependency = dependentChoices(question)
+  if (!dependency) return question
+  return {
+    ...question,
+    options: synchronizedFlatOptions(question.options ?? [], dependency.choices, choices, change),
+    config: {
+      ...(question.config ?? {}),
+      options_by_answer: {
+        question_key: dependency.questionKey,
+        choices,
+      },
+    },
+  }
+}
 
 export interface UseSurveyManagementProps {
   permissions: string[]
@@ -116,10 +292,15 @@ export function useSurveyManagement({ permissions, csvExportEnabled }: UseSurvey
   const [selectedResponseIds, setSelectedResponseIdsState] = useState<string[]>([])
   const [responseAction, setResponseAction] = useState<"export" | "erase" | null>(null)
   const responseRequestRef = useRef(0)
+  const modalStateRef = useRef<ModalState>(null)
   const [editingSurvey, setEditingSurvey] = useState<Survey | null>(null)
   const cachedTemplateRef = useRef<Survey | null>(null)
   const [dragItem, setDragItem] = useState<DragItem | null>(null)
   const deferredSearch = useDeferredValue(search)
+
+  useEffect(() => {
+    modalStateRef.current = modalState
+  }, [modalState])
 
   const editedSurvey = modalState?.type === "edit"
     ? editingSurvey ?? undefined
@@ -283,12 +464,29 @@ export function useSurveyManagement({ permissions, csvExportEnabled }: UseSurvey
     setPreviewSurvey(null)
   }
 
-  const getTemplateSurvey = async (): Promise<Survey | null> => {
+  const getTemplateSurvey = async (): Promise<Survey> => {
     if (cachedTemplateRef.current) return cachedTemplateRef.current
     const templateSurveys = await fetchSurveys({ limit: 1, isTemplate: true })
     const templateSurvey = templateSurveys.surveys[0]
-    if (!templateSurvey) return null
-    const fullTemplate = await fetchSurvey(templateSurvey.surveyId)
+    const payload = createGraduateTracerStudyTemplatePayload(createClientId)
+    if (!templateSurvey) {
+      const created = await createSurveyWithStructure(payload)
+      cachedTemplateRef.current = created
+      return created
+    }
+    let fullTemplate = await fetchSurvey(templateSurvey.surveyId)
+    if (fullTemplate.sections?.[0]?.questions[0]?.config?.template_definition_version !== GRADUATE_TRACER_STUDY_TEMPLATE_VERSION) {
+      await replaceSurveyStructure(fullTemplate.id, {
+        sections: payload.sections,
+        cascade_section_ids: fullTemplate.sections?.map((section) => section.id) ?? [],
+        expected_updated_at: fullTemplate.updatedAt,
+      })
+      await updateSurvey(fullTemplate.surveyId, {
+        title: payload.title,
+        description: payload.description,
+      })
+      fullTemplate = await fetchSurvey(fullTemplate.surveyId)
+    }
     cachedTemplateRef.current = fullTemplate
     return fullTemplate
   }
@@ -298,28 +496,7 @@ export function useSurveyManagement({ permissions, csvExportEnabled }: UseSurvey
 
     await runExclusive({ type: "edit", surveyId: "template" }, async () => {
       try {
-        let full = await getTemplateSurvey()
-
-        if (full && full.title === "Master Survey Template") {
-          const payload = createGraduateTracerStudySurveyPayload(createClientId)
-          await replaceSurveyStructure(full.id, {
-            sections: payload.sections,
-            cascade_section_ids: [],
-            expected_updated_at: full.updatedAt,
-          })
-          await updateSurvey(full.surveyId, {
-            title: payload.title,
-            description: payload.description,
-          })
-          full = await fetchSurvey(full.surveyId)
-          cachedTemplateRef.current = full
-        } else if (!full) {
-          full = await createSurveyWithStructure({
-            ...createGraduateTracerStudySurveyPayload(createClientId),
-            is_template: true,
-          })
-          cachedTemplateRef.current = full
-        }
+        const full = await getTemplateSurvey()
         
         setSurveyTitle(full.title)
         setSurveyDescription(full.description ?? "")
@@ -452,11 +629,23 @@ export function useSurveyManagement({ permissions, csvExportEnabled }: UseSurvey
     }
   }
 
-  const refreshResponseState = async (survey: Survey) => {
+  const refreshResponseState = async (survey: Survey, requireActiveView = false) => {
+    const refreshVersion = responseRequestRef.current
+    const activeModal = modalStateRef.current
+    if (requireActiveView && (!activeModal || activeModal.type !== "view" || activeModal.id !== survey.id)) return
     const shouldReloadRaw = rawResponsesLoaded
     const shouldReloadIdentity = identityLoaded
     const currentOffset = responsePagination?.offset ?? 0
     const refreshed = await fetchSurvey(survey.surveyId)
+    const refreshedModal = modalStateRef.current
+    if (
+      responseRequestRef.current !== refreshVersion ||
+      (requireActiveView && (
+        !refreshedModal ||
+        refreshedModal.type !== "view" ||
+        refreshedModal.id !== survey.id
+      ))
+    ) return
     setSurveys((previous) => previous.map((item) => item.id === refreshed.id ? refreshed : item))
     clearResponseState()
     setResponseSurveyId(getSurveyResponseResourceId(refreshed))
@@ -576,8 +765,8 @@ export function useSurveyManagement({ permissions, csvExportEnabled }: UseSurvey
         const fullTemplate = await getTemplateSurvey()
         setPreviewSurvey(fullTemplate)
         setShowGeneratePreview(true)
-      } catch (_) {
-        toast.error("We could not load the preview.")
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : "We could not load or update the survey template.")
       }
     })
   }
@@ -588,30 +777,24 @@ export function useSurveyManagement({ permissions, csvExportEnabled }: UseSurvey
       setGenerating(true)
       try {
         const fullTemplate = await getTemplateSurvey()
-
-        let payload;
-        if (fullTemplate) {
-          payload = {
-            title: fullTemplate.title,
-            description: fullTemplate.description ?? null,
-            target_cohort: fullTemplate.targetCohort ?? null,
-            status: "Inactive" as const,
-            sections: fullTemplate.sections?.map((s) => ({
+        const payload = {
+          title: fullTemplate.title,
+          description: fullTemplate.description ?? null,
+          target_cohort: fullTemplate.targetCohort ?? null,
+          status: "Inactive" as const,
+          sections: fullTemplate.sections?.map((s) => ({
+            client_id: createClientId(),
+            title: s.title,
+            description: s.description ?? null,
+            questions: s.questions.map((q) => ({
               client_id: createClientId(),
-              title: s.title,
-              description: s.description ?? null,
-              questions: s.questions.map((q) => ({
-                client_id: createClientId(),
-                question_text: q.text,
-                question_type: q.type,
-                options: q.options ?? null,
-                config: q.config ?? null,
-                is_required: q.isRequired ?? true,
-              })),
-            })) ?? [],
-          }
-        } else {
-          payload = createGraduateTracerStudySurveyPayload(createClientId)
+              question_text: q.text,
+              question_type: q.type,
+              options: q.options ?? null,
+              config: q.config ?? null,
+              is_required: q.isRequired ?? true,
+            })),
+          })) ?? [],
         }
 
         const created = await createSurveyWithStructure(payload)
@@ -867,6 +1050,142 @@ export function useSurveyManagement({ permissions, csvExportEnabled }: UseSurvey
     }))
   }
 
+  const getQuestionOptionsByKey = (key: string): string[] => {
+    for (const section of sections) {
+      const source = section.questions.find((question) => questionKey(question) === key)
+      if (source) return [...(source.options ?? [])]
+    }
+    return []
+  }
+
+  const updateDependentOption = (
+    secIdx: number,
+    qIdx: number,
+    sourceAnswer: string,
+    optionIndex: number,
+    value: string,
+  ) => {
+    setSections((prev) => {
+      const next = [...prev]
+      const section = { ...next[secIdx]! }
+      const questions = [...section.questions]
+      const currentQuestion = questions[qIdx]!
+      const dependency = dependentChoices(currentQuestion)
+      if (!dependency) return prev
+
+      const choices: Record<string, unknown> = { ...dependency.choices }
+      const options = copyChoiceList(choices[sourceAnswer])
+      const previousValue = options[optionIndex]
+      options[optionIndex] = value
+      choices[sourceAnswer] = options
+      questions[qIdx] = questionWithDependentChoices(
+        currentQuestion,
+        choices,
+        typeof previousValue === "string" ? { replaced: { from: previousValue, to: value } } : undefined,
+      )
+      section.questions = questions
+      next[secIdx] = section
+      return next
+    })
+  }
+
+  const addDependentOption = (
+    secIdx: number,
+    qIdx: number,
+    sourceAnswer: string,
+  ) => {
+    setSections((prev) => {
+      const next = [...prev]
+      const section = { ...next[secIdx]! }
+      const questions = [...section.questions]
+      const currentQuestion = questions[qIdx]!
+      const dependency = dependentChoices(currentQuestion)
+      if (!dependency) return prev
+
+      const choices: Record<string, unknown> = { ...dependency.choices }
+      const options = copyChoiceList(choices[sourceAnswer])
+      options.push("")
+      choices[sourceAnswer] = options
+      questions[qIdx] = questionWithDependentChoices(currentQuestion, choices)
+      section.questions = questions
+      next[secIdx] = section
+      return next
+    })
+  }
+
+  const removeDependentOption = (
+    secIdx: number,
+    qIdx: number,
+    sourceAnswer: string,
+    optionIndex: number,
+  ) => {
+    setSections((prev) => {
+      const next = [...prev]
+      const section = { ...next[secIdx]! }
+      const questions = [...section.questions]
+      const currentQuestion = questions[qIdx]!
+      const dependency = dependentChoices(currentQuestion)
+      if (!dependency) return prev
+
+      const choices: Record<string, unknown> = { ...dependency.choices }
+      const options = copyChoiceList(choices[sourceAnswer])
+      options.splice(optionIndex, 1)
+      if (options.length > 0) choices[sourceAnswer] = options
+      else delete choices[sourceAnswer]
+      questions[qIdx] = questionWithDependentChoices(currentQuestion, choices)
+      section.questions = questions
+      next[secIdx] = section
+      return next
+    })
+  }
+
+  const moveDependentOption = (
+    secIdx: number,
+    qIdx: number,
+    sourceAnswer: string,
+    from: number,
+    to: number,
+  ) => {
+    setSections((prev) => {
+      const next = [...prev]
+      const section = { ...next[secIdx]! }
+      const questions = [...section.questions]
+      const currentQuestion = questions[qIdx]!
+      const dependency = dependentChoices(currentQuestion)
+      if (!dependency) return prev
+
+      const choices: Record<string, unknown> = { ...dependency.choices }
+      const options = copyChoiceList(choices[sourceAnswer]) as string[]
+      choices[sourceAnswer] = moveInArray(options, from, to)
+      questions[qIdx] = questionWithDependentChoices(currentQuestion, choices)
+      section.questions = questions
+      next[secIdx] = section
+      return next
+    })
+  }
+
+  const removeDependentBranch = (
+    secIdx: number,
+    qIdx: number,
+    sourceAnswer: string,
+  ) => {
+    setSections((prev) => {
+      const next = [...prev]
+      const section = { ...next[secIdx]! }
+      const questions = [...section.questions]
+      const currentQuestion = questions[qIdx]!
+      const dependency = dependentChoices(currentQuestion)
+      if (!dependency) return prev
+
+      const choices: Record<string, unknown> = { ...dependency.choices }
+      delete choices[sourceAnswer]
+      questions[qIdx] = questionWithDependentChoices(currentQuestion, choices)
+      section.questions = questions
+      next[secIdx] = section
+      return next
+    })
+  }
+
   const moveColumn = (
     sectionId: string,
     questionId: string,
@@ -959,9 +1278,15 @@ export function useSurveyManagement({ permissions, csvExportEnabled }: UseSurvey
       const next = [...prev]
       const sec = { ...next[secIdx]! }
       const qs = [...sec.questions]
-      qs[qIdx] = { ...qs[qIdx]!, ...patch }
+      const previousQuestion = qs[qIdx]!
+      const updatedQuestion = { ...previousQuestion, ...patch }
+      qs[qIdx] = updatedQuestion
       sec.questions = qs
       next[secIdx] = sec
+      const sourceKey = questionKey(previousQuestion)
+      if (sourceKey && patch.options !== undefined) {
+        return synchronizeDependentChoices(next, sourceKey, updatedQuestion.options ?? [])
+      }
       return next
     })
   }
@@ -981,13 +1306,25 @@ export function useSurveyManagement({ permissions, csvExportEnabled }: UseSurvey
       const next = [...prev]
       const sec = { ...next[secIdx]! }
       const qs = [...sec.questions]
-      const q = { ...qs[qIdx]! }
+      const previousQuestion = qs[qIdx]!
+      const q = { ...previousQuestion }
       const opts = [...(q.options ?? [])]
+      const previousValue = opts[optIdx] ?? ""
       opts[optIdx] = value
+      const sourceKey = questionKey(previousQuestion)
+      if (sourceKey && previousValue !== value && !value.trim() && hasVisibleOptionReference(prev, sourceKey, previousValue)) {
+        toast.error(`Cannot clear "${previousValue}" because another question uses it as a visibility condition. Rename it first.`)
+        return prev
+      }
       q.options = opts
       qs[qIdx] = q
       sec.questions = qs
       next[secIdx] = sec
+      if (sourceKey) {
+        return synchronizeDependentChoices(next, sourceKey, opts, {
+          renamed: { from: previousValue, to: value },
+        })
+      }
       return next
     })
   }
@@ -997,13 +1334,23 @@ export function useSurveyManagement({ permissions, csvExportEnabled }: UseSurvey
       const next = [...prev]
       const sec = { ...next[secIdx]! }
       const qs = [...sec.questions]
-      const q = { ...qs[qIdx]! }
+      const previousQuestion = qs[qIdx]!
+      const q = { ...previousQuestion }
       const opts = [...(q.options ?? [])]
+      const removedValue = opts[optIdx] ?? ""
+      const sourceKey = questionKey(previousQuestion)
+      if (sourceKey && hasVisibleOptionReference(prev, sourceKey, removedValue)) {
+        toast.error(`Cannot remove "${removedValue}" because another question uses it as a visibility condition. Rename it first.`)
+        return prev
+      }
       opts.splice(optIdx, 1)
       q.options = opts
       qs[qIdx] = q
       sec.questions = qs
       next[secIdx] = sec
+      if (sourceKey) {
+        return synchronizeDependentChoices(next, sourceKey, opts, { removed: removedValue })
+      }
       return next
     })
   }
@@ -1013,13 +1360,16 @@ export function useSurveyManagement({ permissions, csvExportEnabled }: UseSurvey
       const next = [...prev]
       const sec = { ...next[secIdx]! }
       const qs = [...sec.questions]
-      const q = { ...qs[qIdx]! }
+      const previousQuestion = qs[qIdx]!
+      const q = { ...previousQuestion }
       const opts = [...(q.options ?? [])]
       opts.push("")
       q.options = opts
       qs[qIdx] = q
       sec.questions = qs
       next[secIdx] = sec
+      const sourceKey = questionKey(previousQuestion)
+      if (sourceKey) return synchronizeDependentChoices(next, sourceKey, opts)
       return next
     })
   }
@@ -1104,6 +1454,7 @@ export function useSurveyManagement({ permissions, csvExportEnabled }: UseSurvey
       handleViewResponses,
       handleLoadRawResponses,
       handleLoadIdentityResponses,
+      handleRefreshResponseState: (survey: Survey) => refreshResponseState(survey, true),
       handleExportResponses,
       handleEraseResponses,
       handleOpenEdit,
@@ -1116,6 +1467,12 @@ export function useSurveyManagement({ permissions, csvExportEnabled }: UseSurvey
       moveQuestion,
       moveQuestionBy,
       moveOption,
+      getQuestionOptionsByKey,
+      updateDependentOption,
+      addDependentOption,
+      removeDependentOption,
+      moveDependentOption,
+      removeDependentBranch,
       moveColumn,
       handleDragStart,
       handleDrop,

@@ -9,6 +9,12 @@ import {
   createGraduateTracerStudySurveyPayload,
 } from "./constants"
 import { validateSurveyStructure } from "@/lib/survey-structure"
+import {
+  JOB_INDUSTRIES,
+  JOB_INDUSTRY_CATEGORIES,
+  JOB_TITLES,
+  PASIG_BARANGAYS,
+} from "./graduate-tracer-options"
 
 describe("Graduate Tracer Study survey definition", () => {
   it("keeps the canonical title and exact survey description together", () => {
@@ -25,7 +31,7 @@ describe("Graduate Tracer Study survey definition", () => {
   })
 
   it("contains the exact intro, profile, PEII, and feedback questions", () => {
-    expect(GRADUATE_TRACER_STUDY_SURVEY.sections).toHaveLength(13)
+    expect(GRADUATE_TRACER_STUDY_SURVEY.sections).toHaveLength(14)
     expect(GRADUATE_TRACER_STUDY_SURVEY.sections[0]).toMatchObject({
       title: "Intro",
       questions: [
@@ -36,7 +42,10 @@ describe("Graduate Tracer Study survey definition", () => {
         },
       ],
     })
-    expect(GRADUATE_TRACER_STUDY_SURVEY.sections[1]).toMatchObject({
+    expect({
+      title: GRADUATE_TRACER_STUDY_SURVEY.sections[1]?.title,
+      questions: GRADUATE_TRACER_STUDY_SURVEY.sections[1]?.questions.slice(0, 10),
+    }).toMatchObject({
       title: "SECTION I : RESPONDENT'S PROFILE",
       questions: [
         { question_text: "Name*: Surname, First name, Middle Initial (e.g. Dela Cruz, Juan A.)", question_type: "text", options: null },
@@ -76,9 +85,9 @@ describe("Graduate Tracer Study survey definition", () => {
       ],
     })
 
-    const phaseOneSections = GRADUATE_TRACER_STUDY_SURVEY.sections.slice(0, 7)
-    const phaseTwoSections = GRADUATE_TRACER_STUDY_SURVEY.sections.slice(7, 12)
-    const feedbackSection = GRADUATE_TRACER_STUDY_SURVEY.sections[12]
+    const phaseOneSections = GRADUATE_TRACER_STUDY_SURVEY.sections.slice(0, 8)
+    const phaseTwoSections = GRADUATE_TRACER_STUDY_SURVEY.sections.slice(9, 14)
+    const feedbackSection = GRADUATE_TRACER_STUDY_SURVEY.sections[7]
     const peiiSections = phaseOneSections.slice(2, 7)
     expect(peiiSections.map(({ title }) => title)).toEqual([
       "SECTION II-A - PEII Core Impact Measurement: A. Employability and Economic Mobility",
@@ -166,21 +175,65 @@ describe("Graduate Tracer Study survey definition", () => {
     expect(phaseTwoSections.flatMap(({ questions }) => questions).every(({ config }) => config?.survey_phase === 2)).toBe(true)
   })
 
-  it("builds a thirteen-section, 64-question payload with 39 phase-one and 25 phase-two questions", () => {
+  it("includes the branched barangay and employment questions from the questionnaire", () => {
+    const profile = GRADUATE_TRACER_STUDY_SURVEY.sections[1]
+    const employment = GRADUATE_TRACER_STUDY_SURVEY.sections[8]
+    expect(profile?.questions.at(-2)).toMatchObject({
+      question_text: "Current Location:",
+      config: { question_key: "current_location", survey_phase: 1 },
+    })
+    expect(profile?.questions.at(-1)).toMatchObject({
+      question_text: "If you currently live in Pasig City, which barangay do you live in?",
+      options: [...PASIG_BARANGAYS],
+      config: { visible_when: { question_key: "current_location", equals: "Pasig City" }, survey_phase: 1 },
+    })
+    expect(PASIG_BARANGAYS).toHaveLength(30)
+    expect(employment?.title).toBe("SECTION I-B : POST-GRADUATION EMPLOYMENT PROFILE")
+    expect(employment?.questions).toHaveLength(15)
+    expect(employment?.questions[4]).toMatchObject({
+      question_text: "Which industry do you work in?",
+      options: JOB_INDUSTRIES,
+      config: { question_key: "job_industry", survey_phase: 2 },
+    })
+    expect(JOB_INDUSTRIES).toHaveLength(30)
+    expect(Object.values(JOB_INDUSTRY_CATEGORIES).every((choices) => choices.includes("Other (specify)"))).toBe(true)
+    expect(employment?.questions[5]?.config).toMatchObject({
+      question_key: "job_category",
+      options_by_answer: { question_key: "job_industry", choices: JOB_INDUSTRY_CATEGORIES },
+      survey_phase: 2,
+    })
+    expect(employment?.questions[6]?.config).toMatchObject({
+      visible_when: { question_key: "job_category" },
+      survey_phase: 2,
+    })
+    expect(employment?.questions[7]).toMatchObject({
+      question_text: "Which role or job title best describes your work?",
+      options: [...JOB_TITLES],
+      config: { question_key: "job_role", presentation: "searchable_dropdown", survey_phase: 2 },
+    })
+    expect(JOB_TITLES).toHaveLength(104)
+    expect(new Set(JOB_TITLES).size).toBe(104)
+    expect(employment?.questions[8]?.config).toMatchObject({
+      visible_when: { question_key: "job_role", equals: "Other job title (specify)" },
+      survey_phase: 2,
+    })
+    expect(employment?.questions.every(({ config }) => config?.survey_phase === 2)).toBe(true)
+  })
+
+  it("builds a fourteen-section, 80-question payload with 40 questions in each phase", () => {
     const payload = createGraduateTracerStudySurveyPayload(() => "client-id")
     const questions = payload.sections.flatMap(({ questions: sectionQuestions }) => sectionQuestions)
 
     expect(payload.title).toBe(GRADUATE_TRACER_STUDY_SURVEY_TITLE)
     expect(payload.description).toBe(GRADUATE_TRACER_STUDY_SURVEY_DESCRIPTION)
-    expect(payload.sections).toHaveLength(13)
-    expect(questions).toHaveLength(64)
+    expect(payload.sections).toHaveLength(14)
+    expect(questions).toHaveLength(80)
     const phaseOneQuestions = [
-      ...payload.sections.slice(0, 7).flatMap(({ questions: sectionQuestions }) => sectionQuestions),
-      ...(payload.sections[12]?.questions ?? []),
+      ...payload.sections.slice(0, 8).flatMap(({ questions: sectionQuestions }) => sectionQuestions),
     ]
-    const phaseTwoQuestions = payload.sections.slice(7, 12).flatMap(({ questions: sectionQuestions }) => sectionQuestions)
-    expect(phaseOneQuestions).toHaveLength(39)
-    expect(phaseTwoQuestions).toHaveLength(25)
+    const phaseTwoQuestions = payload.sections.slice(8, 14).flatMap(({ questions: sectionQuestions }) => sectionQuestions)
+    expect(phaseOneQuestions).toHaveLength(40)
+    expect(phaseTwoQuestions).toHaveLength(40)
     expect(questions.every(({ is_required }) => is_required)).toBe(true)
     expect(phaseOneQuestions.every(({ config }) => config?.survey_phase === 1)).toBe(true)
     expect(phaseTwoQuestions.every(({ config }) => config?.survey_phase === 2)).toBe(true)

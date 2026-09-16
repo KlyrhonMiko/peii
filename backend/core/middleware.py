@@ -1,5 +1,6 @@
 import json
 from typing import Any
+from uuid import UUID
 
 from starlette.datastructures import Headers, MutableHeaders
 from starlette.types import ASGIApp, Receive, Scope, Send
@@ -53,14 +54,64 @@ def get_request_id() -> str | None:
 class RequestSizeLimitMiddleware:
     """Reject oversized bodies before FastAPI/Pydantic parses them."""
 
-    def __init__(self, app: ASGIApp, max_body_bytes: int) -> None:
+    def __init__(
+        self,
+        app: ASGIApp,
+        max_body_bytes: int,
+        *,
+        api_prefix: str | None = None,
+        import_body_bytes: int | None = None,
+    ) -> None:
         self.app = app
         self.max_body_bytes = max_body_bytes
+        self.api_prefix = api_prefix.rstrip("/") if api_prefix else None
+        self.import_body_bytes = import_body_bytes
+
+    def _max_body_bytes_for_scope(self, scope: Scope) -> int:
+        """Return the cap for one request without broadening route matching.
+
+        CSV imports are the only currently supported large browser uploads.  Keep the
+        exception tied to the two exact response-import actions under one survey UUID;
+        every other route continues using the normal request cap.
+        """
+        if (
+            self.import_body_bytes is None
+            or self.api_prefix is None
+            or scope.get("method") != "POST"
+        ):
+            return self.max_body_bytes
+
+        path = str(scope.get("path", "")).rstrip("/")
+        prefix = f"{self.api_prefix}/surveys/"
+        if not path.startswith(prefix):
+            return self.max_body_bytes
+
+        resource = path[len(self.api_prefix) + 1 :].split("/")
+        is_import_action = len(resource) == 4 and resource[3] == "import"
+        is_import_validation = (
+            len(resource) == 5
+            and resource[3] == "import"
+            and resource[4] == "validate"
+        )
+        try:
+            survey_id = UUID(resource[1])
+        except (IndexError, ValueError):
+            survey_id = None
+        if (
+            resource[0] == "surveys"
+            and survey_id is not None
+            and resource[2] == "responses"
+            and (is_import_action or is_import_validation)
+        ):
+            return self.import_body_bytes
+        return self.max_body_bytes
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http":
             await self.app(scope, receive, send)
             return
+
+        max_body_bytes = self._max_body_bytes_for_scope(scope)
 
         content_length = Headers(scope=scope).get("content-length")
         if content_length is not None:
@@ -68,7 +119,7 @@ class RequestSizeLimitMiddleware:
                 declared_length = int(content_length)
             except ValueError:
                 declared_length = 0
-            if declared_length > self.max_body_bytes:
+            if declared_length > max_body_bytes:
                 await self._send_too_large(send)
                 return
 
@@ -86,7 +137,7 @@ class RequestSizeLimitMiddleware:
             message = await receive()
             if message["type"] == "http.request":
                 received_bytes += len(message.get("body", b""))
-                if received_bytes > self.max_body_bytes:
+                if received_bytes > max_body_bytes:
                     raise RequestTooLargeError()
             return message
 
@@ -110,6 +161,9 @@ class RequestSizeLimitMiddleware:
             }
         )
         await send({"type": "http.response.body", "body": body})
+
+
+IMPORT_REQUEST_BODY_BYTES = 2 * 1024 * 1024
 
 
 class SecurityHeadersMiddleware:

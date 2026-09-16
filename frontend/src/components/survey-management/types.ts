@@ -32,5 +32,6 @@ export interface SurveyCapabilities {
   readRaw: boolean
   readIdentity?: boolean
   export: boolean
+  import: boolean
   erase: boolean
 }

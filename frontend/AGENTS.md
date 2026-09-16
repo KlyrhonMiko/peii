@@ -146,8 +146,11 @@ before assuming it is not active.
   capabilities and the backend remains the authorization boundary.
 - Authenticated browser CRUD uses the allowlisted same-origin `/api/backend` proxy, which
   forwards the Supabase bearer token and checks unsafe request origins.
-- The BFF caps request bodies at 65,536 bytes with a 15-second body-read deadline. Its
-  upstream deadline is 15 seconds for response headers only; client cancellation propagates,
+- The BFF caps ordinary request bodies at 65,536 bytes with a 15-second body-read deadline.
+  Only the exact survey-response CSV import validation and commit POST routes permit a bounded
+  2 MiB body, a 30-second body-read deadline, and a 60-second upstream-header deadline; they
+  retain the same authentication, origin, and allowlist checks. Ordinary requests retain the
+  15-second upstream-header deadline. Client cancellation propagates,
   requests are not retried, and locally generated errors use `no-store`. See the canonical
   Phase 4 operational details in `docs/production-decisions.md` and
   `docs/deployment-roadmap.md`.

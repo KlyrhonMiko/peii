@@ -4,7 +4,7 @@ const mockApi = vi.hoisted(() => ({
   get: vi.fn(),
   post: vi.fn(),
   patch: vi.fn(),
-  raw: { get: vi.fn() },
+  raw: { get: vi.fn(), post: vi.fn() },
 }))
 
 vi.mock("@/lib/api", () => ({ api: mockApi }))
@@ -20,6 +20,9 @@ import {
   fetchResponsesWithIdentity,
   mapSurvey,
   updateSurvey,
+  downloadSurveyResponseImportTemplate,
+  validateSurveyResponseImport,
+  importSurveyResponses,
 } from "./surveys"
 
 describe("mapSurvey", () => {
@@ -39,12 +42,14 @@ describe("mapSurvey", () => {
       is_deleted: false,
       deleted_at: null,
       performed_by: null,
+      is_template: true,
     })
 
     expect(survey.responses).toBeNull()
     expect(survey.hasResponseHistory).toBeNull()
     expect(survey.retentionEnabled).toBe(false)
     expect(survey.retentionDays).toBe(90)
+    expect(survey.isTemplate).toBe(true)
   })
 })
 
@@ -245,6 +250,65 @@ describe("response privacy API operations", () => {
     expect(mockApi.get).toHaveBeenCalledWith("/surveys/survey-id/responses/export")
     expect(result.download_url).toBe("https://storage.example.test/x")
     expect(mockApi.raw.get).not.toHaveBeenCalled()
+  })
+
+  it("downloads the selected survey's CSV import template as text/csv", async () => {
+    const blob = new Blob(["submitted_at,q-1\n"])
+    mockApi.raw.get.mockResolvedValue({
+      blob: async () => blob,
+      headers: new Headers({ "Content-Disposition": 'attachment; filename="survey.csv"' }),
+    })
+
+    const result = await downloadSurveyResponseImportTemplate("survey-id")
+
+    expect(mockApi.raw.get).toHaveBeenCalledWith(
+      "/surveys/survey-id/responses/import-template",
+      { headers: { Accept: "text/csv" }, timeout: 60_000 },
+    )
+    expect(result.blob).toBe(blob)
+    expect(result.filename).toBe("survey.csv")
+  })
+
+  it("sends raw CSV bytes to validation and commit endpoints", async () => {
+    const csv = "submitted_at,q-1\n2026-01-01T00:00:00+08:00,Good\n"
+    mockApi.raw.post
+      .mockResolvedValueOnce({
+        json: async () => ({
+          data: { survey_id: "survey-id", valid: true, row_count: 1, error_count: 0, errors: [] },
+        }),
+      })
+      .mockResolvedValueOnce({
+        json: async () => ({ data: { survey_id: "survey-id", imported_count: 1 } }),
+      })
+
+    await expect(validateSurveyResponseImport("survey-id", csv)).resolves.toMatchObject({
+      survey_id: "survey-id",
+      valid: true,
+      row_count: 1,
+    })
+    await expect(importSurveyResponses("survey-id", csv)).resolves.toEqual({
+      survey_id: "survey-id",
+      imported_count: 1,
+    })
+
+    expect(mockApi.raw.post).toHaveBeenNthCalledWith(
+      1,
+      "/surveys/survey-id/responses/import/validate",
+      csv,
+      {
+        headers: { Accept: "application/json", "Content-Type": "text/csv; charset=utf-8" },
+        timeout: 60_000,
+      },
+    )
+    expect(mockApi.raw.post).toHaveBeenNthCalledWith(
+      2,
+      "/surveys/survey-id/responses/import",
+      csv,
+      {
+        headers: { Accept: "application/json", "Content-Type": "text/csv; charset=utf-8" },
+        timeout: 60_000,
+      },
+    )
   })
 
   it("uses the exact erase endpoint and forwards the idempotency key", async () => {

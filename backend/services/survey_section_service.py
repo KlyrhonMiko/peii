@@ -12,6 +12,7 @@ from models.survey_section import SurveySection
 from schemas.survey_section import SurveySectionCreate, SurveySectionUpdate
 from services.audit_service import AuditEvent, commit_with_audit
 from services.base_service import apply_updates, utc_now
+from services.question_validation import QuestionDefinition, validate_question_structure
 from services.survey_service import get_survey_for_structure_edit
 
 
@@ -26,6 +27,20 @@ async def _validate_survey_exists(session: AsyncSession, survey_id: UUID) -> Sur
     if not survey:
         raise AppError("Survey not found.", status_code=status.HTTP_404_NOT_FOUND)
     return survey
+
+
+def _question_definition(question: SurveyQuestion) -> QuestionDefinition:
+    return (question.question_type, question.options, question.config)
+
+
+def _validate_structure(questions: list[QuestionDefinition]) -> None:
+    try:
+        validate_question_structure(questions)
+    except ValueError as exc:
+        raise AppError(
+            f"Survey structure is invalid: {exc}",
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+        ) from exc
 
 
 async def list_sections(session: AsyncSession, survey_id: UUID) -> list[SurveySection]:
@@ -200,6 +215,26 @@ async def delete_section(
             status_code=status.HTTP_409_CONFLICT,
         )
 
+    active_questions_result = await session.exec(
+        select(SurveyQuestion)
+        .join(SurveySection, col(SurveySection.id) == SurveyQuestion.section_id)
+        .where(
+            col(SurveyQuestion.survey_id) == survey.id,
+            col(SurveyQuestion.is_deleted).is_(False),
+            col(SurveySection.is_deleted).is_(False),
+        )
+        .order_by(
+            col(SurveySection.order_index),
+            col(SurveySection.id),
+            col(SurveyQuestion.order_index),
+            col(SurveyQuestion.id),
+        )
+    )
+    remaining_questions = [
+        question for question in active_questions_result.all() if question.section_id != section.id
+    ]
+    _validate_structure([_question_definition(question) for question in remaining_questions])
+
     now = utc_now()
     section.is_deleted = True
     section.deleted_at = now
@@ -278,6 +313,24 @@ async def reorder_sections(
     ]
     if not changes:
         return sorted(sections_by_id.values(), key=lambda s: (s.order_index, s.id))
+
+    questions_result = await session.exec(
+        select(SurveyQuestion)
+        .where(
+            col(SurveyQuestion.survey_id) == survey.id,
+            col(SurveyQuestion.is_deleted).is_(False),
+        )
+        .order_by(col(SurveyQuestion.order_index), col(SurveyQuestion.id))
+    )
+    questions_by_section: dict[UUID, list[SurveyQuestion]] = {}
+    for question in questions_result.all():
+        questions_by_section.setdefault(question.section_id, []).append(question)
+    candidate_questions = [
+        question
+        for section_id in section_ids
+        for question in questions_by_section.get(section_id, [])
+    ]
+    _validate_structure([_question_definition(question) for question in candidate_questions])
 
     changed_section_ids = {event.resource_id for event in changes}
     sections = [sections_by_id[section_id] for section_id in section_ids]

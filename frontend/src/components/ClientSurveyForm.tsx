@@ -35,6 +35,12 @@ import {
   type PublicSurveyQuestion,
   type PublicSurveySubmission,
 } from "@/lib/public-survey"
+import {
+  availableQuestionOptions,
+  isQuestionVisible,
+  pruneConditionalAnswers,
+  questionsByKey,
+} from "@/lib/survey-conditions"
 
 import { SurveyConsentCard } from "./public-survey/SurveyConsentCard"
 import { QuestionInput } from "./public-survey/QuestionInput"
@@ -141,6 +147,12 @@ export function ClientSurveyForm({
   }, [])
 
   const section = sections[sectionIdx]
+  const allQuestions = useMemo(() => sections.flatMap((currentSection) => currentSection.questions), [sections])
+  const byKey = useMemo(() => questionsByKey(allQuestions), [allQuestions])
+  const visibleQuestionCount = allQuestions.filter((question) => isQuestionVisible(question, byKey, answers)).length
+  const answeredVisibleCount = allQuestions.filter((question) =>
+    isQuestionVisible(question, byKey, answers) && !isBlankAnswer(answers[question.id]),
+  ).length
 
   const groupedQuestions = useMemo(() => {
     if (!section) return []
@@ -158,6 +170,7 @@ export function ClientSurveyForm({
     }
 
     for (const question of section.questions) {
+      if (!isQuestionVisible(question, byKey, answers)) continue
       if (currentGroup.length === 0) {
         currentGroup.push(question)
       } else {
@@ -179,7 +192,7 @@ export function ClientSurveyForm({
       }
     }
     return groups
-  }, [section])
+  }, [section, byKey, answers])
 
   if (submitted) {
     return (
@@ -230,6 +243,7 @@ export function ClientSurveyForm({
     let isValid = true
     const newErrors: Record<string, string> = {}
     for (const question of section.questions) {
+      if (!isQuestionVisible(question, byKey, answers)) continue
       const value = answers[question.id]
       if (question.question_type === "matrix" && (question.is_required || !isBlankAnswer(value))) {
         const matrixError = matrixValidationError(question, value)
@@ -279,7 +293,7 @@ export function ClientSurveyForm({
 
   const setAnswer = (questionId: string, value: PublicAnswerValue) => {
     if (submitting) return
-    setAnswers((previous) => ({ ...previous, [questionId]: value }))
+    setAnswers((previous) => pruneConditionalAnswers(allQuestions, byKey, { ...previous, [questionId]: value }))
     if (errors[questionId]) {
       setErrors((previous) => {
         const next = { ...previous }
@@ -304,10 +318,11 @@ export function ClientSurveyForm({
     setSubmitError(null)
     setNeedsReload(false)
     try {
-      const submittedAnswers: PublicAnswers = { ...answers }
+      const submittedAnswers: PublicAnswers = pruneConditionalAnswers(allQuestions, byKey, answers)
       for (const currentSection of sections) {
         for (const question of currentSection.questions) {
-          if (!(question.id in submittedAnswers) && question.question_type === "ranking" && question.options) {
+          if (isQuestionVisible(question, byKey, submittedAnswers) &&
+              !(question.id in submittedAnswers) && question.question_type === "ranking" && question.options) {
             submittedAnswers[question.id] = question.options
           }
         }
@@ -440,7 +455,7 @@ export function ClientSurveyForm({
               
               <div className="flex items-end justify-between text-[13px] font-medium text-zinc-500">
                 <span className="text-[13px] text-zinc-500 font-medium tracking-wide uppercase">
-                  {Object.keys(answers).length} / {sections.reduce((total, current) => total + current.questions.length, 0)} answered
+                  {answeredVisibleCount} / {visibleQuestionCount} answered
                 </span>
                 <span className="tracking-wide">{Math.round(((sectionIdx + 1) / sections.length) * 100)}%</span>
               </div>
@@ -471,10 +486,13 @@ export function ClientSurveyForm({
                     />
                   )
                 }
+                const resolvedQuestion = item.config?.options_by_answer
+                  ? { ...item, options: availableQuestionOptions(item, byKey, answers) }
+                  : item
                 return (
                   <QuestionInput
                     key={item.id}
-                    question={item}
+                    question={resolvedQuestion}
                     answer={answers[item.id]}
                     error={errors[item.id]}
                     onAnswer={setAnswer}

@@ -15,7 +15,10 @@ from schemas.survey_structure import (
 )
 from services.audit_service import AuditEvent, commit_with_audit
 from services.base_service import utc_now
-from services.question_validation import validate_question_definition
+from services.question_validation import (
+    validate_question_definition,
+    validate_question_structure,
+)
 from services.survey_service import get_survey_for_structure_edit, structure_edit_conflict_error
 
 
@@ -47,6 +50,20 @@ async def replace_structure(
                     f"Question definition is invalid: {exc}",
                     status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 ) from exc
+
+    try:
+        validate_question_structure(
+            [
+                (question.question_type, question.options, question.config)
+                for section in payload.sections
+                for question in section.questions
+            ]
+        )
+    except ValueError as exc:
+        raise AppError(
+            f"Survey structure is invalid: {exc}",
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+        ) from exc
 
     survey = await get_survey_for_structure_edit(session, survey_id)
     if payload.expected_updated_at != survey.updated_at:

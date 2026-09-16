@@ -66,6 +66,7 @@ export function QuestionInput({
   userEmail,
 }: QuestionInputProps) {
   const [singleChoiceOpen, setSingleChoiceOpen] = useState(false)
+  const [choiceSearch, setChoiceSearch] = useState("")
   const errorId = `${question.id}-error`
   const hasError = Boolean(error)
   const fieldProps = {
@@ -74,6 +75,10 @@ export function QuestionInput({
   } as const
 
   const isEmailRecordQuestion = question.question_type === "text" && question.question_text.includes("Record <email>")
+  const searchableChoices = question.config?.presentation === "searchable_dropdown"
+  const displayedChoices = searchableChoices
+    ? (question.options ?? []).filter((option) => option.toLocaleLowerCase().includes(choiceSearch.trim().toLocaleLowerCase()))
+    : (question.options ?? [])
 
   return (
     <div
@@ -108,7 +113,10 @@ export function QuestionInput({
 
       {/* Single Choice */}
       {question.question_type === "single_choice" && (
-        <Popover open={singleChoiceOpen} onOpenChange={setSingleChoiceOpen}>
+        <Popover open={singleChoiceOpen} onOpenChange={(open) => {
+          setSingleChoiceOpen(open)
+          if (!open) setChoiceSearch("")
+        }}>
           <PopoverTrigger
             render={
               <button
@@ -128,9 +136,22 @@ export function QuestionInput({
           />
           <PopoverContent
             align="start"
-            className="flex w-(--anchor-width) min-w-[200px] flex-col gap-0.5 rounded-lg border border-slate-200 bg-white p-1 shadow-md animate-in fade-in-0 zoom-in-95 duration-100"
+            className="flex max-h-80 w-(--anchor-width) min-w-[200px] flex-col gap-0.5 overflow-y-auto rounded-lg border border-slate-200 bg-white p-1 shadow-md animate-in fade-in-0 zoom-in-95 duration-100"
           >
-            {(question.options ?? []).map((option) => {
+            {searchableChoices && (
+              <input
+                type="search"
+                value={choiceSearch}
+                onChange={(event) => setChoiceSearch(event.target.value)}
+                aria-label={`Search ${question.question_text}`}
+                placeholder="Search job titles…"
+                className="sticky top-0 mb-1 h-9 w-full rounded-md border border-zinc-200 bg-white px-2.5 text-sm outline-none focus:border-zinc-900"
+              />
+            )}
+            {displayedChoices.length === 0 && (
+              <p className="px-2.5 py-2 text-sm text-zinc-500">No matching choices</p>
+            )}
+            {displayedChoices.map((option) => {
               const isSelected = answer === option
               return (
                 <button

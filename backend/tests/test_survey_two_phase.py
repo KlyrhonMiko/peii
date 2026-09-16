@@ -69,6 +69,80 @@ async def _create_two_phase_survey(client) -> tuple[str, dict[str, str], dict[st
     return survey["survey_id"], phase_questions[1], phase_questions[2]
 
 
+async def _create_conditional_two_phase_survey(
+    client,
+) -> tuple[str, dict[str, str], dict[str, str]]:
+    survey_response = await client.post(
+        "/api/v1/surveys/", json={"title": f"Conditional two phase {uuid4()}"}
+    )
+    survey = survey_response.json()["data"]
+    phase_sections: dict[int, str] = {}
+    for phase in (1, 2):
+        section_response = await client.post(
+            f"/api/v1/surveys/{survey['id']}/sections/",
+            json={"title": f"Phase {phase}"},
+        )
+        phase_sections[phase] = section_response.json()["data"]["id"]
+
+    question_specs = {
+        1: [
+            {
+                "question_text": "Employment status",
+                "question_type": "single_choice",
+                "options": ["Employed", "Unemployed"],
+                "config": {"survey_phase": 1, "question_key": "employment_status"},
+            },
+            {
+                "question_text": "Employer name",
+                "question_type": "text",
+                "config": {
+                    "survey_phase": 1,
+                    "question_key": "employer_name",
+                    "visible_when": {
+                        "question_key": "employment_status",
+                        "equals": "Employed",
+                    },
+                },
+            },
+        ],
+        2: [
+            {
+                "question_text": "Need a follow-up?",
+                "question_type": "single_choice",
+                "options": ["Yes", "No"],
+                "config": {"survey_phase": 2, "question_key": "needs_follow_up"},
+            },
+            {
+                "question_text": "Follow-up",
+                "question_type": "text",
+                "config": {
+                    "survey_phase": 2,
+                    "question_key": "follow_up",
+                    "visible_when": {"question_key": "needs_follow_up", "equals": "Yes"},
+                },
+            },
+        ],
+    }
+    phase_questions: dict[int, dict[str, str]] = {1: {}, 2: {}}
+    for phase, specs in question_specs.items():
+        for index, question in enumerate(specs):
+            question_response = await client.post(
+                f"/api/v1/surveys/{survey['id']}/questions/",
+                json={**question, "section_id": phase_sections[phase]},
+            )
+            assert question_response.status_code == 201
+            question_data = question_response.json()["data"]
+            phase_questions[phase]["source" if index == 0 else "dependent"] = question_data[
+                "id"
+            ]
+
+    activated = await client.patch(
+        f"/api/v1/surveys/{survey['survey_id']}", json={"status": "Active"}
+    )
+    assert activated.status_code == 200
+    return survey["survey_id"], phase_questions[1], phase_questions[2]
+
+
 def _answers(question_ids: dict[str, str], value: str) -> dict[str, str]:
     return {question_id: f"{value}-{name}" for name, question_id in question_ids.items()}
 
@@ -156,6 +230,34 @@ async def test_two_phase_get_progression_and_withdrawal(client):
     )
     assert rejected_follow_up.status_code == 409
     assert rejected_follow_up.json()["errors"] == {"code": "withdrawn"}
+
+
+async def test_two_phase_allows_hidden_required_questions_to_be_omitted(client):
+    _use_stable_respondent()
+    token, phase1, phase2 = await _create_conditional_two_phase_survey(client)
+
+    submitted = await client.post(
+        f"/api/v1/survey/{token}/respond",
+        json=_submit_payload({phase1["source"]: "Unemployed"}),
+        headers={"Idempotency-Key": str(uuid4())},
+    )
+    assert submitted.status_code == 201
+
+    completed = await client.patch(
+        f"/api/v1/survey/{token}/respond",
+        json={"answers": {phase2["source"]: "No"}},
+        headers={"Idempotency-Key": str(uuid4())},
+    )
+    assert completed.status_code == 200
+    completed_get = await client.get(f"/api/v1/survey/{token}")
+    assert completed_get.json()["data"]["collection_state"] == "completed"
+
+    already_completed = await client.patch(
+        f"/api/v1/survey/{token}/respond",
+        json={"answers": {phase2["source"]: "No"}},
+        headers={"Idempotency-Key": str(uuid4())},
+    )
+    assert already_completed.status_code == 409
 
 
 async def test_two_phase_post_creates_one_row_and_patch_preserves_response_data(client):

@@ -31,6 +31,9 @@ def test_shared_survey_default_role_capabilities_are_exact():
         "researcher"
     ]
     assert {"portal.access", "ml.models.read"} <= DEFAULT_ROLES["staff"]
+    assert "survey_responses.import" in DEFAULT_ROLES["admin"]
+    assert "survey_responses.import" in DEFAULT_ROLES["researcher"]
+    assert "survey_responses.import" not in DEFAULT_ROLES["staff"]
 
 
 def override_principal(principal: Principal) -> None:

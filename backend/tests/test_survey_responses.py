@@ -86,6 +86,59 @@ async def _create_survey_with_question_specs(client, question_specs):
     return survey, question_ids, survey["survey_id"]
 
 
+async def _create_conditional_survey(client):
+    survey, question_ids, token = await _create_survey_with_question_specs(
+        client,
+        {
+            "industry": {
+                "question_text": "Industry",
+                "question_type": "single_choice",
+                "options": ["Technology", "Healthcare", "Other"],
+                "config": {"question_key": "industry"},
+            },
+            "category": {
+                "question_text": "Industry category",
+                "question_type": "single_choice",
+                "options": ["Software", "Clinical", "Hospitality"],
+                "config": {
+                    "question_key": "industry_category",
+                    "options_by_answer": {
+                        "question_key": "industry",
+                        "choices": {
+                            "Technology": ["Software"],
+                            "Healthcare": ["Clinical"],
+                        },
+                    },
+                },
+            },
+            "other": {
+                "question_text": "Explain the other selection",
+                "question_type": "text",
+                "config": {
+                    "question_key": "industry_other",
+                    "visible_when": {
+                        "question_key": "industry",
+                        "one_of": ["Other", "Not listed"],
+                    },
+                },
+            },
+        },
+    )
+    return survey, question_ids, token
+
+
+async def _submit_conditional_answers(client, token, answers):
+    return await client.post(
+        f"/api/v1/survey/{token}/respond",
+        json={
+            "answers": answers,
+            "consent": _consent(),
+            "withdrawal_code": secrets.token_urlsafe(32),
+        },
+        headers={"Idempotency-Key": str(uuid4())},
+    )
+
+
 def _override_permissions(*permissions: str) -> None:
     async def override() -> Principal:
         from models.user import User
@@ -321,6 +374,62 @@ async def test_response_validates_each_answer_type(client):
         headers={"Idempotency-Key": IDEMPOTENCY_KEY},
     )
     assert valid.status_code == 201
+
+
+async def test_conditional_answers_use_stable_keys_and_selected_options(client):
+    _, questions, token = await _create_conditional_survey(client)
+
+    invalid_category = await _submit_conditional_answers(
+        client,
+        token,
+        {
+            questions["industry"]: "Technology",
+            questions["category"]: "Clinical",
+        },
+    )
+    assert invalid_category.status_code == 422
+    assert any(
+        error["question_id"] == questions["category"]
+        and error["code"] == "invalid_answer"
+        for error in invalid_category.json()["errors"]
+    )
+
+    hidden_category = await _submit_conditional_answers(
+        client,
+        token,
+        {
+            questions["industry"]: "Other",
+            questions["category"]: "Software",
+            questions["other"]: "A different industry",
+        },
+    )
+    assert hidden_category.status_code == 422
+    assert any(
+        error["question_id"] == questions["category"]
+        and error["code"] == "hidden_question"
+        for error in hidden_category.json()["errors"]
+    )
+
+    valid_other = await _submit_conditional_answers(
+        client,
+        token,
+        {
+            questions["industry"]: "Other",
+            questions["other"]: "A different industry",
+        },
+    )
+    assert valid_other.status_code == 201
+
+    _, health_questions, health_token = await _create_conditional_survey(client)
+    valid_healthcare = await _submit_conditional_answers(
+        client,
+        health_token,
+        {
+            health_questions["industry"]: "Healthcare",
+            health_questions["category"]: "Clinical",
+        },
+    )
+    assert valid_healthcare.status_code == 201
 
 
 async def test_required_whitespace_answer_is_rejected(client):

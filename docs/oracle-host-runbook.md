@@ -75,7 +75,7 @@ configuration.
    then run `./.venv/bin/alembic upgrade head` **once** with the
    protected migration identity. Do not migrate independently from API replicas.
 4. Run `./.venv/bin/alembic check` after the upgrade (a pending database cannot pass this
-   check). Confirm revision `bf21a63040a2` is applied. Verify every application table has enabled,
+   check). Confirm revision `c1d2e3f4a5b6` is applied. Verify every application table has enabled,
     non-forced RLS, no policies, and no effective `PUBLIC`, `anon`, `authenticated`, or
     `service_role` table/column privileges. Only then run
     `systemctl enable --now peii-backend.service`, validate Caddy and enable its service. Verify

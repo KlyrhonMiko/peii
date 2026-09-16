@@ -44,4 +44,17 @@ describe("api requests", () => {
 
     await expect(pending).rejects.toMatchObject({ name: "AbortError" })
   })
+
+  it("passes text bodies through raw requests without JSON quoting", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200 })
+    vi.stubGlobal("fetch", fetchMock)
+
+    await api.raw.post("/surveys/survey-id/responses/import", "submitted_at,q-1\n", {
+      headers: { "Content-Type": "text/csv; charset=utf-8" },
+    })
+
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit]
+    expect(init.body).toBe("submitted_at,q-1\n")
+    expect(init.headers).toEqual({ "Content-Type": "text/csv; charset=utf-8" })
+  })
 })

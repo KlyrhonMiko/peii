@@ -54,6 +54,7 @@ describe("getSurveyCapabilities", () => {
       read: true,
       manage: false,
       erase: true,
+      import: false,
     })
   })
 
@@ -70,10 +71,16 @@ describe("getSurveyCapabilities", () => {
       manage: true,
       readAggregates: true,
        readRaw: true,
-       readIdentity: true,
+      readIdentity: true,
       export: true,
+      import: false,
       erase: false,
     })
+  })
+
+  it("keeps response import independent from the CSV export release flag", () => {
+    expect(getSurveyCapabilities(["survey_responses.import"], false).import).toBe(true)
+    expect(getSurveyCapabilities(["survey_responses.export"], false).import).toBe(false)
   })
 
   it("does not grant capabilities for near-match permissions", () => {
@@ -89,7 +96,8 @@ describe("getSurveyCapabilities", () => {
        readRaw: false,
        readIdentity: false,
        export: false,
-      erase: false,
+       import: false,
+       erase: false,
     })
   })
 })

@@ -21,6 +21,8 @@ interface NormalizedPreviewQuestion {
   type: string
   options: string[]
   isDropdown: boolean
+  conditionNote: string | null
+  hasDependentOptions: boolean
   min: number
   max: number
   minLabel: string | null
@@ -32,12 +34,18 @@ function normalizePreviewQuestion(question: PreviewQuestion): NormalizedPreviewQ
   const config = question.config
   const min = typeof config?.min === "number" ? config.min : 1
   const max = typeof config?.max === "number" ? config.max : 5
+  const visibility = config?.visible_when
+  const conditionNote = typeof visibility === "object" && visibility !== null && "question_key" in visibility
+    ? `Shown only when ${String(visibility.question_key).replaceAll("_", " ")} matches the selected answer.`
+    : null
 
   return {
     text: isStaticQuestion ? question.question_text : question.text,
     type: isStaticQuestion ? question.question_type : question.type,
     options: question.options ?? [],
-    isDropdown: config?.presentation === "dropdown",
+    isDropdown: config?.presentation === "dropdown" || config?.presentation === "searchable_dropdown",
+    conditionNote,
+    hasDependentOptions: config?.options_by_answer !== undefined,
     min,
     max,
     minLabel: typeof config?.min_label === "string" ? config.min_label : null,
@@ -51,7 +59,10 @@ export interface SurveyGeneratePreviewModalProps {
 
 export function SurveyGeneratePreviewModal({ store }: SurveyGeneratePreviewModalProps) {
   const { state, actions } = store
-  const { showGeneratePreview, previewSurvey, generating, interactionLocked } = state
+  const {
+    showGeneratePreview, previewSurvey,
+    generating, interactionLocked,
+  } = state
   const { setShowGeneratePreview, handleConfirmGenerate } = actions
 
   const title = previewSurvey?.title || GRADUATE_TRACER_STUDY_SURVEY_TITLE
@@ -120,6 +131,8 @@ export function SurveyGeneratePreviewModal({ store }: SurveyGeneratePreviewModal
                           <p className="text-sm font-medium text-slate-800 leading-snug">
                             {question.text}
                           </p>
+                          {question.conditionNote && <p className="mt-1 text-xs text-slate-500">{question.conditionNote}</p>}
+                          {question.hasDependentOptions && <p className="mt-1 text-xs text-slate-500">Choices depend on the selected job industry.</p>}
                           {question.isDropdown ? (
                            <Button
                              type="button"
@@ -127,9 +140,11 @@ export function SurveyGeneratePreviewModal({ store }: SurveyGeneratePreviewModal
                              disabled
                              className="mt-4 h-9 w-full max-w-xs justify-between text-sm font-normal text-slate-500"
                            >
-                             Select a degree program…
+                             Select an option…
                              <ChevronDown className="size-4 text-slate-400" />
                            </Button>
+                          ) : question.type === "single_choice" && question.options.length > 20 ? (
+                            <p className="mt-4 text-sm text-slate-500">{question.options.length} choices available.</p>
                           ) : question.type !== "scale" && question.options.length > 0 && (
                             <div className="mt-4 flex flex-col gap-3">
                               {question.options.map((opt, optIdx) => (

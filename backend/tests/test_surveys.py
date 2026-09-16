@@ -149,6 +149,38 @@ async def test_create_survey_with_invalid_structure_rolls_back_everything(client
     assert surveys.json()["data"] == []
 
 
+async def test_create_survey_with_structure_rejects_dangling_question_reference(client):
+    response = await client.post(
+        "/api/v1/surveys/with-structure",
+        json={
+            "title": "Dangling Dependency Survey",
+            "sections": [
+                {
+                    "client_id": "local-section",
+                    "title": "Main",
+                    "questions": [
+                        {
+                            "client_id": "local-question",
+                            "question_text": "Dependent",
+                            "question_type": "text",
+                            "config": {
+                                "visible_when": {
+                                    "question_key": "missing",
+                                    "equals": "Yes",
+                                },
+                            },
+                        }
+                    ],
+                }
+            ],
+        },
+    )
+
+    assert response.status_code == 422
+    assert "unknown question_key" in response.json()["message"]
+    assert (await client.get("/api/v1/surveys/")).json()["data"] == []
+
+
 async def test_create_survey_with_structure_rejects_persisted_ids(client):
     response = await client.post(
         "/api/v1/surveys/with-structure",

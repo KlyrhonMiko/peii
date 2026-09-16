@@ -21,9 +21,10 @@ Phase 3 response-operations implementation. The forward migration chain is:
   -> 7ac95c493227 (performance composite indexes)
   -> b43d56b55144 (survey question options/config JSONB)
   -> bf21a63040a2 (false-positive feedback Data API lockdown)
+  -> c1d2e3f4a5b6 (survey-response import permission)
 ```
 
-`bf21a63040a2` is the current Alembic head. Fresh environments and the production release job
+`c1d2e3f4a5b6` is the current Alembic head. Fresh environments and the production release job
 run `./.venv/bin/alembic upgrade head` once before API replicas are promoted. Phase 3 is **not**
 a rolling or independently deployable frontend/backend release: the request contract and
 retention writes change together. Block public submissions at ingress, drain and stop every old
@@ -61,8 +62,9 @@ After `a8055c9859f5`, `b9055c9859f6` adds the survey `is_template` flag, `f88b9c
 distribution table and the response distribution link (see above), and
 `3aad20b0fc8a`/`b0d864b9935b`/`a6c42481a0d9` ship ML sentiments, false-positive feedbacks, and
 survey polarity override respectively. `7ac95c493227` adds performance indexes,
-`b43d56b55144` converts survey-question options/config to JSONB, and `bf21a63040a2` locks down
-false-positive feedbacks. `bf21a63040a2` is the current head.
+`b43d56b55144` converts survey-question options/config to JSONB, `bf21a63040a2` locks down
+false-positive feedbacks, and `c1d2e3f4a5b6` grants the import capability to Admin and Researcher.
+`c1d2e3f4a5b6` is the current head.
 
 The distribution digest-only runtime contract (digest + prefix storage, one-time token reveal,
 30-day default/maximum expiry, nullable legacy expiry) was removed in `f88b9c1d0000`, which
@@ -86,8 +88,11 @@ removed with it.
 - The global Next.js proxy matcher excludes `/api`. The authenticated BFF at
   `/api/backend/[...path]` owns Supabase claims and session lookup before forwarding an
   allowlisted browser request to the backend.
-- The BFF accepts request bodies up to 65,536 bytes and gives body reads a 15-second deadline.
-  Its upstream timeout is 15 seconds while waiting for response headers only; an upstream body
+- The BFF accepts ordinary request bodies up to 65,536 bytes and gives body reads a 15-second deadline.
+  Only the allowlisted survey-response CSV import validation and commit POST paths permit a
+  bounded 2 MiB body, a 30-second body-read deadline, and a 60-second upstream-header deadline;
+  authentication and same-origin checks remain unchanged. Ordinary requests keep the 15-second
+  upstream-header timeout. An upstream body
   may continue streaming after headers arrive. Client cancellation is propagated, upstream
   requests are not retried, and locally generated BFF errors are `Cache-Control: no-store`.
 - `/api/v1/health` remains liveness-only. It is not a dependency-readiness check and must not be
@@ -324,7 +329,8 @@ verified subject/session/token buckets, with separate materially higher global c
 Login and recovery use normalized identifier buckets and their separate higher global breakers;
 they intentionally do not use the shared Next.js BFF peer or browser forwarding headers as an
 end-user identity. The global breakers are availability safeguards, not per-user budgets.
-Requests larger than 64 KiB are rejected before application parsing.
+Ordinary requests larger than 64 KiB are rejected before application parsing. Only the exact
+survey-response CSV import validation and commit POST paths permit up to 2 MiB.
 
 Local Compose uses `DATABASE_TLS_MODE=disable`; Supabase production requires
 `DATABASE_TLS_MODE=verify-full`. Psycopg2/Alembic use `sslmode=verify-full`, and asyncpg uses a
@@ -354,7 +360,7 @@ Execute this sequence without reordering:
 2. Enable the ingress maintenance/write-drain rule for public survey submissions and withdrawal,
    wait for in-flight writes to finish, and stop every old API replica. Keep submissions blocked
    until step 6; an old writer after the migration can create a null retention deadline.
-3. Run `./.venv/bin/alembic upgrade head` once. Confirm that `bf21a63040a2` is applied after
+3. Run `./.venv/bin/alembic upgrade head` once. Confirm that `c1d2e3f4a5b6` is applied after
    `b0d864b9935b` (which follows `3aad20b0fc8a` after `f88b9c1d0000`), verify the
    `survey_distributions` table is absent and the
    `uq_survey_responses_survey_idempotency` unique constraint is present, inspect the survey

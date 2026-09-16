@@ -2,7 +2,11 @@ import json
 
 import pytest
 
-from core.middleware import RequestIdMiddleware, RequestSizeLimitMiddleware
+from core.middleware import (
+    IMPORT_REQUEST_BODY_BYTES,
+    RequestIdMiddleware,
+    RequestSizeLimitMiddleware,
+)
 
 
 async def _run_asgi(
@@ -11,6 +15,7 @@ async def _run_asgi(
     headers: list[tuple[bytes, bytes]],
     body: bytes,
     path: str = "/upload",
+    method: str = "POST",
 ) -> list[dict]:
     messages: list[dict] = []
     sent = False
@@ -28,7 +33,7 @@ async def _run_asgi(
     await app(
         {
             "type": "http",
-            "method": "POST",
+            "method": method,
             "path": path,
             "raw_path": path.encode("ascii"),
             "query_string": b"",
@@ -117,6 +122,87 @@ async def test_request_size_middleware_rejects_streamed_body() -> None:
     messages = await _run_asgi(wrapped, headers=[], body=b"12345")
 
     assert messages[0]["status"] == 413
+
+
+@pytest.mark.anyio
+async def test_response_import_routes_use_the_dedicated_body_cap() -> None:
+    observed_bodies: list[int] = []
+
+    async def app(scope, receive, send):
+        message = await receive()
+        observed_bodies.append(len(message["body"]))
+        await send({"type": "http.response.start", "status": 200, "headers": []})
+        await send({"type": "http.response.body", "body": b"ok"})
+
+    wrapped = RequestSizeLimitMiddleware(
+        app,
+        max_body_bytes=4,
+        api_prefix="/api/v1",
+        import_body_bytes=IMPORT_REQUEST_BODY_BYTES,
+    )
+    messages = await _run_asgi(
+        wrapped,
+        headers=[(b"content-length", str(IMPORT_REQUEST_BODY_BYTES).encode("ascii"))],
+        body=b"x" * IMPORT_REQUEST_BODY_BYTES,
+        path="/api/v1/surveys/00000000-0000-0000-0000-000000000401/responses/import",
+    )
+
+    assert messages[0]["status"] == 200
+    assert observed_bodies == [IMPORT_REQUEST_BODY_BYTES]
+
+
+@pytest.mark.anyio
+async def test_response_import_routes_reject_bodies_above_the_dedicated_cap() -> None:
+    async def app(scope, receive, send):
+        raise AssertionError("oversized request reached the application")
+
+    wrapped = RequestSizeLimitMiddleware(
+        app,
+        max_body_bytes=4,
+        api_prefix="/api/v1",
+        import_body_bytes=IMPORT_REQUEST_BODY_BYTES,
+    )
+    messages = await _run_asgi(
+        wrapped,
+        headers=[
+            (b"content-length", str(IMPORT_REQUEST_BODY_BYTES + 1).encode("ascii"))
+        ],
+        body=b"x" * (IMPORT_REQUEST_BODY_BYTES + 1),
+        path="/api/v1/surveys/00000000-0000-0000-0000-000000000401/responses/import/validate",
+    )
+
+    assert messages[0]["status"] == 413
+
+
+@pytest.mark.anyio
+async def test_only_exact_post_import_actions_receive_the_larger_cap() -> None:
+    async def app(scope, receive, send):
+        await receive()
+        await send({"type": "http.response.start", "status": 200, "headers": []})
+        await send({"type": "http.response.body", "body": b"ok"})
+
+    wrapped = RequestSizeLimitMiddleware(
+        app,
+        max_body_bytes=4,
+        api_prefix="/api/v1",
+        import_body_bytes=IMPORT_REQUEST_BODY_BYTES,
+    )
+    for path, method in (
+        ("/api/v1/surveys/00000000-0000-0000-0000-000000000401/responses/import-template", "GET"),
+        ("/api/v1/surveys/00000000-0000-0000-0000-000000000401/responses/import", "GET"),
+        ("/api/v1/surveys/00000000-0000-0000-0000-000000000401/responses/import/extra", "POST"),
+        ("/api/v1/surveys/00000000-0000-0000-0000-000000000401/responses/validate", "POST"),
+        ("/api/v1/surveys/00000000-0000-0000-0000-000000000401/questions/import", "POST"),
+        ("/api/v1/surveys/survey-id/responses/import", "POST"),
+    ):
+        messages = await _run_asgi(
+            wrapped,
+            headers=[(b"content-length", b"5")],
+            body=b"12345",
+            path=path,
+            method=method,
+        )
+        assert messages[0]["status"] == 413
 
 
 @pytest.mark.anyio

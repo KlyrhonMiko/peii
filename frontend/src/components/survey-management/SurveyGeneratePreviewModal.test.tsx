@@ -9,6 +9,7 @@ function createStore(): SurveyGeneratePreviewModalProps["store"] {
   return {
     state: {
       showGeneratePreview: true,
+      previewSurvey: null,
       generating: false,
       interactionLocked: false,
     },
@@ -20,11 +21,13 @@ function createStore(): SurveyGeneratePreviewModalProps["store"] {
 }
 
 describe("SurveyGeneratePreviewModal", () => {
-  it("uses a compact dropdown preview only for the marked degree program question", () => {
+  it("keeps the generated dropdowns compact and shows conditional-choice guidance", () => {
     render(<SurveyGeneratePreviewModal store={createStore()} />)
 
-    expect(screen.getByRole("button", { name: "Select a degree program…" })).toBeDisabled()
+    expect(screen.getAllByRole("button", { name: "Select an option…" })).toHaveLength(5)
     expect(screen.queryByText("BSA")).not.toBeInTheDocument()
+    expect(screen.queryByText("Accounting Role")).not.toBeInTheDocument()
+    expect(screen.getByText("Choices depend on the selected job industry.")).toBeInTheDocument()
     expect(screen.getByText("2023")).toBeInTheDocument()
     expect(screen.getByText("Male")).toBeInTheDocument()
   })
@@ -60,5 +63,6 @@ describe("SurveyGeneratePreviewModal", () => {
 
     expect(screen.getByText("Fetched question")).toBeInTheDocument()
     expect(screen.getByText("Fetched option")).toBeInTheDocument()
+    expect(screen.queryByRole("group", { name: "Questionnaire source" })).not.toBeInTheDocument()
   })
 })

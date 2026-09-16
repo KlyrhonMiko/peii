@@ -19,12 +19,12 @@ column after digest reconciliation, and `d5a4f7c91e2b` applies the Supabase Data
 lockdown. `a8055c9859f5` added short-lived Google survey auth proofs, nullable legacy-compatible
 response identity snapshots, survey-scoped dedupe uniqueness, `survey_responses.read_identity`,
 and proof-table ACL/RLS lockdown; the protected-table and proof-table downgrades are intentionally
-fail-closed and irreversible. The current Alembic head is `bf21a63040a2`; after `a8055c9859f5`
+fail-closed and irreversible. The current Alembic head is `c1d2e3f4a5b6`; after `a8055c9859f5`
 the chain continues through `b9055c9859f6` (`is_template`), `f88b9c1d0000` (drops
 distributions), `3aad20b0fc8a` (ML sentiments), `b0d864b9935b` (false-positive feedbacks), and
 `a6c42481a0d9` (polarity override), `7ac95c493227` (performance indexes),
-`b43d56b55144` (survey-question JSONB), and `bf21a63040a2` (false-positive feedback Data API
-lockdown).
+`b43d56b55144` (survey-question JSONB), `bf21a63040a2` (false-positive feedback Data API
+lockdown), and `c1d2e3f4a5b6` (response import permission).
 
 ## Google-authenticated identified survey flow
 
@@ -140,6 +140,9 @@ not. The identity endpoint additionally requires `survey_responses.read_raw`.
 | Identity page | identity response endpoint | both `survey_responses.read_raw` and `survey_responses.read_identity` |
 | Aggregate | `GET /api/v1/surveys/{survey_id}/responses/aggregates` | `survey_responses.read_aggregates` |
 | CSV export | `GET /api/v1/surveys/{survey_id}/responses/export` | `CSV_EXPORT_ENABLED=true` and `survey_responses.export` |
+| CSV import template | `GET /api/v1/surveys/{survey_id}/responses/import-template` | `survey_responses.import` |
+| Validate CSV import | `POST /api/v1/surveys/{survey_id}/responses/import/validate` | `survey_responses.import` |
+| Commit CSV import | `POST /api/v1/surveys/{survey_id}/responses/import` | `survey_responses.import` |
 | Erasure | `POST /api/v1/surveys/{survey_id}/responses/erase` | `survey_responses.erase` plus request confirmation and UUID `Idempotency-Key` |
 
 The respondent routes are deliberately separate from these protected operations:
@@ -227,6 +230,33 @@ and buffering-control headers. Provider/CDN behavior must still be verified: the
 test must confirm that the CSV is not cached, stored, indexed, or buffered unexpectedly and that
 provider access logs redact the route, authorization/cookie headers, and response content as
 appropriate.
+
+### Survey-specific CSV import
+
+The researcher View Details → Responses panel offers a CSV template and a separate import action
+only to principals with `survey_responses.import`. This is a wide format (one respondent per row),
+unlike the long-format export above; an exported CSV cannot be imported directly. The template
+is generated from the selected survey's persisted question order. Its required `submitted_at`
+column takes an ISO-8601 timestamp with a timezone offset; each other header shows a numbered
+question with its section title. UUIDs stay internal. Uploads must match that survey's complete
+header exactly. This feature does not accept XLSX or remap historical source-form columns
+automatically.
+
+Blank question cells are omitted from the stored answer object, including for required
+questions; a row without any answers is invalid. Nonblank cells must match the question type,
+configured choices, and conditional visibility. The import validates the whole UTF-8 CSV before
+writing any row, limits each file to 2 MiB and 1,000 data rows, and commits all valid rows
+atomically. The first response permanently locks structure and retention-policy edits for that
+survey. Repeated uploads **append again**, including identical files, and can double-count data;
+the confirmation dialog warns about this explicitly.
+
+Each imported response is scoped to the selected survey and stores answers by that survey's
+question UUIDs in the existing JSONB field. `created_at` preserves `submitted_at` in UTC and,
+when retention is enabled, the expiry is calculated from that original timestamp. Expired or
+future-dated rows are rejected. Imported rows do not fabricate Google-verified identity or
+server-recorded consent evidence: those fields remain null even if a questionnaire consent
+answer is present. Import audits record counts and actor, not raw answer values. Only Admin and
+Researcher receive the default import capability; Staff does not.
 
 ## Logical erasure and scheduled retention purge
 
