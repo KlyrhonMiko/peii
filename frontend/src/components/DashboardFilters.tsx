@@ -53,9 +53,10 @@ export interface DashboardFiltersProps {
   onFilterChange: (filters: { department: string; degree: string; batch: string }) => void
   availableBatches?: string[]
   availableDepartments?: string[]
+  availableDegrees?: string[]
 }
 
-export function DashboardFilters({ disabled = false, onFilterChange, availableBatches, availableDepartments }: DashboardFiltersProps) {
+export function DashboardFilters({ disabled = false, onFilterChange, availableBatches, availableDepartments, availableDegrees }: DashboardFiltersProps) {
   const [department, setDepartment] = useState("All Departments")
   const [degree, setDegree] = useState("All Degrees")
   const [batch, setBatch] = useState("All Batches")
@@ -86,8 +87,8 @@ export function DashboardFilters({ disabled = false, onFilterChange, availableBa
     onFilterChange({ department, degree, batch: newBatch })
   }
 
-  const availableDegrees = department !== "All Departments" && departmentDegrees[department] 
-    ? ["All Degrees", ...departmentDegrees[department]]
+  const availableDegreesList = department !== "All Departments" && departmentDegrees[department] 
+    ? ["All Degrees", ...departmentDegrees[department].filter(d => !availableDegrees || availableDegrees.includes(d) || availableDegrees.includes(d.trim()))]
     : ["All Degrees"]
 
   const batches = availableBatches && availableBatches.length > 0 
@@ -99,8 +100,8 @@ export function DashboardFilters({ disabled = false, onFilterChange, availableBa
     : defaultDepartments
 
   return (
-    <div className="flex flex-wrap items-center gap-2">
-      <div className="flex items-center justify-center h-8 w-8 rounded-lg bg-white border border-slate-200 shadow-sm text-slate-500">
+    <div className="flex flex-wrap sm:flex-nowrap items-center gap-2">
+      <div className="flex items-center justify-center h-8 w-8 rounded-lg bg-white border border-slate-200 shadow-sm text-slate-500 shrink-0">
         <Filter className="w-3.5 h-3.5" />
       </div>
 
@@ -203,7 +204,7 @@ export function DashboardFilters({ disabled = false, onFilterChange, availableBa
             align="end"
             className="w-72 p-1.5 flex flex-col gap-0.5 bg-white border border-slate-200 rounded-xl shadow-[0_8px_30px_rgb(0,0,0,0.08)] animate-in fade-in-0 zoom-in-95 duration-100"
           >
-            {availableDegrees.map((deg) => {
+            {availableDegreesList.map((deg) => {
               const isSelected = degree === deg
               return (
                 <button

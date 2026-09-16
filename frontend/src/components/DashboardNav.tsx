@@ -15,20 +15,20 @@ export function DashboardNav() {
   const updateActiveSection = useCallback(() => {
     // If user scrolled near the bottom, highlight the last section
     if (window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 60) {
-      setActiveId(SECTIONS[SECTIONS.length - 1].id)
+      setActiveId(SECTIONS[SECTIONS.length - 1]!.id)
       return
     }
 
     // Target threshold: 140px from top (navbar 60px + margin)
     const threshold = window.scrollY + 140
     for (let i = SECTIONS.length - 1; i >= 0; i--) {
-      const el = document.getElementById(SECTIONS[i].id)
+      const el = document.getElementById(SECTIONS[i]!.id)
       if (el && el.offsetTop <= threshold) {
-        setActiveId(SECTIONS[i].id)
+        setActiveId(SECTIONS[i]!.id)
         return
       }
     }
-    setActiveId(SECTIONS[0].id)
+    setActiveId(SECTIONS[0]!.id)
   }, [])
 
   useEffect(() => {
