@@ -443,11 +443,25 @@ class FeedbackAnalyzer:
             if os.path.exists(model_dir):
                 logger.info(f"Loading custom ONNX sentiment model from {model_dir}...")
                 try:
+                    import onnxruntime as ort
                     from optimum.onnxruntime import ORTModelForSequenceClassification
                     from transformers import AutoTokenizer
-                    self.sentiment_model = ORTModelForSequenceClassification.from_pretrained(model_dir)
+
+                    provider = (
+                        "CUDAExecutionProvider"
+                        if torch.cuda.is_available()
+                        else "CPUExecutionProvider"
+                    )
+                    session_options = ort.SessionOptions()
+                    session_options.log_severity_level = 3
+
+                    self.sentiment_model = ORTModelForSequenceClassification.from_pretrained(
+                        model_dir,
+                        provider=provider,
+                        session_options=session_options,
+                    )
                     self.sentiment_tokenizer = AutoTokenizer.from_pretrained(model_dir)
-                    logger.info("Custom ONNX model loaded successfully.")
+                    logger.info("Custom ONNX model loaded successfully.", provider=provider)
                 except Exception as ex:
                     logger.warning(f"Failed to load ONNX model: {ex}. Falling back to zero-shot.")
             
