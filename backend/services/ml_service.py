@@ -505,8 +505,11 @@ class FeedbackAnalyzer:
             if score >= 0.70
         ]
 
+        # If no specific dimension passed the >= 0.70 threshold,
+        # assign to "General Feedback" so 100% of feedback answers
+        # proceed to sentiment scoring (neg, pos, neu).
         if not detected_dimensions:
-            return tuple()
+            detected_dimensions = ["General Feedback"]
 
         # --- Intent-aware sentiment scoring ---
         sentiment_input = answer if answer else text
