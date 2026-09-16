@@ -1171,13 +1171,6 @@ async def compute_peii_scores(
                                     if fp_polarity_override is not None
                                     else -avg_polarity
                                 )
-                            if not is_placeholder:
-                                if avg_polarity < 0:
-                                    classification_counts[primary_dim]["negative"] += 1
-                                elif avg_polarity > 0:
-                                    classification_counts[primary_dim]["positive"] += 1
-                                else:
-                                    classification_counts[primary_dim]["neutral"] += 1
 
                         qualitative_feedback = QualitativeFeedback(
                             response_id=str(response_id),
@@ -1200,18 +1193,17 @@ async def compute_peii_scores(
                         elif feedback_candidate[:3] > qualitative_feedback_candidates[0][:3]:
                             heapreplace(qualitative_feedback_candidates, feedback_candidate)
 
-                        if sentiments_for_q and not is_placeholder:
-                            for dim, polarity in sentiments_for_q:
-                                # Normalize legacy "General" label from stale cache
-                                # entries written before the fallback bug was fixed.
-                                norm_dim = "General Feedback" if dim == "General" else dim
-                                if norm_dim in classification_counts:
-                                    if polarity >= 0.3:
-                                        classification_counts[norm_dim]["positive"] += 1
-                                    elif polarity <= -0.3:
-                                        classification_counts[norm_dim]["negative"] += 1
-                                    else:
-                                        classification_counts[norm_dim]["neutral"] += 1
+                        # Update classification chart using the same primary_dim
+                        # (heuristic-promoted) and avg_polarity that the
+                        # Curriculum & Improvement Feedback cards use, so both
+                        # charts are driven by identical dimension assignment.
+                        if not is_placeholder:
+                            if avg_polarity < 0:
+                                classification_counts[primary_dim]["negative"] += 1
+                            elif avg_polarity > 0:
+                                classification_counts[primary_dim]["positive"] += 1
+                            else:
+                                classification_counts[primary_dim]["neutral"] += 1
         finally:
             await responses_result.close()
 
