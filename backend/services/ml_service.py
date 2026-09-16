@@ -505,10 +505,14 @@ class FeedbackAnalyzer:
             if score >= 0.70
         ]
 
+        # If no specific dimension passed the >= 0.70 threshold,
+        # assign to "General Feedback" so 100% of feedback answers
+        # proceed to sentiment scoring (neg, pos, neu).
         # If no dimension clears the confidence threshold, fall back to a
         # generic "General" bucket so every non-empty text answer still
         # receives a sentiment polarity score.
         if not detected_dimensions:
+            detected_dimensions = ["General Feedback"]
             detected_dimensions = ["General"]
 
         # --- Intent-aware sentiment scoring ---
