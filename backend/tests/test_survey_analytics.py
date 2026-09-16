@@ -360,3 +360,76 @@ async def test_peii_cache_serves_repeat_reads_and_invalidates(client, monkeypatc
     third = await client.get(url)
     assert third.status_code == 200
     assert calls["n"] == 2
+
+
+async def test_peii_qualitative_feedback_identifies_and_excludes_placeholders(client) -> None:
+    session_generator = app.dependency_overrides[get_analytics_async_session]()
+    session = await anext(session_generator)
+    try:
+        survey = Survey(
+            survey_id=f"SURV-{uuid4().hex[:8]}",
+            title="GRADUATE TRACER STUDY SURVEY",
+            status="Active",
+        )
+        session.add(survey)
+        await session.flush()
+        profile = SurveySection(survey_id=survey.id, title="RESPONDENT'S PROFILE")
+        feedback = SurveySection(
+            survey_id=survey.id,
+            title="Feedback and Reflection",
+            order_index=1,
+        )
+        session.add_all([profile, feedback])
+        await session.flush()
+        year_question = SurveyQuestion(
+            survey_id=survey.id,
+            section_id=profile.id,
+            question_text="Year Graduated",
+            question_type="text",
+            order_index=0,
+        )
+        feedback_question = SurveyQuestion(
+            survey_id=survey.id,
+            section_id=feedback.id,
+            question_text="What improvements should PLP implement to better support students?",
+            question_type="text",
+            order_index=1,
+        )
+        session.add_all([year_question, feedback_question])
+        await session.flush()
+
+        # Add 1 placeholder response and 1 substantive response
+        placeholder_resp = SurveyResponse(
+            survey_id=survey.id,
+            answers={str(year_question.id): "2024", str(feedback_question.id): "None"},
+        )
+        substantive_resp = SurveyResponse(
+            survey_id=survey.id,
+            answers={
+                str(year_question.id): "2024",
+                str(feedback_question.id): "Please install better laboratory equipment",
+            },
+        )
+        session.add_all([placeholder_resp, substantive_resp])
+        await session.commit()
+
+        result = await survey_analytics_service.compute_peii_scores(session, survey_ids=[survey.id])
+        assert result.qualitative_feedback_total == 2
+        assert result.qualitative_feedback_placeholder_count == 1
+        feedbacks = result.qualitative_feedback
+        assert len(feedbacks) == 2
+        placeholder_entry = next(f for f in feedbacks if f.response_text == "None")
+        substantive_entry = next(f for f in feedbacks if f.response_text != "None")
+        assert placeholder_entry.is_placeholder is True
+        assert substantive_entry.is_placeholder is False
+        # Verify placeholder is excluded from classification counts
+        if result.feedback_classification:
+            total_classified = sum(
+                c.positive + c.neutral + c.negative
+                for c in result.feedback_classification.classifications
+            )
+            # Only substantive response should be in classification counts
+            assert total_classified == 1
+    finally:
+        await session.close()
+

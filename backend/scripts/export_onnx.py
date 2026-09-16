@@ -1,0 +1,49 @@
+import logging
+from pathlib import Path
+from optimum.onnxruntime import ORTModelForSequenceClassification
+from transformers import AutoTokenizer
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+LORA_MODEL_DIR = Path(__file__).resolve().parent.parent / "ml_models" / "peii_sentiment_v1_lora"
+ONNX_OUTPUT_DIR = Path(__file__).resolve().parent.parent / "ml_models" / "peii_sentiment_v1_onnx"
+
+def main():
+    if not LORA_MODEL_DIR.exists():
+        logger.error(f"LoRA model not found at {LORA_MODEL_DIR}. Please run train_sentiment.py first.")
+        return
+        
+    logger.info(f"Exporting LoRA model from {LORA_MODEL_DIR} to ONNX format...")
+    ONNX_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    
+    # Optimum handles the merging of PEFT adapters during export!
+    model = ORTModelForSequenceClassification.from_pretrained(
+        str(LORA_MODEL_DIR), 
+        export=True,
+    )
+    
+    tokenizer = AutoTokenizer.from_pretrained(str(LORA_MODEL_DIR))
+    
+    # Save the unquantized ONNX model
+    model.save_pretrained(str(ONNX_OUTPUT_DIR))
+    tokenizer.save_pretrained(str(ONNX_OUTPUT_DIR))
+    logger.info(f"Successfully exported to ONNX in {ONNX_OUTPUT_DIR}")
+    
+    # Quantize to 8-bit using Optimum ORTQuantizer (dynamic quantization)
+    from optimum.onnxruntime.configuration import AutoQuantizationConfig
+    from optimum.onnxruntime import ORTQuantizer
+    
+    logger.info("Applying dynamic 8-bit quantization for CPU inference (ARM64 friendly)...")
+    quantizer = ORTQuantizer.from_pretrained(model)
+    dqconfig = AutoQuantizationConfig.avx2(is_static=False, per_channel=False)
+    
+    quantizer.quantize(
+        save_dir=str(ONNX_OUTPUT_DIR),
+        quantization_config=dqconfig,
+    )
+    
+    logger.info(f"Quantization complete. Model saved in {ONNX_OUTPUT_DIR}")
+    
+if __name__ == "__main__":
+    main()

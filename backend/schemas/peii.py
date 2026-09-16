@@ -56,6 +56,7 @@ class QualitativeFeedback(BaseModel):
     sentiment_score: float
     is_false_positive: bool = False
     dimension: str | None = None
+    is_placeholder: bool = False
 
 
 class PEIIOutcomeDistributions(BaseModel):
@@ -79,3 +80,4 @@ class PEIIAnalyticsResponse(BaseModel):
     qualitative_feedback: list[QualitativeFeedback] = []
     qualitative_feedback_total: int
     qualitative_feedback_truncated: bool
+    qualitative_feedback_placeholder_count: int = 0

@@ -146,16 +146,17 @@ async def mark_false_positive(
     # Best-effort cache/training-data side effect; must not fail the request.
     if answer_text and isinstance(answer_text, str):
         prompt = f"Question: {question.question_text} Answer: {answer_text}"
-        try:
-            # Construct the analyzer lazily inside the worker so cold-start model
-            # loading does not block the event loop.
-            await asyncio.to_thread(
-                lambda: FeedbackAnalyzer.get_instance().register_false_positive(prompt)
-            )
-        except Exception as exc:  # pragma: no cover - defensive
-            logger.error(
-                "False-positive cache registration failed",
-                error_type=type(exc).__name__,
-                question_id=str(question_id),
-                response_id=str(response_id),
-            )
+        def _register() -> None:
+            try:
+                FeedbackAnalyzer.get_instance().register_false_positive(prompt)
+            except Exception as exc:  # pragma: no cover - defensive
+                logger.error(
+                    "False-positive cache registration failed",
+                    error_type=type(exc).__name__,
+                    question_id=str(question_id),
+                    response_id=str(response_id),
+                )
+
+        # Construct the analyzer lazily inside the worker so cold-start model
+        # loading does not block the event loop. Fire-and-forget to avoid blocking the request.
+        asyncio.create_task(asyncio.to_thread(_register))

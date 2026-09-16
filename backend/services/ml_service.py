@@ -434,6 +434,23 @@ class FeedbackAnalyzer:
                 model="MoritzLaurer/mDeBERTa-v3-base-mnli-xnli",
                 device=device,
             )
+            
+            # Load the custom sentiment model if it exists
+            model_dir = os.path.join(os.path.dirname(__file__), "..", "ml_models", "peii_sentiment_v1_onnx")
+            self.sentiment_model = None
+            self.sentiment_tokenizer = None
+            
+            if os.path.exists(model_dir):
+                logger.info(f"Loading custom ONNX sentiment model from {model_dir}...")
+                try:
+                    from optimum.onnxruntime import ORTModelForSequenceClassification
+                    from transformers import AutoTokenizer
+                    self.sentiment_model = ORTModelForSequenceClassification.from_pretrained(model_dir)
+                    self.sentiment_tokenizer = AutoTokenizer.from_pretrained(model_dir)
+                    logger.info("Custom ONNX model loaded successfully.")
+                except Exception as ex:
+                    logger.warning(f"Failed to load ONNX model: {ex}. Falling back to zero-shot.")
+            
             self._ready = True
         except Exception as e:
             logger.error(f"Failed to initialize NLP pipelines: {e}")
@@ -487,23 +504,41 @@ class FeedbackAnalyzer:
 
         intent = _classify_intent(sentiment_input, q_text)
 
-        sent_result = self.classifier(
-            sentiment_input,
-            ["positive", "neutral", "negative"],
-            hypothesis_template="The sentiment of this feedback is {}.",
-            multi_label=False,
-        )
+        if self.sentiment_model and self.sentiment_tokenizer:
+            # Use local fine-tuned ONNX model
+            prompt = f"Context: {intent}. Question: {q_text} </s> Answer: {sentiment_input} </s>"
+            inputs = self.sentiment_tokenizer(prompt, return_tensors="pt", truncation=True, max_length=256)
+            
+            with torch.no_grad():
+                outputs = self.sentiment_model(**inputs)
+                pred_idx = torch.argmax(outputs.logits, dim=1).item()
+                
+            # 0: NEGATIVE, 1: NEUTRAL, 2: POSITIVE
+            if pred_idx == 0:
+                polarity = -0.5
+            elif pred_idx == 2:
+                polarity = 0.5
+            else:
+                polarity = 0.0
+        else:
+            # Fallback zero-shot inference
+            sent_result = self.classifier(
+                sentiment_input,
+                ["positive", "neutral", "negative"],
+                hypothesis_template="The sentiment of this feedback is {}.",
+                multi_label=False,
+            )
 
-        scores_dict = {
-            label: score
-            for label, score in zip(sent_result["labels"], sent_result["scores"])
-        }
+            scores_dict = {
+                label: score
+                for label, score in zip(sent_result["labels"], sent_result["scores"])
+            }
 
-        polarity = _calibrate_polarity(
-            scores_dict.get("positive", 0.0),
-            scores_dict.get("negative", 0.0),
-            intent,
-        )
+            polarity = _calibrate_polarity(
+                scores_dict.get("positive", 0.0),
+                scores_dict.get("negative", 0.0),
+                intent,
+            )
 
         result_tuple = tuple((dim, polarity) for dim in detected_dimensions)
         _disk_cache[text] = result_tuple
@@ -534,44 +569,10 @@ class FeedbackAnalyzer:
             _disk_cache[text] = new_res
             save_cache()
             logger.info("      -> Cache updated successfully.")
-            
-            # 2. Append to a JSONL file for future model fine-tuning
-            try:
-                import json
-                training_file = "ml_training_data.jsonl"
-                with open(training_file, "a") as f:
-                    entry = {
-                        "text": text,
-                        "original_result": current_res,
-                        "corrected_result": new_res,
-                        "is_false_positive": True
-                    }
-                    f.write(json.dumps(entry) + "\n")
-                logger.info(f"      -> Appended to training data file: {training_file}")
-            except Exception as e:
-                logger.error(f"Failed to write to training data: {e}")
         else:
             logger.warning(
                 f"      -> No original result found in cache or model for text: {text[:50]}..."
             )
-            # Still append to the training data file so the model can learn from its blind spots!
-            try:
-                import json
-                training_file = "ml_training_data.jsonl"
-                with open(training_file, "a") as f:
-                    entry = {
-                        "text": text,
-                        "original_result": [],
-                        "corrected_result": [],
-                        "is_false_positive": True,
-                        "note": "Heuristic fallback"
-                    }
-                    f.write(json.dumps(entry) + "\n")
-                logger.warning(
-                    f"      -> Appended heuristic fallback to training data file: {training_file}"
-                )
-            except Exception as e:
-                logger.error(f"Failed to write to training data: {e}")
 
 
 async def analyze_response_background(response_id: str):

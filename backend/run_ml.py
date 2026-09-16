@@ -1,3 +1,4 @@
+import argparse
 import asyncio
 import logging
 import sys
@@ -26,7 +27,7 @@ from services.ml_service import analyze_response_background  # noqa: E402
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-async def backfill():
+async def backfill(force: bool = False):
     async with async_session_factory() as session:
         print("Fetching active survey...")
         survey = (await session.exec(select(Survey).where(Survey.status == 'Active'))).first()
@@ -40,8 +41,8 @@ async def backfill():
             .where(SurveyResponse.survey_id == survey.id)
         )).all()
         
-        # Only process responses that don't have ML sentiments yet
-        responses_to_process = [r for r in responses if not r.ml_sentiments]
+        # Process responses that don't have ML sentiments yet, or all if force=True
+        responses_to_process = responses if force else [r for r in responses if not r.ml_sentiments]
         
         print(f"Found {len(responses_to_process)} responses that need ML sentiment analysis.")
         
@@ -53,4 +54,8 @@ async def backfill():
         print("Finished processing all responses!")
 
 if __name__ == "__main__":
-    asyncio.run(backfill())
+    parser = argparse.ArgumentParser(description="Batch ML Scoring")
+    parser.add_argument("--force", action="store_true", help="Force re-score of all responses")
+    args = parser.parse_args()
+    
+    asyncio.run(backfill(force=args.force))

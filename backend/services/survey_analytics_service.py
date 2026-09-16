@@ -1,4 +1,5 @@
 import json
+import re
 from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime
@@ -42,6 +43,44 @@ MAX_AGGREGATE_CELLS_PER_QUESTION = 1000
 MAX_AGGREGATE_CELLS_TOTAL = 10000
 AGGREGATE_BATCH_SIZE = 1000
 MAX_QUALITATIVE_FEEDBACK = 200
+
+_PLACEHOLDER_REGEX = re.compile(
+    r"^(none|n/?a|wala|wala naman po|wala po|wala naman|\.|asd|sad|no|na|-|nothing|none so far|nothing so far|n / a|all good|okay lang|ok lang)$",
+    re.IGNORECASE,
+)
+
+
+def _is_placeholder(text: str) -> bool:
+    stripped = text.strip()
+    if not stripped or len(stripped) <= 2:
+        return True
+    return bool(_PLACEHOLDER_REGEX.match(stripped))
+
+
+
+# Fallback sentiment keyword lists (used when ML sentiments are unavailable).
+# Critical keywords use word-boundary matching to avoid false substring hits
+# (e.g. "lacked" must not match "lack").
+_POSITIVE_KEYWORDS: list[str] = [
+    "thank", "salamat", "grateful", "gratitude", "appreciat",
+    "blessing", "proud", "good", "happy", "great", "excellent",
+    "keep up", "best", "kudos", "padayon", "molds me",
+    "laking tulong", "very helpful", "helped me", "helped shape",
+    "better person", "natutunan ko", "maganda", "nakatulong",
+]
+
+_CRITICAL_KEYWORDS: list[str] = [
+    "clean the toilets", "ventilation", "aircon", "bulok", "pangit",
+    "kulang", "lack", "delayed", "unfair", "inadequate", "guessed",
+    "pinagpawisan", "pinagpapawisan", "demotivating", "poor", "disappoint",
+]
+
+# Pre-compiled regex so critical keywords are matched with word boundaries,
+# preventing false positives like "lacked" matching "lack".
+_CRITICAL_PATTERN = re.compile(
+    r"\b(?:" + "|".join(re.escape(w) for w in _CRITICAL_KEYWORDS) + r")\b",
+    re.IGNORECASE,
+)
 
 
 class _DomainQuestionMap(TypedDict):
@@ -685,6 +724,7 @@ async def compute_peii_scores(
             ),
             qualitative_feedback_total=0,
             qualitative_feedback_truncated=False,
+            qualitative_feedback_placeholder_count=0,
         )
 
     target_survey_ids = [s.id for s in surveys]
@@ -795,6 +835,7 @@ async def compute_peii_scores(
         tuple[datetime, str, str, QualitativeFeedback]
     ] = []
     qualitative_feedback_total = 0
+    qualitative_feedback_placeholder_count = 0
 
     for sid in target_survey_ids:
         smap = survey_maps[sid]
@@ -902,17 +943,23 @@ async def compute_peii_scores(
 
                     for qid, qtext in smap["feedback_qs"]:
                         text_ans = ans.get(qid)
-                        if not isinstance(text_ans, str) or not text_ans.strip():
-                            continue
-
-                        qualitative_feedback_total += 1
+                        text_ans_clean = text_ans.strip()
+                        is_placeholder = _is_placeholder(text_ans_clean)
+                        if is_placeholder:
+                            qualitative_feedback_placeholder_count += 1
+                        else:
+                            qualitative_feedback_total += 1
                         sentiments_dict = ml_sentiments if isinstance(ml_sentiments, dict) else {}
                         sentiments_for_q = sentiments_dict.get(qid) or []
                         fp_key = (str(response_id), qid)
                         is_fp = fp_key in fp_map
                         fp_polarity_override = fp_map.get(fp_key)
                         primary_dim = "General Feedback"
-                        if sentiments_for_q:
+
+                        if is_placeholder:
+                            avg_polarity = 0.0
+                            primary_dim = "General Feedback"
+                        elif sentiments_for_q:
                             avg_polarity = (
                                 sum(p for _, p in sentiments_for_q)
                                 / len(sentiments_for_q)
@@ -924,80 +971,117 @@ async def compute_peii_scores(
                                     if fp_polarity_override is not None
                                     else -avg_polarity
                                 )
-                        else:
-                            lower_text = text_ans.lower()
-                            critical_words = [
-                                "sana", "ayusin", "kulang", "more", "lack", "improve",
-                                "wala", "needs", "better",
-                            ]
-                            positive_words = [
-                                "good", "happy", "great", "excellent", "keep up", "thanks",
-                                "salamat",
-                            ]
-                            if any(word in lower_text for word in critical_words):
-                                avg_polarity = -0.5
-                            elif any(word in lower_text for word in positive_words):
-                                avg_polarity = 0.5
                             else:
-                                avg_polarity = 0.0
-
-                            dimension_keywords = {
-                                "Employability and Economic Mobility": [
-                                    "job", "work", "career", "salary", "employ", "income",
-                                    "trabaho", "sweldo", "pera", "promot", "hire", "opportunity",
-                                    "business", "negosyo", "workplace", "professional",
-                                ],
-                                "Family Upliftment and Financial Stability": [
-                                    "family", "pamilya", "financial", "children", "parents",
-                                    "anak", "magulang", "bahay", "house", "budget", "gastos",
-                                    "kapatid", "tulong sa pamilya", "provide",
-                                ],
-                                "Personal Development and Life Quality": [
-                                    "skill", "learn", "grow", "develop", "confidence", "happy",
-                                    "health", "buhay", "sarili", "improve", "training", "aral",
-                                    "knowledge", "natutunan", "experience", "mindset",
-                                ],
-                                "Civic Engagement and Community Contribution": [
-                                    "community", "help", "others", "society", "volunteer", "tulong",
-                                    "kapwa", "barangay", "lipunan", "tao", "serve", "serbisyo",
-                                    "contribute",
-                                ],
-                                "Government Trust and LGU Support Valuation": [
-                                    "gov", "mayor", "lgu", "support", "trust", "gobyerno",
-                                    "program",
-                                    "scholar", "city", "pasig", "officials", "leader", "public",
-                                ],
-                            }
-                            primary_dim = next(
-                                (
-                                    dimension
-                                    for dimension, keywords in dimension_keywords.items()
-                                    if any(word in lower_text for word in keywords)
-                                ),
-                                "General Feedback",
+                                # Cross-check ML result against keyword scoring.
+                                # Handles Tagalog text and mixed-intent responses
+                                # that English-trained ML models misclassify.
+                                # Only runs when no manual correction (is_fp) is active.
+                                lower_text = text_ans_clean.lower()
+                                positive_score = sum(
+                                    1 for w in _POSITIVE_KEYWORDS if w in lower_text
+                                )
+                                critical_score = len(
+                                    _CRITICAL_PATTERN.findall(lower_text)
+                                )
+                                if avg_polarity < -0.3 and positive_score > critical_score:
+                                    # ML says negative but keyword signals say positive
+                                    avg_polarity = 0.5
+                                elif avg_polarity > 0.3 and critical_score > positive_score:
+                                    # ML says positive but keyword signals say negative
+                                    avg_polarity = -0.5
+                        else:
+                            lower_text = text_ans_clean.lower()
+                            # Score positives (substring) vs negatives (word-boundary)
+                            # so that a strongly positive comment with one passing
+                            # mention of an issue is still classified positive.
+                            positive_score = sum(
+                                1 for w in _POSITIVE_KEYWORDS if w in lower_text
                             )
+                            critical_score = len(
+                                _CRITICAL_PATTERN.findall(lower_text)
+                            )
+                            if positive_score > critical_score:
+                                avg_polarity = 0.5
+                            elif critical_score > positive_score:
+                                avg_polarity = -0.5
+                            else:
+                                if "improve" in qtext.lower() or "skills do you wish" in qtext.lower():
+                                    avg_polarity = -0.5
+                                elif "leaders" in qtext.lower():
+                                    avg_polarity = 0.5
+                                else:
+                                    avg_polarity = 0.0
+
+                            import re
+                            dimension_regexes = {
+                                "Employability and Economic Mobility": re.compile(
+                                    r"\b(job|work|career|salary|employ|income|trabaho|sweldo|pera|promot|hire|opportunity|business|negosyo|workplace|professional)\b",
+                                    re.IGNORECASE
+                                ),
+                                "Family Upliftment and Financial Stability": re.compile(
+                                    r"\b(family|pamilya|financial|children|parents|anak|magulang|bahay|house|budget|gastos|kapatid|tulong sa pamilya|provide)\b",
+                                    re.IGNORECASE
+                                ),
+                                "Personal Development and Life Quality": re.compile(
+                                    r"\b(skill|learn|grow|develop|confidence|happy|health|buhay|sarili|improve|training|aral|knowledge|natutunan|experience|mindset)\b",
+                                    re.IGNORECASE
+                                ),
+                                "Civic Engagement and Community Contribution": re.compile(
+                                    r"\b(community|help|others|society|volunteer|tulong|kapwa|barangay|lipunan|tao|serve|serbisyo|contribute)\b",
+                                    re.IGNORECASE
+                                ),
+                                "Government Trust and LGU Support Valuation": re.compile(
+                                    r"\b(gov|mayor|lgu|support|trust|gobyerno|program|scholar|city|pasig|officials|leader|public)\b",
+                                    re.IGNORECASE
+                                ),
+                            }
+                            
+                            dim_scores = {
+                                "Employability and Economic Mobility": 0.0,
+                                "Family Upliftment and Financial Stability": 0.0,
+                                "Personal Development and Life Quality": 0.0,
+                                "Civic Engagement and Community Contribution": 0.0,
+                                "Government Trust and LGU Support Valuation": 0.0,
+                                "General Feedback": 0.5,
+                            }
+                            
+                            qtext_lower = qtext.lower()
+                            if "skills" in qtext_lower:
+                                dim_scores["Personal Development and Life Quality"] = 1.0
+                            elif "leaders" in qtext_lower or "pasig" in qtext_lower:
+                                dim_scores["Government Trust and LGU Support Valuation"] = 1.0
+                            elif "improve" in qtext_lower or "better support" in qtext_lower:
+                                dim_scores["General Feedback"] = 1.0
+                                
+                            for dim, pattern in dimension_regexes.items():
+                                if pattern.search(lower_text):
+                                    dim_scores[dim] += 2.0
+                                    
+                            primary_dim = max(dim_scores.items(), key=lambda x: x[1])[0]
                             if is_fp:
                                 avg_polarity = (
                                     fp_polarity_override
                                     if fp_polarity_override is not None
                                     else -avg_polarity
                                 )
-                            if avg_polarity < 0:
-                                classification_counts[primary_dim]["negative"] += 1
-                            elif avg_polarity > 0:
-                                classification_counts[primary_dim]["positive"] += 1
-                            else:
-                                classification_counts[primary_dim]["neutral"] += 1
+                            if not is_placeholder:
+                                if avg_polarity < 0:
+                                    classification_counts[primary_dim]["negative"] += 1
+                                elif avg_polarity > 0:
+                                    classification_counts[primary_dim]["positive"] += 1
+                                else:
+                                    classification_counts[primary_dim]["neutral"] += 1
 
                         qualitative_feedback = QualitativeFeedback(
-                                response_id=str(response_id),
-                                question_id=qid,
-                                question_text=qtext,
-                                response_text=text_ans.strip(),
-                                sentiment_score=avg_polarity,
-                                is_false_positive=is_fp,
-                                dimension=primary_dim,
-                            )
+                            response_id=str(response_id),
+                            question_id=qid,
+                            question_text=qtext,
+                            response_text=text_ans_clean,
+                            sentiment_score=avg_polarity,
+                            is_false_positive=is_fp,
+                            dimension=primary_dim,
+                            is_placeholder=is_placeholder,
+                        )
                         feedback_candidate = (
                             response_created_at,
                             str(response_id),
@@ -1009,7 +1093,7 @@ async def compute_peii_scores(
                         elif feedback_candidate[:3] > qualitative_feedback_candidates[0][:3]:
                             heapreplace(qualitative_feedback_candidates, feedback_candidate)
 
-                        if sentiments_for_q:
+                        if sentiments_for_q and not is_placeholder:
                             for dim, polarity in sentiments_for_q:
                                 if dim in classification_counts:
                                     if polarity >= 0.3:
@@ -1145,4 +1229,5 @@ async def compute_peii_scores(
         qualitative_feedback_truncated=(
             qualitative_feedback_total > len(qualitative_feedbacks)
         ),
+        qualitative_feedback_placeholder_count=qualitative_feedback_placeholder_count,
     )

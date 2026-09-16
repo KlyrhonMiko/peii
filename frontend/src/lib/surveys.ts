@@ -217,6 +217,7 @@ export interface QualitativeFeedback {
   sentiment_score: number
   is_false_positive: boolean
   dimension?: string
+  is_placeholder?: boolean
 }
 
 export interface PEIIAnalyticsResponse {
@@ -232,6 +233,7 @@ export interface PEIIAnalyticsResponse {
   qualitative_feedback: QualitativeFeedback[]
   qualitative_feedback_total: number
   qualitative_feedback_truncated: boolean
+  qualitative_feedback_placeholder_count?: number
 }
 
 export interface EraseSelectedResponsesPayload {

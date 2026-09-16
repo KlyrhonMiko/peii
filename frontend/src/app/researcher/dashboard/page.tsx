@@ -274,6 +274,7 @@ export default function DashboardPage() {
   const [qualitativeFeedback, setQualitativeFeedback] = useState<QualitativeFeedback[]>([])
   const [qualitativeFeedbackTotal, setQualitativeFeedbackTotal] = useState(0)
   const [qualitativeFeedbackTruncated, setQualitativeFeedbackTruncated] = useState(false)
+  const [qualitativeFeedbackPlaceholderCount, setQualitativeFeedbackPlaceholderCount] = useState(0)
   const [outcomes, setOutcomes] = useState<PEIIAnalyticsResponse["outcome_distributions"] | null>(null)
   const [surveyId, setSurveyId] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(true)
@@ -339,9 +340,14 @@ export default function DashboardPage() {
     }
   }
 
+  const prevFiltersRef = useRef(filters)
+
   useEffect(() => {
     let cancelled = false
     const controller = new AbortController()
+
+    const isFilterChange = prevFiltersRef.current !== filters
+    prevFiltersRef.current = filters
 
     async function fetchData() {
       function resetFetchedData() {
@@ -359,7 +365,9 @@ export default function DashboardPage() {
       }
 
       if (!cancelled) {
-        setIsLoading(true)
+        if (isFilterChange || !isInitialDataLoaded.current) {
+          setIsLoading(true)
+        }
         setFetchError(null)
       }
       try {
@@ -428,6 +436,7 @@ export default function DashboardPage() {
           setQualitativeFeedback(data.qualitative_feedback || [])
           setQualitativeFeedbackTotal(data.qualitative_feedback_total)
           setQualitativeFeedbackTruncated(data.qualitative_feedback_truncated)
+          setQualitativeFeedbackPlaceholderCount(data.qualitative_feedback_placeholder_count ?? 0)
         } else {
           setChartData([])
           setPeiiScore(null)
@@ -436,6 +445,7 @@ export default function DashboardPage() {
           setQualitativeFeedback([])
           setQualitativeFeedbackTotal(0)
           setQualitativeFeedbackTruncated(false)
+          setQualitativeFeedbackPlaceholderCount(0)
         }
 
         setDemographics(data.demographics)
@@ -639,6 +649,7 @@ export default function DashboardPage() {
                     feedbacks={qualitativeFeedback}
                     qualitativeFeedbackTotal={qualitativeFeedbackTotal}
                     qualitativeFeedbackTruncated={qualitativeFeedbackTruncated}
+                    qualitativeFeedbackPlaceholderCount={qualitativeFeedbackPlaceholderCount}
                     isLoading={isLoading}
                     onRefresh={() => { if (!isExporting) setRefreshKey(k => k + 1) }}
                   />
