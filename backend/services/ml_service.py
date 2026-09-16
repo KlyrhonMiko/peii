@@ -436,7 +436,9 @@ class FeedbackAnalyzer:
             )
             
             # Load the custom sentiment model if it exists
-            model_dir = os.path.join(os.path.dirname(__file__), "..", "ml_models", "peii_sentiment_v1_onnx")
+            model_dir = os.path.join(
+                os.path.dirname(__file__), "..", "ml_models", "peii_sentiment_v1_onnx"
+            )
             self.sentiment_model = None
             self.sentiment_tokenizer = None
             
@@ -447,11 +449,7 @@ class FeedbackAnalyzer:
                     from optimum.onnxruntime import ORTModelForSequenceClassification
                     from transformers import AutoTokenizer
 
-                    provider = (
-                        "CUDAExecutionProvider"
-                        if torch.cuda.is_available()
-                        else "CPUExecutionProvider"
-                    )
+                    provider = "CPUExecutionProvider"
                     session_options = ort.SessionOptions()
                     session_options.log_severity_level = 3
 
@@ -476,8 +474,10 @@ class FeedbackAnalyzer:
             cls._instance = cls()
         return cls._instance
 
-    def _analyze_cached(self, text: str, answer: str | None = None) -> tuple:
-        if text in _disk_cache:
+    def _analyze_cached(
+        self, text: str, answer: str | None = None, ignore_cache: bool = False
+    ) -> tuple:
+        if not ignore_cache and text in _disk_cache:
             # Reconstruct tuples from JSON lists
             return tuple((k, v) for k, v in _disk_cache[text])
 
@@ -505,8 +505,11 @@ class FeedbackAnalyzer:
             if score >= 0.70
         ]
 
+        # If no dimension clears the confidence threshold, fall back to a
+        # generic "General" bucket so every non-empty text answer still
+        # receives a sentiment polarity score.
         if not detected_dimensions:
-            return tuple()
+            detected_dimensions = ["General"]
 
         # --- Intent-aware sentiment scoring ---
         sentiment_input = answer if answer else text
@@ -521,7 +524,9 @@ class FeedbackAnalyzer:
         if self.sentiment_model and self.sentiment_tokenizer:
             # Use local fine-tuned ONNX model
             prompt = f"Context: {intent}. Question: {q_text} </s> Answer: {sentiment_input} </s>"
-            inputs = self.sentiment_tokenizer(prompt, return_tensors="pt", truncation=True, max_length=256)
+            inputs = self.sentiment_tokenizer(
+                prompt, return_tensors="pt", truncation=True, max_length=256
+            )
             
             with torch.no_grad():
                 outputs = self.sentiment_model(**inputs)
@@ -563,8 +568,13 @@ class FeedbackAnalyzer:
 
         return result_tuple
 
-    def analyze_feedback(self, text: str, answer: str | None = None) -> list[tuple[str, float]]:
-        return list(self._analyze_cached(text, answer))
+    def analyze_feedback(
+        self,
+        text: str,
+        answer: str | None = None,
+        ignore_cache: bool = False,
+    ) -> list[tuple[str, float]]:
+        return list(self._analyze_cached(text, answer, ignore_cache=ignore_cache))
 
 
 # ---------------------------------------------------------------------------

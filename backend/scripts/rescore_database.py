@@ -6,8 +6,9 @@ import time
 from pathlib import Path
 from typing import Protocol, cast
 
-from sqlmodel import col, select
 from sqlalchemy.orm.attributes import flag_modified
+from sqlmodel import col, select
+
 
 class _ReconfigurableTextStream(Protocol):
     def reconfigure(self, *, line_buffering: bool) -> None: ...
@@ -21,14 +22,15 @@ BACKEND_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(BACKEND_DIR))
 
 import torch  # noqa: E402
+
 from core.analytics_cache import ainvalidate_survey_analytics  # noqa: E402
-from core.database import async_session_factory, engine  # noqa: E402
+from core.config import settings  # noqa: E402
+from core.database import async_session_factory  # noqa: E402
 from models.survey import Survey  # noqa: E402
 from models.survey_question import SurveyQuestion  # noqa: E402
 from models.survey_response import SurveyResponse  # noqa: E402
 from services.audit_service import AuditEvent, commit_with_audit  # noqa: E402
 from services.ml_service import FeedbackAnalyzer  # noqa: E402
-from core.config import settings  # noqa: E402
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger("rescore_database")
@@ -53,6 +55,7 @@ async def rescore(
     limit: int | None = None,
     batch_commit_size: int = 25,
     dry_run: bool = False,
+    ignore_cache: bool = False,
 ):
     print_cuda_diagnostics()
 
@@ -116,7 +119,10 @@ async def rescore(
                 return
 
         # 4. Process responses
-        print(f"\n[4/4] Starting inference (Dry Run: {dry_run}, Batch Commit Size: {batch_commit_size})...\n")
+        print(
+            f"\n[4/4] Starting inference (Dry Run: {dry_run}, "
+            f"Batch Commit Size: {batch_commit_size})...\n"
+        )
         start_time = time.time()
         processed_count = 0
         updated_count = 0
@@ -136,7 +142,7 @@ async def rescore(
                             continue
 
                         prompt = f"Question: {q.question_text} Answer: {ans}"
-                        res = analyzer.analyze_feedback(prompt, ans)
+                        res = analyzer.analyze_feedback(prompt, ans, ignore_cache=ignore_cache)
                         if res:
                             new_sentiments[qid] = res
 
@@ -147,9 +153,13 @@ async def rescore(
                 updated_count += 1
                 modified_surveys.add(resp.survey_id)
 
-            status_str = f"Rescored {len(new_sentiments)} sentiment targets" if new_sentiments else "No dimensions matched"
+            if new_sentiments:
+                status_str = f"Rescored {len(new_sentiments)} sentiment targets"
+            else:
+                status_str = "No dimensions matched"
             print(
-                f"[{processed_count}/{total_responses}] Response {resp.id} ({resp_elapsed:.2f}s) -> {status_str}"
+                f"[{processed_count}/{total_responses}] Response {resp.id} "
+                f"({resp_elapsed:.2f}s) -> {status_str}"
             )
             if new_sentiments and (dry_run or total_responses <= 5):
                 for qk, sval in new_sentiments.items():
@@ -185,7 +195,8 @@ async def rescore(
         print(f" Successfully Rescored     : {updated_count}")
         print(f" Total Elapsed Time        : {total_time:.2f}s")
         print(f" Average Speed             : {avg_speed:.2f}s per response")
-        print(f" Throughput                : {processed_count / max(total_time, 0.001):.2f} resp/sec")
+        throughput = processed_count / max(total_time, 0.001)
+        print(f" Throughput                : {throughput:.2f} resp/sec")
         print("=" * 65)
 
         if not dry_run and modified_surveys:
@@ -202,11 +213,22 @@ async def rescore(
 
 def main():
     parser = argparse.ArgumentParser(description="CUDA-Accelerated Survey Response Rescoring")
-    parser.add_argument("--response-id", type=str, default=None, help="Target specific response UUID")
-    parser.add_argument("--survey-id", type=str, default=None, help="Target specific survey UUID")
-    parser.add_argument("--limit", type=int, default=None, help="Limit number of responses to rescore")
+    parser.add_argument(
+        "--response-id", type=str, default=None, help="Target specific response UUID"
+    )
+    parser.add_argument(
+        "--survey-id", type=str, default=None, help="Target specific survey UUID"
+    )
+    parser.add_argument(
+        "--limit", type=int, default=None, help="Limit number of responses to rescore"
+    )
     parser.add_argument("--batch-commit", type=int, default=25, help="Batch commit size")
     parser.add_argument("--dry-run", action="store_true", help="Run without persisting to DB")
+    parser.add_argument(
+        "--ignore-cache",
+        action="store_true",
+        help="Bypass disk cache and recompute all sentiments with the model",
+    )
     args = parser.parse_args()
 
     asyncio.run(
@@ -216,6 +238,7 @@ def main():
             limit=args.limit,
             batch_commit_size=args.batch_commit,
             dry_run=args.dry_run,
+            ignore_cache=args.ignore_cache,
         )
     )
 
