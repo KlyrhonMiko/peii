@@ -72,11 +72,11 @@ def main():
     target_names = [INV_LABEL_MAP[i] for i in range(3)]
     
     logger.info("\n--- Classification Report ---")
-    report = classification_report(labels, predictions, target_names=target_names)
+    report = classification_report(labels, predictions, labels=[0, 1, 2], target_names=target_names)
     print(report)
     
     logger.info("\n--- Confusion Matrix ---")
-    cm = confusion_matrix(labels, predictions)
+    cm = confusion_matrix(labels, predictions, labels=[0, 1, 2])
     print(cm)
 
 if __name__ == "__main__":

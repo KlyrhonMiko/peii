@@ -32,6 +32,7 @@
 /backend/*.db
 /backend/*.sqlite3
 /backend/ml_cache.json
+/backend/ml_models/
 
 # python
 __pycache__/
