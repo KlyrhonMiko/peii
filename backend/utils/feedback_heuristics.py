@@ -11,11 +11,13 @@ DIMENSION_REGEXES: dict[str, re.Pattern[str]] = {
         r"salary|salaries|sweldo|sahod|income|economic\s+mobility|earning|"
         r"hire\w*|hiring|promot\w*|job\s+search|job\s+hunting|job\s+placement|"
         r"cv\b|resume\w*|curriculum\s+vitae|portfolio|interview\w*|mock\s+interview\w*|"
-        r"internship\w*|ojt\b|practicum|apprentice\w*|immersion|industry\s+partnerships?|"
+        r"internship\w*|ojt\b|practicum|apprentice\w*|immersion|industry\w*|industry\s+partnerships?|"
         r"technical\s+skills?|tech\s+skills?|ai\b|artificial\s+intelligence|automation|machine\s+learning|"
-        r"programming|coding|software|developer|it\s+skills?|"
+        r"programming|coding|software|developer|it\s+skills?|technology\w*|tech\w*|"
+        r"computer\s+literacy|digital\s+literacy|"
         r"financial\s+literacy|financial\s+skills?|financial\s+management|"
-        r"business\w*|negosyo|freelanc\w*|entrepreneur\w*|corporate|labor\s+market"
+        r"business\w*|negosyo|freelanc\w*|entrepreneur\w*|corporate|labor\s+market|"
+        r"training\w*|certifications?|competenc\w*"
         r")\b",
         re.IGNORECASE,
     ),
@@ -33,11 +35,12 @@ DIMENSION_REGEXES: dict[str, re.Pattern[str]] = {
     ),
     "Personal Development and Life Quality": re.compile(
         r"\b("
-        r"skills?|learn\w*|grow\w*|develop\w*|growth|training\w*|aral|knowledge|kaalaman|natutunan|mindset|"
-        r"leadership|soft\s+skills?|communication|public\s+speaking|presentation|interpersonal|"
+        r"grow\w*|growth|mindset|"
+        r"leadership|soft\s+skills?|communication|public\s+speak\w*|presentation|interpersonal|"
         r"confidence|self-confidence|self-esteem|self-improvement|sarili|buhay|"
-        r"life\s+quality|quality\s+of\s+life|wellness|well-being|wellbeing|mental\s+health|stress|counseling|"
-        r"seminars?|workshops?|webinars?|life\s+skills?|financial\s+literacy|financial\s+skills?"
+        r"life\s+quality|quality\s+of\s+life|wellness|well-being|wellbeing|mental\s+health|stress|counsell?ing|mental\s+support|guidance|"
+        r"seminars?|workshops?|webinars?|life\s+skills?|financial\s+literacy|financial\s+skills?|"
+        r"curricular|extracurricular|courses?|major\s+in|debate|experiential"
         r")\b",
         re.IGNORECASE,
     ),
@@ -59,7 +62,8 @@ DIMENSION_REGEXES: dict[str, re.Pattern[str]] = {
         r"scholarship\w*|iskolar\w*|stipend\w*|allowance\w*|subsid\w+|"
         r"tuition[-\s]free|libre\w*\s+tuition|financial\s+aid|ayuda|"
         r"public\s+investment|government\s+support|government\s+programs?|lgu\s+programs?|"
-        r"trust\s+(?:in|the)\s+(?:local\s+)?government|tiwala\s+sa\s+pamahalaan"
+        r"trust\s+(?:in|the)\s+(?:local\s+)?government|tiwala\s+sa\s+pamahalaan|"
+        r"facilities|uniforms?|printing|devices?|laptops?|ipads?|tablets?|teaching\s+resources|materials"
         r")\b",
         re.IGNORECASE,
     ),
@@ -69,7 +73,6 @@ DIMENSION_REGEXES: dict[str, re.Pattern[str]] = {
 # before running the keyword regex scan over the answer text.
 QUESTION_DIM_HINTS: list[tuple[str, str]] = [
     ("technical", "Employability and Economic Mobility"),
-    ("skills", "Personal Development and Life Quality"),
     ("leaders", "Government Trust and LGU Support Valuation"),
     ("pasig", "Government Trust and LGU Support Valuation"),
 ]

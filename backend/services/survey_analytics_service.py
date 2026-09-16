@@ -43,7 +43,7 @@ from utils.feedback_heuristics import heuristic_dimension as _heuristic_dimensio
 MAX_AGGREGATE_CELLS_PER_QUESTION = 1000
 MAX_AGGREGATE_CELLS_TOTAL = 10000
 AGGREGATE_BATCH_SIZE = 1000
-MAX_QUALITATIVE_FEEDBACK = 200
+MAX_QUALITATIVE_FEEDBACK = 2000
 
 _PLACEHOLDER_REGEX = re.compile(
     r"^(none|n/?a|wala|wala naman po|wala po|wala naman|\.|asd|sad|no|na|-"

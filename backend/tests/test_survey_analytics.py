@@ -170,7 +170,7 @@ def test_peii_qualitative_feedback_contract_requires_total_and_truncation() -> N
 
     assert PEIIAnalyticsResponse.model_fields["qualitative_feedback_total"].is_required()
     assert PEIIAnalyticsResponse.model_fields["qualitative_feedback_truncated"].is_required()
-    assert survey_analytics_service.MAX_QUALITATIVE_FEEDBACK == 200
+    assert survey_analytics_service.MAX_QUALITATIVE_FEEDBACK == 2000
 
 
 async def test_peii_sql_filters_and_bounds_qualitative_feedback(client) -> None:
@@ -228,7 +228,7 @@ async def test_peii_sql_filters_and_bounds_qualitative_feedback(client) -> None:
                 },
                 created_at=created_at + timedelta(seconds=index),
             )
-            for index in range(201)
+            for index in range(2001)
         ])
         session.add_all([
             SurveyResponse(
@@ -270,11 +270,11 @@ async def test_peii_sql_filters_and_bounds_qualitative_feedback(client) -> None:
         )
 
         assert result.demographics is not None
-        assert result.demographics.total_responses == 201
-        assert result.qualitative_feedback_total == 201
+        assert result.demographics.total_responses == 2001
+        assert result.qualitative_feedback_total == 2001
         assert result.qualitative_feedback_truncated is True
-        assert len(result.qualitative_feedback) == 200
-        assert result.qualitative_feedback[0].response_text == "good 200"
+        assert len(result.qualitative_feedback) == 2000
+        assert result.qualitative_feedback[0].response_text == "good 2000"
         assert result.qualitative_feedback[-1].response_text == "good 1"
     finally:
         await session_generator.aclose()
