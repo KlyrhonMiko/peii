@@ -19,6 +19,7 @@ from models.survey_question import SurveyQuestion
 from models.survey_response import SurveyResponse
 from schemas.ml import SentimentResponse
 from services.audit_service import AuditEvent, commit_with_audit
+from utils.feedback_heuristics import heuristic_dimension
 
 logger = get_logger(__name__)
 
@@ -505,19 +506,20 @@ class FeedbackAnalyzer:
             if score >= 0.70
         ]
 
-        # If no specific dimension passed the >= 0.70 threshold, fall back to
-        # "General Feedback" so 100% of feedback answers still receive a
-        # sentiment polarity score and appear in the classification chart.
-        if not detected_dimensions:
-            detected_dimensions = ["General Feedback"]
-
-        # --- Intent-aware sentiment scoring ---
+        # --- Intent-aware sentiment scoring and heuristic fallback context ---
         sentiment_input = answer if answer else text
 
         # Extract question context from the prompt key for smarter intent detection
         q_text = ""
         if "Question:" in text and "Answer:" in text:
             q_text = text.split("Answer:", 1)[0].replace("Question:", "").strip()
+
+        # If no specific dimension passed the >= 0.70 threshold, use the
+        # keyword-based heuristic fallback before defaulting to "General Feedback"
+        # so feedback answers receive their appropriate PEII dimension.
+        if not detected_dimensions:
+            h_dim = heuristic_dimension(sentiment_input.lower(), q_text.lower())
+            detected_dimensions = [h_dim]
 
         intent = _classify_intent(sentiment_input, q_text)
 

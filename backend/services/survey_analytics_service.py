@@ -38,6 +38,7 @@ from schemas.survey_analytics import (
 from services.base_service import utc_now
 from services.question_validation import get_matrix_columns, get_scale_bounds
 from services.survey_service import resolve_survey
+from utils.feedback_heuristics import heuristic_dimension as _heuristic_dimension
 
 MAX_AGGREGATE_CELLS_PER_QUESTION = 1000
 MAX_AGGREGATE_CELLS_TOTAL = 10000
@@ -83,75 +84,6 @@ _CRITICAL_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
-# Heuristic keyword-to-dimension map used as a cross-check layer on top of
-# zero-shot ML results. Compiled once at import time for performance.
-# Includes Tagalog terms to handle code-switching in Filipino graduate responses.
-_DIMENSION_REGEXES: dict[str, re.Pattern[str]] = {
-    "Employability and Economic Mobility": re.compile(
-        r"\b(job|work|career|salary|employ|income|trabaho|sweldo|pera|promot|"
-        r"hire|opportunity|business|negosyo|workplace|professional)\b",
-        re.IGNORECASE,
-    ),
-    "Family Upliftment and Financial Stability": re.compile(
-        r"\b(family|pamilya|financial|children|parents|anak|magulang|"
-        r"bahay|house|budget|gastos|kapatid|tulong\s+sa\s+pamilya|provide)\b",
-        re.IGNORECASE,
-    ),
-    "Personal Development and Life Quality": re.compile(
-        r"\b(skill|learn|grow|develop|confidence|happy|health|buhay|sarili|"
-        r"improve|training|aral|knowledge|natutunan|experience|mindset)\b",
-        re.IGNORECASE,
-    ),
-    "Civic Engagement and Community Contribution": re.compile(
-        r"\b(community|help|others|society|volunteer|tulong|kapwa|barangay|"
-        r"lipunan|tao|serve|serbisyo|contribute)\b",
-        re.IGNORECASE,
-    ),
-    "Government Trust and LGU Support Valuation": re.compile(
-        r"\b(gov|mayor|lgu|support|trust|gobyerno|program|scholar|city|"
-        r"pasig|officials|leader|public)\b",
-        re.IGNORECASE,
-    ),
-}
-
-# Keyword hints extracted from question text to pre-bias dimension scoring
-# before running the keyword regex scan over the answer text.
-_QUESTION_DIM_HINTS: list[tuple[str, str]] = [
-    ("skills", "Personal Development and Life Quality"),
-    ("leaders", "Government Trust and LGU Support Valuation"),
-    ("pasig", "Government Trust and LGU Support Valuation"),
-]
-
-
-def _heuristic_dimension(answer_lower: str, question_lower: str) -> str:
-    """Return the best-matching PEII dimension using keyword scoring.
-
-    Combines a question-text pre-bias with keyword regex scanning of the
-    answer body. Falls back to ``"General Feedback"`` when no dimension
-    keyword is found.
-    """
-    dim_scores: dict[str, float] = {
-        "Employability and Economic Mobility": 0.0,
-        "Family Upliftment and Financial Stability": 0.0,
-        "Personal Development and Life Quality": 0.0,
-        "Civic Engagement and Community Contribution": 0.0,
-        "Government Trust and LGU Support Valuation": 0.0,
-        "General Feedback": 0.3,  # small prior so empty answers stay here
-    }
-    # Pre-bias from question text
-    for hint_kw, hint_dim in _QUESTION_DIM_HINTS:
-        if hint_kw in question_lower:
-            dim_scores[hint_dim] += 1.0
-            break
-    # Keyword regex scan of answer body
-    for dim, pattern in _DIMENSION_REGEXES.items():
-        if pattern.search(answer_lower):
-            dim_scores[dim] += 2.0
-    best = max(dim_scores, key=lambda d: dim_scores[d])
-    # Only promote away from "General Feedback" if a real dimension won
-    if best == "General Feedback" or dim_scores[best] <= 0.3:
-        return "General Feedback"
-    return best
 
 
 class _DomainQuestionMap(TypedDict):
