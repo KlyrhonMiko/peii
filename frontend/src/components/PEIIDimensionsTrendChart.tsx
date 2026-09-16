@@ -109,11 +109,11 @@ export function PEIIDimensionsTrendChart({ data, isLoading, isExport }: PEIIDime
 
   return (
     <div className="h-full flex flex-col">
-      <div className={isExport ? "mb-8" : "mb-6"}>
-        <h3 className={isExport ? "text-4xl font-bold tracking-tight text-slate-900" : "text-2xl font-bold tracking-tight text-slate-900"}>
+      <div className={isExport ? "mb-10" : "mb-8"}>
+        <h3 className={isExport ? "text-3xl font-bold tracking-tight text-slate-900" : "text-2xl font-bold tracking-tight text-slate-900"}>
           Dimension Trend Comparison
         </h3>
-        <p className={isExport ? "text-xl text-slate-500 mt-3 mb-8 max-w-4xl" : "text-sm text-slate-500 mt-1 mb-5 max-w-3xl"}>
+        <p className={isExport ? "text-base text-slate-500 mt-2 mb-8 max-w-4xl" : "text-sm text-slate-500 mt-1 mb-5 max-w-3xl"}>
           Cohort net competency gain per dimension (1–5 scale): Measures graduate skill growth from college baseline to workplace outcome (Post-Grad − Pre-Grad) across cohorts.
         </p>
 
@@ -143,7 +143,7 @@ export function PEIIDimensionsTrendChart({ data, isLoading, isExport }: PEIIDime
         </div>
       </div>
 
-      <div className="w-full aspect-[21/9] min-h-[460px]">
+      <div className="w-full h-[350px] sm:h-[420px]">
         {isLoading ? (
           <div className="w-full h-full flex items-center justify-center">
             <div className="animate-pulse flex space-x-2">

@@ -9,6 +9,11 @@ import { ClientKeyOutcomes } from "@/components/ClientKeyOutcomes"
 import { ClientDegreeAlignment } from "@/components/ClientDegreeAlignment"
 import { ClientCurriculumFeedback } from "@/components/ClientCurriculumFeedback"
 import { ClientPEIIDimensionsTrendChart } from "@/components/ClientPEIIDimensionsTrendChart"
+import { ClientIncomeDistribution } from "@/components/ClientIncomeDistribution"
+import { ClientHiringVelocity } from "@/components/ClientHiringVelocity"
+import { ClientJobChannels } from "@/components/ClientJobChannels"
+import { ClientEmploymentStability } from "@/components/ClientEmploymentStability"
+import { DashboardNav } from "@/components/DashboardNav"
 import { DashboardFilters, departmentDegrees } from "@/components/DashboardFilters"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Button } from "@/components/ui/button"
@@ -76,6 +81,58 @@ function AnalyticsSkeleton({ filters }: { filters?: { batch: string } }) {
             </div>
           </div>
 
+          {/* Monthly Income Distribution — skeleton */}
+          <div className="pb-16 border-b border-slate-200 space-y-6">
+            <div className="space-y-1.5">
+              <Skeleton className="h-[1.125rem] w-64" />
+              <Skeleton className="h-3.5 w-72" />
+            </div>
+            <div className="flex flex-col gap-5 pt-4">
+              {[...Array(5)].map((_, i) => (
+                <div key={i} className="flex items-center gap-4">
+                  <Skeleton className="h-4 w-32 shrink-0" />
+                  <Skeleton className="h-7 w-full rounded-md" />
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Hiring Velocity — skeleton */}
+          <div className="pb-16 border-b border-slate-200 space-y-6">
+            <div className="space-y-1.5">
+              <Skeleton className="h-[1.125rem] w-56" />
+              <Skeleton className="h-3.5 w-80" />
+            </div>
+            <div className="flex flex-col gap-3 pt-2">
+              <Skeleton className="h-12 w-24" />
+              <Skeleton className="h-3.5 w-48" />
+            </div>
+            <Skeleton className="h-3 w-full rounded-full" />
+            <div className="flex flex-wrap gap-4 pt-2">
+              {[...Array(5)].map((_, i) => (
+                <Skeleton key={i} className="h-3 w-24" />
+              ))}
+            </div>
+          </div>
+
+          {/* Job Search Channels — skeleton */}
+          <div className="pb-16 border-b border-slate-200 space-y-6">
+            <div className="space-y-1.5">
+              <Skeleton className="h-[1.125rem] w-60" />
+              <Skeleton className="h-3.5 w-72" />
+            </div>
+            <div className="flex flex-col gap-4 pt-4">
+              {[...Array(4)].map((_, i) => (
+                <div key={i} className="flex flex-col gap-1.5">
+                  <div className="flex justify-between">
+                    <Skeleton className="h-3.5 w-40" />
+                    <Skeleton className="h-3.5 w-12" />
+                  </div>
+                  <Skeleton className="h-2 w-full rounded-full" />
+                </div>
+              ))}
+            </div>
+          </div>
 
           {/* Feedback Sentiment — ~6 dimension rows with h-3 bar */}
           <div className="pb-16 border-b border-slate-200 space-y-6">
@@ -158,7 +215,28 @@ function AnalyticsSkeleton({ filters }: { filters?: { batch: string } }) {
             ))}
           </div>
 
-          {/* Employment Stability — label → text-5xl % → segmented bar */}
+          {/* Employment Stability (Contract & Status) */}
+          <div className="pb-16 border-b border-slate-200 space-y-6">
+            <div className="space-y-1.5">
+              <Skeleton className="h-[1.125rem] w-44" />
+              <Skeleton className="h-3.5 w-60" />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="p-4 rounded-xl border border-slate-100 bg-slate-50/50 space-y-2">
+                <Skeleton className="h-3 w-20" />
+                <Skeleton className="h-8 w-16" />
+                <Skeleton className="h-2.5 w-24" />
+              </div>
+              <div className="p-4 rounded-xl border border-slate-100 bg-slate-50/50 space-y-2">
+                <Skeleton className="h-3 w-24" />
+                <Skeleton className="h-8 w-16" />
+                <Skeleton className="h-2.5 w-24" />
+              </div>
+            </div>
+            <Skeleton className="h-2.5 w-full rounded-full" />
+          </div>
+
+          {/* Key Outcomes (Perceived Likert) — label → text-5xl % → segmented bar */}
           <div className="pb-16 border-b border-slate-200 space-y-6">
             <div className="space-y-1.5">
               <Skeleton className="h-[1.125rem] w-40" />
@@ -539,7 +617,7 @@ export default function DashboardPage() {
   }, [demographics, chartData, peiiScore, peiiIndex, filters.batch])
 
   return (
-    <div className="space-y-12 animate-in fade-in duration-500 max-w-6xl mx-auto pb-12">
+    <div className="space-y-6 animate-in fade-in duration-500 w-full pb-12">
       {/* Page Header */}
       <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-6 pb-6 border-b border-slate-200">
         <div className="space-y-2">
@@ -602,125 +680,170 @@ export default function DashboardPage() {
         </div>
       ) : (
         <>
-          {/* Main Asymmetric Grid */}
-          <div id="analytics-dashboard" className="grid grid-cols-1 lg:grid-cols-12 gap-16 mt-12 pb-8">
-            
-            {/* LEFT COLUMN (8 cols): Canvas for macro-charts */}
-            <div className="lg:col-span-8 flex flex-col gap-24">
+          {/* Sticky In-Page Navigation Bar */}
+          <div className="sticky top-[60px] z-20 -mx-5 lg:-mx-8 px-5 lg:px-8 py-3 bg-[#fafafa]/90 backdrop-blur-md border-b border-slate-200/80 mb-8 transition-all">
+            <DashboardNav />
+          </div>
+
+          {/* Main Analytics Content */}
+          <div id="analytics-dashboard" className="flex flex-col gap-24 pb-16">
               
-              {/* Historical Trend spans full 8 cols */}
-              {filters.batch === "All Batches" && (
-                <div className="pb-16 border-b border-slate-200">
-                  <ExportableSection id="chart-historical-trend" name="Historical Trend" filters={filters}>
-                    <ClientPEIIHistoricalTrendChart data={historicalTrend} isLoading={isLoading} />
-                  </ExportableSection>
+              {/* SECTION 1: OVERVIEW */}
+              <section id="section-overview" className="scroll-mt-32">
+                <div className="mb-8 border-b border-slate-900 pb-2">
+                  <h3 className="text-xl font-bold tracking-tight text-slate-900 uppercase">Overview</h3>
                 </div>
-              )}
-              
-              {/* Dimension Trend Chart spans full 8 cols */}
-              {filters.batch === "All Batches" && (
-                <div className="pb-16 border-b border-slate-200">
-                  <ExportableSection id="chart-dimension-trend" name="Dimension Trend" filters={filters}>
-                    <ClientPEIIDimensionsTrendChart data={historicalTrend} isLoading={isLoading} />
-                  </ExportableSection>
-                </div>
-              )}
+                <div className="flex flex-col gap-12 lg:gap-16">
+                  {/* Key Metrics (Full width, 4 columns) */}
+                  <div className="w-full">
+                    <ExportableSection id="chart-metrics-ledger" name="Key Metrics" filters={filters}>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8">
+                        {analyticsMetrics.map((stat) => {
+                          const isDomain = stat.label === "Primary Driver" || stat.label === "Needs Attention"
+                          const dimColor = isDomain && stat.value !== "N/A" ? getDimensionColor(stat.value) : null
 
-              {/* Domain Gain spans full 8 cols */}
-              <div className="pb-16 border-b border-slate-200">
-                <ExportableSection id="chart-domain-gain" name="Domain Gain" filters={filters}>
-                  <ClientDomainGainChart data={chartData} isLoading={isLoading} />
-                </ExportableSection>
-              </div>
-
-
-              {/* Feedback Sentiment Chart */}
-              <div className="pb-16 border-b border-slate-200">
-                <ExportableSection id="chart-feedback-sentiment" name="Feedback Sentiment" filters={filters}>
-                  <ClientFeedbackClassificationChart data={classificationData} />
-                </ExportableSection>
-              </div>
-
-              {/* Curriculum Feedback */}
-              <div className="pb-16">
-                <ExportableSection id="chart-curriculum-feedback" name="Curriculum Feedback" filters={filters}>
-                  <ClientCurriculumFeedback
-                    surveyId={surveyId}
-                    feedbacks={qualitativeFeedback}
-                    qualitativeFeedbackTotal={qualitativeFeedbackTotal}
-                    qualitativeFeedbackTruncated={qualitativeFeedbackTruncated}
-                    qualitativeFeedbackPlaceholderCount={qualitativeFeedbackPlaceholderCount}
-                    isLoading={isLoading}
-                    onRefresh={() => { if (!isExporting) setRefreshKey(k => k + 1) }}
-                  />
-                </ExportableSection>
-              </div>
-
-            </div>
-
-            {/* RIGHT COLUMN (4 cols): Dense Telemetry & Metadata */}
-            <div className="lg:col-span-4 flex flex-col gap-16 lg:border-l border-slate-200 lg:pl-16">
-              
-              {/* Insights Ledger stacked vertically */}
-              <div className="flex flex-col gap-12 pb-16 border-b border-slate-200">
-                <ExportableSection id="chart-metrics-ledger" name="Key Metrics" filters={filters}>
-                  <div className="flex flex-col gap-12">
-                    {analyticsMetrics.map((stat) => {
-                      const isDomain = stat.label === "Primary Driver" || stat.label === "Needs Attention"
-                      const dimColor = isDomain && stat.value !== "N/A" ? getDimensionColor(stat.value) : null
-
-                      return (
-                        <div key={stat.label} className="flex flex-col">
-                          <div className="mb-4">
-                            <span 
-                              className={`text-[10px] font-bold uppercase tracking-[0.2em] ${dimColor ? 'border-l-2 pl-2' : ''} text-slate-500`}
-                              style={dimColor ? { borderColor: dimColor.hex } : undefined}
-                            >
-                              {stat.label}
-                            </span>
-                          </div>
-                          <div className="text-5xl font-light tracking-tighter text-slate-900 mb-2 leading-[1.1] break-words">
-                            {stat.value}
-                          </div>
-                          <div className="mt-1 space-y-0.5">
-                            <div className="text-sm font-medium text-slate-700">
-                              {stat.subValue}
-                            </div>
-                            {stat.indicator && (
-                              <div className="text-xs text-slate-400 font-normal">
-                                {stat.indicator}
+                          return (
+                            <div key={stat.label} className="flex flex-col">
+                              <div className="mb-2">
+                                <span 
+                                  className={`text-[10px] font-bold uppercase tracking-[0.2em] ${dimColor ? 'border-l-2 pl-2' : ''} text-slate-500`}
+                                  style={dimColor ? { borderColor: dimColor.hex } : undefined}
+                                >
+                                  {stat.label}
+                                </span>
                               </div>
-                            )}
-                          </div>
-                        </div>
-                      )
-                    })}
+                              <div className={`font-light tracking-tighter text-slate-900 mb-1 leading-[1.1] break-words ${stat.value.length > 15 ? 'text-2xl' : 'text-4xl'}`}>
+                                {stat.value}
+                              </div>
+                              <div className="mt-1 flex flex-col gap-0.5">
+                                <div className="text-sm font-medium text-slate-700">
+                                  {stat.subValue}
+                                </div>
+                                {stat.indicator && (
+                                  <div className="text-xs text-slate-400 font-normal">
+                                    {stat.indicator}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    </ExportableSection>
                   </div>
-                </ExportableSection>
-              </div>
 
-              {/* Demographics Overview stacked vertically */}
-              <div className="pb-16 border-b border-slate-200">
-                <ExportableSection id="chart-demographics" name="Demographics" filters={filters}>
-                  <ClientDemographicsOverview demographics={demographics} isLoading={isLoading} />
-                </ExportableSection>
-              </div>
+                  {/* Demographics (Full width, 4 columns) */}
+                  <div className="w-full">
+                    <ExportableSection id="chart-demographics" name="Demographics" filters={filters}>
+                      <ClientDemographicsOverview demographics={demographics} isLoading={isLoading} />
+                    </ExportableSection>
+                  </div>
+                </div>
+              </section>
 
-              {/* Key Outcomes in sidebar */}
-              <div className="pb-16 border-b border-slate-200">
-                <ExportableSection id="chart-key-outcomes" name="Key Outcomes" filters={filters}>
-                  <ClientKeyOutcomes distribution={outcomes?.employment_stability ?? null} isLoading={isLoading} />
-                </ExportableSection>
-              </div>
+              {/* SECTION 2: PERFORMANCE */}
+              <section id="section-performance" className="scroll-mt-32">
+                <div className="mb-8 border-b border-slate-900 pb-2">
+                  <h3 className="text-xl font-bold tracking-tight text-slate-900 uppercase">Performance</h3>
+                </div>
+                <div className="flex flex-col gap-16">
+                  {filters.batch === "All Batches" && (
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 lg:gap-16 pb-16 border-b border-slate-200">
+                      <ExportableSection id="chart-historical-trend" name="Historical Trend" filters={filters}>
+                        <ClientPEIIHistoricalTrendChart data={historicalTrend} isLoading={isLoading} />
+                      </ExportableSection>
+                      
+                      <ExportableSection id="chart-dimension-trend" name="Dimension Trend" filters={filters}>
+                        <ClientPEIIDimensionsTrendChart data={historicalTrend} isLoading={isLoading} />
+                      </ExportableSection>
+                    </div>
+                  )}
+                  
+                  <div className="pb-8">
+                    <ExportableSection id="chart-domain-gain" name="Domain Gain" filters={filters}>
+                      <ClientDomainGainChart data={chartData} isLoading={isLoading} />
+                    </ExportableSection>
+                  </div>
+                </div>
+              </section>
 
-              {/* Degree Alignment in sidebar */}
-              <div className="pb-16">
-                <ExportableSection id="chart-degree-alignment" name="Degree Alignment" filters={filters}>
-                  <ClientDegreeAlignment distribution={outcomes?.degree_alignment ?? null} isLoading={isLoading} />
-                </ExportableSection>
-              </div>
+              {/* SECTION 3: EMPLOYMENT */}
+              <section id="section-employment" className="scroll-mt-32">
+                <div className="mb-8 border-b border-slate-900 pb-2">
+                  <h3 className="text-xl font-bold tracking-tight text-slate-900 uppercase">Employment</h3>
+                </div>
+                
+                <div className="grid grid-cols-1 lg:grid-cols-12 gap-16">
+                  {/* Left: Main Charts (Velocity, Income, Channels) */}
+                  <div className="lg:col-span-8 flex flex-col gap-16">
+                    <div className="pb-16 border-b border-slate-200">
+                      <ExportableSection id="chart-hiring-velocity" name="Hiring Velocity" filters={filters}>
+                        <ClientHiringVelocity distribution={outcomes?.time_to_first_job ?? null} isLoading={isLoading} />
+                      </ExportableSection>
+                    </div>
+                    <div className="pb-16 border-b border-slate-200">
+                      <ExportableSection id="chart-income-distribution" name="Income Distribution" filters={filters}>
+                        <ClientIncomeDistribution distribution={outcomes?.monthly_income ?? null} isLoading={isLoading} />
+                      </ExportableSection>
+                    </div>
+                    <div className="pb-8">
+                      <ExportableSection id="chart-job-channels" name="Job Search Channels" filters={filters}>
+                        <ClientJobChannels distribution={outcomes?.job_search_channel ?? null} isLoading={isLoading} />
+                      </ExportableSection>
+                    </div>
+                  </div>
 
-            </div>
+                  {/* Right: Side Charts (Stability, Outcomes, Alignment) */}
+                  <div className="lg:col-span-4 flex flex-col gap-16 lg:border-l lg:border-slate-200 lg:pl-16">
+                    <div className="pb-16 border-b border-slate-200">
+                      <ExportableSection id="chart-employment-stability" name="Employment Stability" filters={filters}>
+                        <ClientEmploymentStability
+                          statusDistribution={outcomes?.employment_status ?? null}
+                          typeDistribution={outcomes?.employment_type ?? null}
+                          isLoading={isLoading}
+                        />
+                      </ExportableSection>
+                    </div>
+                    <div className="pb-16 border-b border-slate-200">
+                      <ExportableSection id="chart-key-outcomes" name="Key Outcomes" filters={filters}>
+                        <ClientKeyOutcomes distribution={outcomes?.employment_stability ?? null} isLoading={isLoading} />
+                      </ExportableSection>
+                    </div>
+                    <div className="pb-8">
+                      <ExportableSection id="chart-degree-alignment" name="Degree Alignment" filters={filters}>
+                        <ClientDegreeAlignment distribution={outcomes?.degree_alignment ?? null} isLoading={isLoading} />
+                      </ExportableSection>
+                    </div>
+                  </div>
+                </div>
+              </section>
+
+              {/* SECTION 4: FEEDBACK */}
+              <section id="section-feedback" className="scroll-mt-32">
+                <div className="mb-8 border-b border-slate-900 pb-2">
+                  <h3 className="text-xl font-bold tracking-tight text-slate-900 uppercase">Feedback</h3>
+                </div>
+                <div className="flex flex-col gap-16">
+                  <div className="pb-16 border-b border-slate-200">
+                    <ExportableSection id="chart-feedback-sentiment" name="Feedback Sentiment" filters={filters}>
+                      <ClientFeedbackClassificationChart data={classificationData} />
+                    </ExportableSection>
+                  </div>
+                  <div className="pb-8">
+                    <ExportableSection id="chart-curriculum-feedback" name="Curriculum Feedback" filters={filters}>
+                      <ClientCurriculumFeedback
+                        surveyId={surveyId}
+                        feedbacks={qualitativeFeedback}
+                        qualitativeFeedbackTotal={qualitativeFeedbackTotal}
+                        qualitativeFeedbackTruncated={qualitativeFeedbackTruncated}
+                        qualitativeFeedbackPlaceholderCount={qualitativeFeedbackPlaceholderCount}
+                        isLoading={isLoading}
+                        onRefresh={() => { if (!isExporting) setRefreshKey(k => k + 1) }}
+                      />
+                    </ExportableSection>
+                  </div>
+                </div>
+              </section>
           </div>
         </>
       )}
@@ -782,6 +905,14 @@ export default function DashboardPage() {
               <div className="flex flex-col gap-16 py-12 border-b-2 border-slate-100">
                 <div className="w-full pb-8 border-b border-slate-100">
                   <ClientDemographicsOverview demographics={demographics} isLoading={false} isExport={true} />
+                </div>
+                <div className="w-full pb-8 border-b border-slate-100">
+                  <ClientEmploymentStability
+                    statusDistribution={outcomes?.employment_status ?? null}
+                    typeDistribution={outcomes?.employment_type ?? null}
+                    isLoading={false}
+                    isExport={true}
+                  />
                 </div>
                 <div className="grid grid-cols-2 gap-16">
                   <div className="flex flex-col">

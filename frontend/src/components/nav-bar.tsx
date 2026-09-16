@@ -21,7 +21,7 @@ export function NavBar({
   children,
 }: NavBarProps) {
   return (
-    <header className="sticky top-0 z-20 bg-white/80 backdrop-blur-md border-b border-slate-200/50">
+    <header className="sticky top-0 z-30 bg-white/80 backdrop-blur-md border-b border-slate-200/50">
       <div className="flex items-center h-[60px] px-5 lg:px-8 max-w-[1440px] mx-auto w-full">
         <SidebarTrigger className="text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-md p-1.5 transition-colors -ml-1" />
         <div className="w-px h-4 bg-slate-200 mx-3" />

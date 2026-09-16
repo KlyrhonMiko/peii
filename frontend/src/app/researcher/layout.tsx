@@ -14,7 +14,7 @@ export default async function ResearcherLayout({
   return (
     <SidebarProvider>
       <AppSidebar user={user} />
-      <main className="flex-1 overflow-auto bg-[#fafafa] min-h-screen flex flex-col">
+      <main className="flex-1 bg-[#fafafa] min-h-screen flex flex-col">
         <NavBar
           breadcrumbs={[
             { label: "Researcher" },

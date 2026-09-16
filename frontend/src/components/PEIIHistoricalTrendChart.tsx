@@ -91,18 +91,18 @@ export function PEIIHistoricalTrendChart({ data, isLoading, isExport }: PEIIHist
   return (
     <div className="h-full flex flex-col">
       {/* Editorial Header */}
-      <div className={isExport ? "mb-8 flex items-start justify-between" : "mb-6 flex items-start justify-between"}>
+      <div className={isExport ? "mb-10 flex items-start justify-between" : "mb-8 flex items-start justify-between"}>
         <div>
-          <h3 className={isExport ? "text-4xl font-bold tracking-tight text-slate-900" : "text-2xl font-bold tracking-tight text-slate-900"}>
+          <h3 className={isExport ? "text-3xl font-bold tracking-tight text-slate-900" : "text-2xl font-bold tracking-tight text-slate-900"}>
             Historical PEII Trend
           </h3>
-          <p className={isExport ? "text-xl text-slate-500 mt-3" : "text-sm text-slate-500 mt-1"}>
+          <p className={isExport ? "text-base text-slate-500 mt-2" : "text-sm text-slate-500 mt-1"}>
             Cohort average value-added score (1–5 scale): Net competency gain from college baseline to workplace outcome (Post-Grad − Pre-Grad)
           </p>
         </div>
       </div>
 
-      <div className="w-full aspect-[21/9] min-h-[400px]">
+      <div className="w-full h-[350px] sm:h-[420px]">
         {isLoading ? (
           <div className="w-full h-full flex items-center justify-center">
             <div className="animate-pulse flex space-x-2">
