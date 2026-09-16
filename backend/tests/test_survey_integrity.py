@@ -190,6 +190,55 @@ async def test_structure_replace_rejects_a_stale_updated_at_precondition(client)
     assert fetched.json()["data"]["sections"][0]["title"] == "Employment"
 
 
+async def test_structure_replace_rejects_dangling_question_reference(client):
+    survey_uuid, survey_business_id, section_id = await _create_survey_with_section(
+        client, "Dangling Structure Survey"
+    )
+    question = await client.post(
+        f"/api/v1/surveys/{survey_uuid}/questions/",
+        json={
+            "question_text": "Dependent",
+            "question_type": "text",
+            "section_id": section_id,
+        },
+    )
+    question_id = question.json()["data"]["id"]
+    original = (await client.get(f"/api/v1/surveys/{survey_business_id}")).json()["data"]
+
+    response = await client.put(
+        f"/api/v1/surveys/{survey_uuid}/structure",
+        json={
+            "expected_updated_at": original["updated_at"],
+            "sections": [
+                {
+                    "client_id": section_id,
+                    "id": section_id,
+                    "title": "Main",
+                    "questions": [
+                        {
+                            "client_id": question_id,
+                            "id": question_id,
+                            "question_text": "Dependent",
+                            "question_type": "text",
+                            "config": {
+                                "visible_when": {
+                                    "question_key": "missing",
+                                    "equals": "Yes",
+                                },
+                            },
+                        }
+                    ],
+                }
+            ],
+        },
+    )
+
+    assert response.status_code == 422
+    assert "unknown question_key" in response.json()["message"]
+    fetched = await client.get(f"/api/v1/surveys/{survey_business_id}")
+    assert fetched.json()["data"]["questions"][0]["config"] is None
+
+
 async def test_individual_structure_change_invalidates_structure_precondition(client):
     survey_uuid, survey_business_id, section_id = await _create_survey_with_section(
         client, "Concurrent Structure Survey"

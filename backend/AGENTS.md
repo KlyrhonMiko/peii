@@ -69,6 +69,10 @@ Read this file first, then the guide closest to the files you are changing.
   local placeholder; reset grants are short-lived and one-time through the configured Redis.
 - `CSV_EXPORT_ENABLED` is a server-side release flag. Keep it false for the initial online
   deployment; enabling export also requires the existing `survey_responses.export` capability.
+- Survey-specific CSV import is independently gated by `survey_responses.import`. Only its exact
+  validation and commit POST routes may accept up to 2 MiB; the ordinary request cap remains
+  65,536 bytes. Imported rows retain source timestamps and leave Google identity and live
+  consent-evidence fields null.
 - `BACKEND_CORS_ORIGINS` is parsed as a list by settings. Keep examples valid for Pydantic.
 
 ## Architecture
@@ -167,7 +171,7 @@ Read this file first, then the guide closest to the files you are changing.
   `f77a807cf2f9_expand_distribution_security`, `d1f9bad768ad`, the Phase 3 `fb1c93d15474`
   revision, `2bf09a6bc738`, `d5a4f7c91e2b`, `a8055c9859f5`, `b9055c9859f6`, `f88b9c1d0000`,
   `3aad20b0fc8a`, `b0d864b9935b`, `a6c42481a0d9`, `7ac95c493227`, `b43d56b55144`, and
-  `bf21a63040a2`. `bf21a63040a2` is the current migration head. Fresh environments
+  `bf21a63040a2`, and `c1d2e3f4a5b6` (response import permission). `c1d2e3f4a5b6` is the current migration head. Fresh environments
   must run `./.venv/bin/alembic upgrade head`; production runs it once as the protected release
   job before API replicas are promoted.
 - Historically, the `f77a807cf2f9` compatibility revision added SHA-256 token digests and

@@ -10,8 +10,17 @@ import {
   ToggleLeft,
 } from "lucide-react"
 import type { SurveyStatus } from "@/lib/surveys"
+import {
+  JOB_CATEGORY_OPTIONS,
+  JOB_CATEGORY_OTHER_OPTIONS,
+  JOB_INDUSTRIES,
+  JOB_INDUSTRY_CATEGORIES,
+  JOB_TITLES,
+  PASIG_BARANGAYS,
+} from "./graduate-tracer-options"
 
 export const GRADUATE_TRACER_STUDY_SURVEY_TITLE = "GRADUATE TRACER STUDY SURVEY"
+export const GRADUATE_TRACER_STUDY_TEMPLATE_VERSION = "survey-questionnaire-2026-09-16"
 
 export const GRADUATE_TRACER_STUDY_PURPOSE =
   "This survey aims to assess the outcomes of graduates from Pamantasan ng Lungsod ng Pasig (PLP) and determine how their education has contributed to their employment, financial stability, personal development, and community engagement. The results will be used to compute the Pasig Education Impact Index (PEII) and to support the continuous improvement of educational programs and policies."
@@ -80,12 +89,16 @@ function singleChoiceQuestion(
   }
 }
 
-function textQuestion(question_text: string, survey_phase: SurveyPhase): SurveyQuestionDefinition {
+function textQuestion(
+  question_text: string,
+  survey_phase: SurveyPhase,
+  config: Omit<SurveyQuestionConfig, "survey_phase"> = {},
+): SurveyQuestionDefinition {
   return {
     question_text,
     question_type: "text",
     options: null,
-    config: questionConfig(survey_phase),
+    config: questionConfig(survey_phase, config),
   }
 }
 
@@ -188,6 +201,62 @@ function feedbackSection(survey_phase: SurveyPhase, sectionLabel: "IV-A" | "IV-B
   }
 }
 
+function employmentSection(): SurveySectionDefinition {
+  return {
+    title: "SECTION I-B : POST-GRADUATION EMPLOYMENT PROFILE",
+    description: "Answer the following questions about your employment and first job.",
+    questions: [
+      singleChoiceQuestion("What is your current employment status?", [
+        "Employed full-time", "Employed part-time", "Self-employed / Business owner", "Unemployed - seeking work",
+      ], 2),
+      singleChoiceQuestion("What type of employment do you have?", [
+        "Contractual", "Permanent", "Freelance", "Project-based",
+      ], 2),
+      singleChoiceQuestion("Which sector do you work in?", ["Private", "Public"], 2),
+      singleChoiceQuestion("What is your job level?", [
+        "Entry-Level", "Junior Staff", "Senior-Level", "Supervisory Level", "Managerial Level",
+      ], 2),
+      singleChoiceQuestion("Which industry do you work in?", JOB_INDUSTRIES, 2, {
+        question_key: "job_industry",
+        presentation: "dropdown",
+      }),
+      singleChoiceQuestion("Which category best describes your work in that industry?", JOB_CATEGORY_OPTIONS, 2, {
+        question_key: "job_category",
+        presentation: "dropdown",
+        options_by_answer: { question_key: "job_industry", choices: JOB_INDUSTRY_CATEGORIES },
+      }),
+      textQuestion("If you selected Other (specify), what category best describes your work?", 2, {
+        visible_when: { question_key: "job_category", one_of: JOB_CATEGORY_OTHER_OPTIONS },
+      }),
+      singleChoiceQuestion("Which role or job title best describes your work?", [...JOB_TITLES], 2, {
+        question_key: "job_role",
+        presentation: "searchable_dropdown",
+      }),
+      textQuestion("What is your job title or role? (Other, please specify)", 2, {
+        visible_when: { question_key: "job_role", equals: "Other job title (specify)" },
+      }),
+      singleChoiceQuestion("Where do you work?", [
+        "Pasig City", "NCR (Outside Pasig)", "Outside NCR", "Overseas / Abroad",
+      ], 2),
+      singleChoiceQuestion("What is your monthly income range?", [
+        "Below ₱15,000", "₱15,001 – ₱25,000", "₱25,001 – ₱40,000", "₱40,001 – ₱60,000", "Above ₱60,000",
+      ], 2),
+      singleChoiceQuestion("How related is your current job to your college degree?", [
+        "Not related", "Slightly related", "Moderately related", "Highly related",
+      ], 2),
+      singleChoiceQuestion("How difficult was it to find your first job after graduation?", [
+        "Very Easy", "Easy", "Neutral", "Difficult", "Very Difficult",
+      ], 2),
+      singleChoiceQuestion("How long did it take to find your first job after graduation?", [
+        "< 3 months", "3-6 months", "6-12 months", "> 1 year", "Still unemployed",
+      ], 2),
+      singleChoiceQuestion("How did you obtain your first job?", [
+        "Internship", "Referral", "Walk-In", "Online application", "Business  / self-employment", "Job Fair",
+      ], 2),
+    ],
+  }
+}
+
 export const GRADUATE_TRACER_STUDY_SURVEY: {
   title: string
   description: string
@@ -245,12 +314,19 @@ export const GRADUATE_TRACER_STUDY_SURVEY: {
           ["Yes", "No"],
           1,
         ),
-        singleChoiceQuestion("Current Location:", ["Pasig City", "NCR (Outside Pasig)", "Outside NCR", "Overseas / Abroad"], 1),
+        singleChoiceQuestion("Current Location:", ["Pasig City", "NCR (Outside Pasig)", "Outside NCR", "Overseas / Abroad"], 1, {
+          question_key: "current_location",
+        }),
+        singleChoiceQuestion("If you currently live in Pasig City, which barangay do you live in?", [...PASIG_BARANGAYS], 1, {
+          visible_when: { question_key: "current_location", equals: "Pasig City" },
+          presentation: "dropdown",
+        }),
       ],
     },
     ...createPeiiSections(1, "II-A"),
-    ...createPeiiSections(2, "II-B"),
     feedbackSection(1, "IV"),
+    employmentSection(),
+    ...createPeiiSections(2, "II-B"),
   ],
 }
 
@@ -276,6 +352,17 @@ export function createGraduateTracerStudySurveyPayload(createId: () => string) {
   }
 }
 
+export function createGraduateTracerStudyTemplatePayload(createId: () => string) {
+  const payload = createGraduateTracerStudySurveyPayload(createId)
+  const consentQuestion = payload.sections[0]?.questions[0]
+  if (!consentQuestion?.config) throw new Error("Graduate tracer questionnaire is missing its consent question configuration.")
+  consentQuestion.config = {
+    ...consentQuestion.config,
+    template_definition_version: GRADUATE_TRACER_STUDY_TEMPLATE_VERSION,
+  }
+  return { ...payload, is_template: true }
+}
+
 export const QUESTION_TYPES = [
   { value: "single_choice", label: "Single Choice", icon: Circle },
   { value: "multiple_choice", label: "Multiple Choice", icon: ListChecks },
@@ -296,5 +383,6 @@ export const SURVEY_PERMISSIONS = {
   readRaw: "survey_responses.read_raw",
   readIdentity: "survey_responses.read_identity",
   export: "survey_responses.export",
+  import: "survey_responses.import",
   erase: "survey_responses.erase",
 } as const

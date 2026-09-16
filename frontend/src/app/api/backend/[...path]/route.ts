@@ -4,6 +4,7 @@ import { createSupabaseServerClient } from "@/lib/supabase/server"
 import {
   canonicalizeBackendPath,
   isAllowedBackendRequest,
+  isUuidSurveyResponseImportPath,
 } from "@/lib/backend-proxy-policy"
 import { applicationOrigin } from "@/lib/safe-redirect"
 
@@ -27,6 +28,9 @@ const UNSAFE_METHODS = new Set(["DELETE", "PATCH", "POST", "PUT"])
 const MAX_PROXY_BODY_BYTES = 65536
 const PROXY_BODY_TIMEOUT_MS = 15000
 const BACKEND_HEADERS_TIMEOUT_MS = 15000
+const MAX_IMPORT_PROXY_BODY_BYTES = 2 * 1024 * 1024
+const IMPORT_PROXY_BODY_TIMEOUT_MS = 30000
+const IMPORT_BACKEND_HEADERS_TIMEOUT_MS = 60000
 
 class BodyOverflowError extends Error {}
 class BodyTimeoutError extends Error {}
@@ -50,7 +54,11 @@ async function cancelReader(reader: ReadableStreamDefaultReader<Uint8Array>) {
   }
 }
 
-async function readBoundedBody(request: NextRequest): Promise<ArrayBuffer | undefined> {
+async function readBoundedBody(
+  request: NextRequest,
+  maxBodyBytes: number,
+  bodyTimeoutMs: number,
+): Promise<ArrayBuffer | undefined> {
   if (!request.body) return undefined
 
   const reader = request.body.getReader()
@@ -58,7 +66,7 @@ async function readBoundedBody(request: NextRequest): Promise<ArrayBuffer | unde
   let bytes = 0
   let timeoutId: ReturnType<typeof setTimeout> | undefined
   let abortHandler: (() => void) | undefined
-  const deadline = Date.now() + PROXY_BODY_TIMEOUT_MS
+  const deadline = Date.now() + bodyTimeoutMs
 
   const timeoutPromise = new Promise<never>((_, reject) => {
     timeoutId = setTimeout(() => {
@@ -82,7 +90,7 @@ async function readBoundedBody(request: NextRequest): Promise<ArrayBuffer | unde
       if (result.done) break
 
       bytes += result.value.byteLength
-      if (bytes > MAX_PROXY_BODY_BYTES) throw new BodyOverflowError()
+      if (bytes > maxBodyBytes) throw new BodyOverflowError()
       chunks.push(result.value)
     }
   } catch (error) {
@@ -108,7 +116,10 @@ async function readBoundedBody(request: NextRequest): Promise<ArrayBuffer | unde
   return body
 }
 
-function contentLengthError(request: NextRequest): NextResponse | undefined {
+function contentLengthError(
+  request: NextRequest,
+  maxBodyBytes: number,
+): NextResponse | undefined {
   if (request.method === "GET" || request.method === "HEAD") return undefined
 
   const value = request.headers.get("content-length")
@@ -117,8 +128,23 @@ function contentLengthError(request: NextRequest): NextResponse | undefined {
 
   const length = Number(value)
   if (!Number.isSafeInteger(length)) return jsonError("Invalid request.", 400)
-  if (length > MAX_PROXY_BODY_BYTES) return jsonError("Request body too large.", 413)
+  if (length > maxBodyBytes) return jsonError("Request body too large.", 413)
   return undefined
+}
+
+function proxyLimits(method: string, path: string[]) {
+  if (method === "POST" && isUuidSurveyResponseImportPath(path)) {
+    return {
+      bodyBytes: MAX_IMPORT_PROXY_BODY_BYTES,
+      bodyTimeoutMs: IMPORT_PROXY_BODY_TIMEOUT_MS,
+      headersTimeoutMs: IMPORT_BACKEND_HEADERS_TIMEOUT_MS,
+    }
+  }
+  return {
+    bodyBytes: MAX_PROXY_BODY_BYTES,
+    bodyTimeoutMs: PROXY_BODY_TIMEOUT_MS,
+    headersTimeoutMs: BACKEND_HEADERS_TIMEOUT_MS,
+  }
 }
 
 function requiresTrailingSlash(path: string[]): boolean {
@@ -180,10 +206,11 @@ async function proxy(request: NextRequest, context: { params: Promise<{ path: st
   if (!canonicalPath || !isAllowedBackendRequest(request.method, canonicalPath)) {
     return jsonError("Not found.", 404)
   }
+  const limits = proxyLimits(request.method, canonicalPath)
   if (UNSAFE_METHODS.has(request.method) && request.headers.get("origin") !== applicationOrigin()) {
     return jsonError("Invalid request origin.", 403)
   }
-  const invalidContentLength = contentLengthError(request)
+  const invalidContentLength = contentLengthError(request, limits.bodyBytes)
   if (invalidContentLength) return invalidContentLength
 
   const supabase = await createSupabaseServerClient()
@@ -210,7 +237,7 @@ async function proxy(request: NextRequest, context: { params: Promise<{ path: st
   }
   if (request.method !== "GET" && request.method !== "HEAD") {
     try {
-      const body = await readBoundedBody(request)
+      const body = await readBoundedBody(request, limits.bodyBytes, limits.bodyTimeoutMs)
       if (body !== undefined) init.body = body
     } catch (error) {
       if (error instanceof BodyTimeoutError) return jsonError("Request body timed out.", 408)
@@ -228,7 +255,7 @@ async function proxy(request: NextRequest, context: { params: Promise<{ path: st
   const headerTimeoutController = new AbortController()
   const headerTimeoutId = setTimeout(
     () => headerTimeoutController.abort(new DOMException("Backend headers timed out.", "TimeoutError")),
-    BACKEND_HEADERS_TIMEOUT_MS,
+    limits.headersTimeoutMs,
   )
   const upstreamSignal = AbortSignal.any([request.signal, headerTimeoutController.signal])
   let response: Response

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import { isAllowedBackendRequest } from "./backend-proxy-policy"
+import { isAllowedBackendRequest, isUuidSurveyResponseImportPath } from "./backend-proxy-policy"
 
 describe("isAllowedBackendRequest", () => {
   it("allows the survey editor routes", () => {
@@ -53,6 +53,47 @@ describe("isAllowedBackendRequest", () => {
     expect(isAllowedBackendRequest("GET", ["surveys", "survey-id", "responses", "aggregate"])).toBe(false)
     expect(isAllowedBackendRequest("GET", ["surveys", "survey-id", "responses", "exports"])).toBe(false)
     expect(isAllowedBackendRequest("POST", ["surveys", "survey-id", "responses", "erase", "again"])).toBe(false)
+  })
+
+  it("allows only the exact survey response import actions", () => {
+    expect(isAllowedBackendRequest("GET", ["surveys", "survey-id", "responses", "import-template"])).toBe(true)
+    expect(isAllowedBackendRequest("POST", ["surveys", "survey-id", "responses", "import", "validate"])).toBe(true)
+    expect(isAllowedBackendRequest("POST", ["surveys", "survey-id", "responses", "import"])).toBe(true)
+
+    expect(isAllowedBackendRequest("GET", ["surveys", "survey-id", "responses", "import"])).toBe(false)
+    expect(isAllowedBackendRequest("POST", ["surveys", "survey-id", "responses", "import-template"])).toBe(false)
+    expect(isAllowedBackendRequest("POST", ["surveys", "survey-id", "responses", "validate"])).toBe(false)
+    expect(isAllowedBackendRequest("POST", ["surveys", "survey-id", "responses", "import", "validate", "again"])).toBe(false)
+    expect(isAllowedBackendRequest("POST", ["surveys", "", "responses", "import"])).toBe(false)
+  })
+
+  it("recognizes UUID survey import paths for the larger proxy cap", () => {
+    expect(isUuidSurveyResponseImportPath([
+      "surveys",
+      "00000000-0000-4000-8000-000000000401",
+      "responses",
+      "import",
+    ])).toBe(true)
+    expect(isUuidSurveyResponseImportPath([
+      "surveys",
+      "019c6e27-e55b-73d1-87d8-4e01f1f75043",
+      "responses",
+      "import",
+      "validate",
+    ])).toBe(true)
+    expect(isUuidSurveyResponseImportPath([
+      "surveys",
+      "survey-id",
+      "responses",
+      "import",
+    ])).toBe(false)
+    expect(isUuidSurveyResponseImportPath([
+      "surveys",
+      "00000000-0000-4000-8000-000000000401",
+      "responses",
+      "import",
+      "validate",
+    ])).toBe(true)
   })
 
   it("allows audit log reads", () => {

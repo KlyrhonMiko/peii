@@ -6,7 +6,12 @@ from fastapi import APIRouter, Depends, Header, Query, Request, Response, status
 
 from core.client_ip import resolve_client_ip
 from core.config import settings
-from core.deps import AnalyticsAsyncDBSession, AsyncDBSession, CurrentPrincipal, require_permissions
+from core.deps import (
+    AnalyticsAsyncDBSession,
+    AsyncDBSession,
+    CurrentPrincipal,
+    require_permissions,
+)
 from core.exceptions import AppError
 from core.responses import APIResponse, list_meta_response, success_response
 from schemas.survey_response import (
@@ -14,10 +19,12 @@ from schemas.survey_response import (
     ExportPreparationResponse,
     ResponseErasureResult,
     SurveyResponseIdentityRead,
+    SurveyResponseImportResult,
+    SurveyResponseImportValidation,
     SurveyResponseListQueryParams,
     SurveyResponseRead,
 )
-from services import response_export_service, response_service
+from services import response_export_service, response_import_service, response_service
 
 router = APIRouter()
 
@@ -69,6 +76,105 @@ def require_csv_export_enabled() -> None:
             "Not found.",
             status_code=status.HTTP_404_NOT_FOUND,
         )
+
+
+@router.get(
+    "/import-template",
+    response_class=Response,
+    dependencies=[Depends(require_permissions("survey_responses.import"))],
+    summary="Download a survey-specific response import template",
+    description=(
+        "Download a UTF-8 CSV template whose ordered headers identify only the "
+        "active questions in this survey."
+    ),
+)
+async def download_response_import_template(
+    survey_id: UUID,
+    session: AsyncDBSession,
+    http_response: Response,
+    principal: CurrentPrincipal,
+) -> Response:
+    del principal
+    csv_bytes = await response_import_service.get_import_template(session, survey_id)
+    http_response.headers["Cache-Control"] = "private, no-store, max-age=0"
+    http_response.headers["Pragma"] = "no-cache"
+    return Response(
+        content=csv_bytes,
+        media_type="text/csv",
+        headers={
+            "Content-Disposition": (
+                f'attachment; filename="{response_import_service.IMPORT_TEMPLATE_FILENAME}"'
+            ),
+            "Cache-Control": "private, no-store, max-age=0",
+            "Pragma": "no-cache",
+        },
+    )
+
+
+async def _read_import_csv(request: Request) -> bytes:
+    raw = await request.body()
+    if len(raw) > response_import_service.MAX_IMPORT_BYTES:
+        raise AppError(
+            "Import CSV exceeds the 2 MiB limit.",
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+        )
+    return raw
+
+
+@router.post(
+    "/import/validate",
+    response_model=APIResponse[SurveyResponseImportValidation],
+    dependencies=[Depends(require_permissions("survey_responses.import"))],
+    summary="Validate survey response CSV",
+    description=(
+        "Validate a survey-specific wide CSV without writing responses. The request body "
+        "must be the raw CSV bytes."
+    ),
+)
+async def validate_response_import(
+    survey_id: UUID,
+    session: AsyncDBSession,
+    request: Request,
+    http_response: Response,
+    principal: CurrentPrincipal,
+) -> APIResponse[SurveyResponseImportValidation]:
+    del principal
+    raw = await _read_import_csv(request)
+    result = await response_import_service.validate_response_import(session, survey_id, raw)
+    http_response.headers["Cache-Control"] = "private, no-store, max-age=0"
+    http_response.headers["Pragma"] = "no-cache"
+    return success_response(result, message="Import CSV validated.")
+
+
+@router.post(
+    "/import",
+    response_model=APIResponse[SurveyResponseImportResult],
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_permissions("survey_responses.import"))],
+    summary="Import survey responses from CSV",
+    description=(
+        "Validate and append all rows from a survey-specific wide CSV in one atomic "
+        "transaction. The request body must be the raw CSV bytes."
+    ),
+)
+async def import_response_csv(
+    survey_id: UUID,
+    session: AsyncDBSession,
+    request: Request,
+    http_response: Response,
+    principal: CurrentPrincipal,
+) -> APIResponse[SurveyResponseImportResult]:
+    raw = await _read_import_csv(request)
+    result = await response_import_service.import_response_csv(
+        session,
+        survey_id,
+        raw,
+        actor_id=principal.user.id,
+        ip_address=resolve_client_ip(request),
+    )
+    http_response.headers["Cache-Control"] = "private, no-store, max-age=0"
+    http_response.headers["Pragma"] = "no-cache"
+    return success_response(result, message="Responses imported.")
 
 
 @router.get(

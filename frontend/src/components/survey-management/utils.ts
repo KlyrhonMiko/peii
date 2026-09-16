@@ -86,6 +86,7 @@ export function getSurveyCapabilities(
     readRaw: can(SURVEY_PERMISSIONS.readRaw),
     readIdentity: can(SURVEY_PERMISSIONS.readRaw) && can(SURVEY_PERMISSIONS.readIdentity),
     export: csvExportEnabled && can(SURVEY_PERMISSIONS.export),
+    import: can(SURVEY_PERMISSIONS.import),
     erase: can(SURVEY_PERMISSIONS.erase),
   }
 }

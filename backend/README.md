@@ -106,8 +106,9 @@ distribution tokens) -> `d5a4f7c91e2b` (Supabase Data API RLS/ACL lockdown) ->
 survey-scoped response idempotency) -> `3aad20b0fc8a` (ml_sentiments) ->
 `b0d864b9935b` (false_positive_feedbacks) -> `a6c42481a0d9` (polarity_override) ->
 `7ac95c493227` (performance indexes) -> `b43d56b55144` (survey-question JSONB) ->
-`bf21a63040a2` (false-positive feedback Data API lockdown).
-`bf21a63040a2` is the current Alembic head. For production, run
+`bf21a63040a2` (false-positive feedback Data API lockdown) ->
+`c1d2e3f4a5b6` (survey-response import permission).
+`c1d2e3f4a5b6` is the current Alembic head. For production, run
 `./.venv/bin/alembic upgrade head` once as the protected Oracle release job before the single Uvicorn worker
 is started. Do not migrate in API startup commands. Review the Phase 3
 survey-policy and response-deadline backfill before activating the external purge job.
@@ -162,15 +163,15 @@ capability requirement.
 - Survey access is global RBAC, not unrestricted authentication. A permitted principal can act
   on any survey in the shared workspace, but every
   operation still requires its explicit capability.
-- The seven live survey capabilities are `surveys.read`, `surveys.manage`,
+- The eight live survey capabilities are `surveys.read`, `surveys.manage`,
   `survey_responses.read_aggregates`,
   `survey_responses.read_raw`, `survey_responses.read_identity`,
-  `survey_responses.export`, and `survey_responses.erase`. Admin has all seven plus the
+  `survey_responses.export`, `survey_responses.import`, and `survey_responses.erase`. Admin has all eight plus the
   orphaned `survey_distributions.manage` (kept in the catalog and database for compatibility
   only; no route enforces it, and its removal needs a data migration). The default
   researcher has all except erase (including identity); staff has `surveys.read` and
   `survey_responses.read_aggregates` only. Existing portal and ML capabilities remain in each
-  default role. Raw, identity, CSV export, aggregates, and erase are separately permissioned;
+  default role. Raw, identity, CSV export, CSV import, aggregates, and erase are separately permissioned;
   the identity endpoint requires both raw and identity permission.
 - The survey distribution feature was retired in `f88b9c1d0000`, which drops the
   `survey_distributions` table and `survey_responses.distribution_id`; response idempotency is
@@ -227,6 +228,16 @@ capability requirement.
   responses and expired short-lived Google proof rows and prints `proofs` alongside its response
   counts:
   `./.venv/bin/python scripts/purge_expired_responses.py [--dry-run]`.
+- Survey-specific CSV import is available through the protected View Details → Responses panel
+  to `survey_responses.import` principals; it is independent of the export flag. Admin and
+  Researcher receive the default capability, while Staff does not. The downloaded wide-format
+  template has one row per respondent and is not the long-format export. Import accepts only
+  exact headers for the selected survey, stores nonblank typed answers under that survey's
+  question UUIDs, and commits a valid file atomically. Individual answers may be blank, but
+  invalid nonblank answers reject the file. Original timezone-qualified submission timestamps
+  determine `created_at` and retention expiry; rows already expired are rejected. Identical
+  uploads append again and can double-count. The upload limit is 2 MiB/1,000 rows, and neither
+  XLSX nor source-form column mapping is supported.
 
 See [production decisions](../docs/production-decisions.md),
 [privacy and retention](../docs/privacy-and-retention.md), and the

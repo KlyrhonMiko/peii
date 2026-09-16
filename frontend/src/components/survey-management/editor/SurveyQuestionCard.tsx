@@ -11,6 +11,10 @@ import { QuestionOptionsEditor } from "./QuestionOptionsEditor"
 import { MatrixConfigEditor } from "./MatrixConfigEditor"
 import { ScaleConfigEditor } from "./ScaleConfigEditor"
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+}
+
 interface SurveyQuestionCardProps {
   sectionId: string
   sectionIndex: number
@@ -38,6 +42,7 @@ export function SurveyQuestionCard({
     setOpenQuestionSelectId,
     moveQuestionBy,
     removeQuestion,
+    getQuestionOptionsByKey,
   } = actions
 
   const questionTypeIcon = (type: string) => {
@@ -47,6 +52,14 @@ export function SurveyQuestionCard({
   }
 
   const isChoiceType = ["single_choice", "multiple_choice", "ranking"].includes(question.type)
+  const optionsByAnswer = question.config?.options_by_answer
+  const dependentChoices = isRecord(optionsByAnswer) && isRecord(optionsByAnswer.choices)
+    ? optionsByAnswer.choices
+    : undefined
+  const sourceKey = isRecord(optionsByAnswer) && dependentChoices && typeof optionsByAnswer.question_key === "string"
+    ? optionsByAnswer.question_key
+    : null
+  const sourceOptions = sourceKey ? getQuestionOptionsByKey(sourceKey) : []
 
   return (
     <div
@@ -231,6 +244,8 @@ export function SurveyQuestionCard({
           questionId={question.id}
           questionIndex={questionIndex}
           options={question.options}
+          {...(dependentChoices ? { dependentChoices } : {})}
+          sourceOptions={sourceOptions}
           actions={actions}
         />
       )}

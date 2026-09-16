@@ -33,13 +33,13 @@ const sections: PublicSurveySection[] = [
   },
 ]
 
-function renderSurvey(submissionPhase: 1 | 2 = 1) {
+function renderSurvey(submissionPhase: 1 | 2 = 1, surveySections: PublicSurveySection[] = sections) {
   return render(
     <ClientSurveyForm
       title="Alumni outcomes"
       description="Tell us about your experience."
       consent={consent}
-      sections={sections}
+      sections={surveySections}
       submissionPhase={submissionPhase}
       token="visible-token-must-not-render"
     />,
@@ -266,6 +266,69 @@ describe("ClientSurveyForm", () => {
     expect(body).toEqual({ answers: { "question-1": "The mentoring program" } })
     expect(screen.queryByLabelText("Private withdrawal code")).not.toBeInTheDocument()
     expect(screen.queryByRole("link", { name: /withdraw a response/i })).not.toBeInTheDocument()
+  })
+
+  it("shows the barangay question only for Pasig residents and drops it when location changes", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(successResponse())
+    const conditionalSections: PublicSurveySection[] = [{
+      id: "profile",
+      title: "Profile",
+      description: null,
+      order_index: 0,
+      questions: [
+        {
+          id: "location", question_text: "Current Location:", question_type: "single_choice",
+          options: ["Pasig City", "Outside NCR"], config: { question_key: "current_location" },
+          order_index: 0, is_required: true,
+        },
+        {
+          id: "barangay", question_text: "Which barangay?", question_type: "single_choice",
+          options: ["Maybunga", "Ugong"],
+          config: { visible_when: { question_key: "current_location", equals: "Pasig City" } },
+          order_index: 1, is_required: true,
+        },
+      ],
+    }]
+    renderSurvey(2, conditionalSections)
+    expect(screen.queryByRole("button", { name: "Which barangay?" })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole("button", { name: "Current Location:" }))
+    fireEvent.click(screen.getByRole("button", { name: "Pasig City" }))
+    expect(screen.getByRole("button", { name: "Which barangay?" })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole("button", { name: "Which barangay?" }))
+    fireEvent.click(screen.getByRole("button", { name: "Maybunga" }))
+    fireEvent.click(screen.getByRole("button", { name: "Current Location:" }))
+    fireEvent.click(screen.getByRole("button", { name: "Outside NCR" }))
+    expect(screen.queryByRole("button", { name: "Which barangay?" })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole("button", { name: /submit/i }))
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
+    const body = JSON.parse((fetchMock.mock.calls[0]?.[1] as RequestInit).body as string) as { answers: Record<string, unknown> }
+    expect(body.answers).toEqual({ location: "Outside NCR" })
+  })
+
+  it("lets respondents search the unified job-title choices", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(successResponse())
+    const roleSections: PublicSurveySection[] = [{
+      id: "employment",
+      title: "Employment",
+      description: null,
+      order_index: 0,
+      questions: [{
+        id: "role", question_text: "Which role or job title best describes your work?",
+        question_type: "single_choice", options: ["Account Executive", "Nurse", "Software Developer"],
+        config: { question_key: "job_role", presentation: "searchable_dropdown" },
+        order_index: 0, is_required: true,
+      }],
+    }]
+    renderSurvey(2, roleSections)
+    fireEvent.click(screen.getByRole("button", { name: "Which role or job title best describes your work?" }))
+    fireEvent.change(screen.getByRole("searchbox", { name: /search which role/i }), { target: { value: "nurs" } })
+    expect(screen.getByRole("button", { name: "Nurse" })).toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "Account Executive" })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole("button", { name: "Nurse" }))
+    fireEvent.click(screen.getByRole("button", { name: /submit/i }))
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
+    const body = JSON.parse((fetchMock.mock.calls[0]?.[1] as RequestInit).body as string) as { answers: Record<string, unknown> }
+    expect(body.answers).toEqual({ role: "Nurse" })
   })
 })
 

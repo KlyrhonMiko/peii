@@ -18,7 +18,8 @@ are still deployment responsibilities.
    survey-scoped response idempotency), `3aad20b0fc8a` (ML sentiments),
    `b0d864b9935b` (false-positive feedbacks), `a6c42481a0d9` (polarity override),
    `7ac95c493227` (performance indexes), `b43d56b55144` (survey-question JSONB), and
-   `bf21a63040a2` (false-positive feedback Data API lockdown). `bf21a63040a2` is the current
+   `bf21a63040a2` (false-positive feedback Data API lockdown), and `c1d2e3f4a5b6`
+   (survey-response import permission). `c1d2e3f4a5b6` is the current
    head.
 - Run `./.venv/bin/alembic upgrade head` once as the protected release job. Promote API replicas
   only after the migration, backfill review, and smoke test succeed. Future schema changes are
@@ -141,8 +142,10 @@ are still deployment responsibilities.
 
 - The global Next.js proxy excludes `/api`; the allowlisted `/api/backend/[...path]` BFF owns
   Supabase claims/session lookup for browser backend calls.
-- BFF request bodies are capped at 65,536 bytes and must be read within 15 seconds. The upstream
-  timeout is 15 seconds to response headers only, so a response stream may continue afterward.
+- Ordinary BFF request bodies are capped at 65,536 bytes and must be read within 15 seconds.
+  Only survey-response CSV import validation and commit POST paths permit a bounded 2 MiB body,
+  a 30-second body-read deadline, and a 60-second upstream-header deadline. Ordinary requests
+  retain the 15-second header timeout; a response stream may continue afterward.
   Client cancellation is propagated and no retries are performed.
 - Locally generated BFF errors are `no-store`. `/api/v1/health` remains a liveness-only probe,
   not a readiness or dependency check.
@@ -216,7 +219,8 @@ chain before deployment. Login and recovery use normalized identifier buckets pl
 breakers rather than the shared Next.js egress IP. Survey read and submit authenticate the Google
 respondent before consuming respondent/session/token buckets and their higher global breakers.
 Withdrawal checks the strict client bucket before its separate global circuit breaker. Requests
-over 64 KiB are rejected before parsing. Survey routes send no-store,
+over 64 KiB are rejected before parsing except for the exact CSV import validation and commit
+POST paths, which permit up to 2 MiB. Survey routes send no-store,
 no-referrer, noindex, nosniff, frame-deny, and `frame-ancestors 'none'` headers; CSV exports
 also send private/no-store and no-cache headers.
 

@@ -209,3 +209,29 @@ class ExportPreparationResponse(BaseModel):
     download_url: str
     expires_at: datetime
     filename: str
+
+
+class SurveyResponseImportError(BaseModel):
+    """A safe, location-aware error found while validating an import CSV."""
+
+    row: int | None = None
+    column: str | None = None
+    code: str
+    message: str
+
+
+class SurveyResponseImportValidation(BaseModel):
+    """Validation summary returned before a CSV is committed."""
+
+    survey_id: UUID
+    valid: bool
+    row_count: int
+    error_count: int
+    errors: list[SurveyResponseImportError]
+
+
+class SurveyResponseImportResult(BaseModel):
+    """Result of an atomic response CSV import."""
+
+    survey_id: UUID
+    imported_count: int

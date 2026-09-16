@@ -35,6 +35,7 @@ PERMISSIONS: dict[str, str] = {
     "survey_responses.read_raw": "View raw survey responses.",
     "survey_responses.read_identity": "View verified respondent identity snapshots.",
     "survey_responses.export": "Export survey responses.",
+    "survey_responses.import": "Import survey responses.",
     "survey_responses.erase": "Erase survey responses.",
 }
 
@@ -45,6 +46,7 @@ SHARED_SURVEY_CAPABILITIES = {
     "survey_responses.read_aggregates",
     "survey_responses.read_raw",
     "survey_responses.export",
+    "survey_responses.import",
     "survey_responses.erase",
 }
 

@@ -70,7 +70,8 @@ async function requestRaw(
   options?: ApiRequestOptions,
 ): Promise<Response> {
   const headers: Record<string, string> = { ...options?.headers }
-  if (body !== undefined) headers["Content-Type"] = "application/json"
+  const isTextBody = typeof body === "string"
+  if (body !== undefined && !isTextBody) headers["Content-Type"] = "application/json"
   
   const controller = new AbortController()
   const timeoutId = setTimeout(() => controller.abort(), options?.timeout ?? 15000)
@@ -82,7 +83,7 @@ async function requestRaw(
     const response = await fetch(`${API_BASE}${path}`, {
       method,
       headers,
-      body: body === undefined ? null : JSON.stringify(body),
+      body: body === undefined ? null : isTextBody ? body : JSON.stringify(body),
       signal,
     })
     if (!response.ok) {

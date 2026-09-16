@@ -1,4 +1,6 @@
 import json
+from collections.abc import Mapping
+from typing import cast
 from uuid import UUID
 
 from fastapi import status
@@ -7,13 +9,18 @@ from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from core.exceptions import AppError
+from models.question_type import QuestionType
 from models.survey import Survey
 from models.survey_question import SurveyQuestion
 from models.survey_section import SurveySection
 from schemas.survey_question import SurveyQuestionCreate, SurveyQuestionUpdate
 from services.audit_service import AuditEvent, commit_with_audit
 from services.base_service import apply_updates, utc_now
-from services.question_validation import validate_question_definition
+from services.question_validation import (
+    QuestionDefinition,
+    validate_question_definition,
+    validate_question_structure,
+)
 from services.survey_service import get_survey_for_structure_edit
 
 
@@ -58,6 +65,77 @@ def _deserialize_config(value: dict | str | None) -> dict | None:
         return json.loads(value)
     except (json.JSONDecodeError, TypeError):
         return None
+
+
+async def _load_active_questions_for_validation(
+    session: AsyncSession, survey_id: UUID
+) -> tuple[dict[UUID, int], list[SurveyQuestion]]:
+    sections_result = await session.exec(
+        select(SurveySection).where(
+            col(SurveySection.survey_id) == survey_id,
+            col(SurveySection.is_deleted).is_(False),
+        )
+    )
+    sections = list(sections_result.all())
+    section_order = {section.id: section.order_index for section in sections}
+    questions_result = await session.exec(
+        select(SurveyQuestion).where(
+            col(SurveyQuestion.survey_id) == survey_id,
+            col(SurveyQuestion.is_deleted).is_(False),
+            col(SurveyQuestion.section_id).in_(list(section_order)),
+        )
+    )
+    questions = list(questions_result.all())
+    questions.sort(
+        key=lambda question: (
+            section_order[question.section_id],
+            question.order_index,
+            str(question.id),
+        )
+    )
+    return section_order, questions
+
+
+def _question_definition(
+    question: SurveyQuestion,
+    overrides: Mapping[str, object] | None = None,
+) -> QuestionDefinition:
+    values = overrides or {}
+    return (
+        cast(
+            QuestionType | str,
+            values.get("question_type", question.question_type),
+        ),
+        values.get("options", _deserialize_options(question.options)),
+        values.get("config", _deserialize_config(question.config)),
+    )
+
+
+def _question_sort_key(
+    question: SurveyQuestion,
+    section_order: Mapping[UUID, int],
+    overrides: Mapping[str, object] | None = None,
+) -> tuple[int, int, str]:
+    values = overrides or {}
+    section_id = values.get("section_id", question.section_id)
+    if not isinstance(section_id, UUID):
+        section_id = question.section_id
+    order_index = values.get("order_index", question.order_index)
+    if not isinstance(order_index, int) or isinstance(order_index, bool):
+        order_index = question.order_index
+    return (section_order[section_id], order_index, str(question.id))
+
+
+def _validate_structure(
+    questions: list[QuestionDefinition],
+) -> None:
+    try:
+        validate_question_structure(questions)
+    except ValueError as exc:
+        raise AppError(
+            f"Survey structure is invalid: {exc}",
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+        ) from exc
 
 
 async def list_questions(session: AsyncSession, survey_id: UUID) -> list[SurveyQuestion]:
@@ -107,7 +185,8 @@ async def create_question(
             col(SurveySection.is_deleted).is_(False),
         )
     )
-    if section_result.first() is None:
+    section = section_result.first()
+    if section is None:
         raise AppError(
             "Section not found in the requested survey.",
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -132,6 +211,13 @@ async def create_question(
         is_required=payload.is_required,
         performed_by=actor_id,
     )
+    section_order, existing_questions = await _load_active_questions_for_validation(
+        session, survey.id
+    )
+    candidate_questions = [*existing_questions, question]
+    candidate_questions.sort(key=lambda item: _question_sort_key(item, section_order))
+    _validate_structure([_question_definition(item) for item in candidate_questions])
+
     session.add(question)
     survey.updated_at = utc_now()
     session.add(survey)
@@ -219,6 +305,25 @@ async def update_question(
     except ValueError as exc:
         raise _question_definition_error(exc) from exc
 
+    section_order, existing_questions = await _load_active_questions_for_validation(
+        session, survey.id
+    )
+    candidate_questions = [*existing_questions]
+    candidate_questions.sort(
+        key=lambda item: _question_sort_key(
+            item,
+            section_order,
+            normalized_updates if item.id == question.id else None,
+        )
+    )
+    candidate_definitions = [
+        _question_definition(
+            item,
+            normalized_updates if item.id == question.id else None,
+        )
+        for item in candidate_questions
+    ]
+
     changes: dict[str, dict[str, object]] = {}
     for key, value in normalized_updates.items():
         old_value = getattr(question, key)
@@ -232,6 +337,8 @@ async def update_question(
             changes[key] = {"before": old_value, "after": value}
     if not changes:
         return question
+
+    _validate_structure(candidate_definitions)
 
     apply_updates(question, normalized_updates)
     question.performed_by = actor_id
@@ -274,6 +381,11 @@ async def delete_question(
     question = result.first()
     if not question:
         raise AppError("Question not found.", status_code=status.HTTP_404_NOT_FOUND)
+
+    _, existing_questions = await _load_active_questions_for_validation(session, survey.id)
+    _validate_structure(
+        [_question_definition(item) for item in existing_questions if item.id != question.id]
+    )
 
     now = utc_now()
     question.is_deleted = True
@@ -353,6 +465,11 @@ async def reorder_questions(
             status_code=status.HTTP_400_BAD_REQUEST,
         )
 
+    _, ordered_questions = await _load_active_questions_for_validation(
+        session, survey.id
+    )
+    reordered_questions = [questions_by_id[question_id] for question_id in question_ids]
+
     changes = [
         AuditEvent(
             action="reorder",
@@ -373,8 +490,15 @@ async def reorder_questions(
     if not changes:
         return sorted(questions_by_id.values(), key=lambda q: (q.order_index, q.id))
 
+    reordered_iter = iter(reordered_questions)
+    candidate_questions = [
+        next(reordered_iter) if question.section_id == section_id else question
+        for question in ordered_questions
+    ]
+    _validate_structure([_question_definition(item) for item in candidate_questions])
+
     changed_question_ids = {event.resource_id for event in changes}
-    questions = [questions_by_id[question_id] for question_id in question_ids]
+    questions = reordered_questions
     temporary_base = max(question.order_index for question in questions) + len(questions) + 1
     for index, question in enumerate(questions):
         question.order_index = temporary_base + index
