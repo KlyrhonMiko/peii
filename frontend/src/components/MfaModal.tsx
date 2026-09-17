@@ -45,14 +45,14 @@ export function MfaModal() {
           setFactorId(res.factors[0].id)
         }
         setLoading(false)
-      } catch (err: any) {
+      } catch (err) {
         if (!active) return
-        setError(err.message || "Failed to load authenticator settings.")
+        setError(err instanceof Error ? err.message : "Failed to load authenticator settings.")
         setLoading(false)
       }
     }
 
-    fetchChallenge()
+    void fetchChallenge()
 
     return () => {
       active = false
