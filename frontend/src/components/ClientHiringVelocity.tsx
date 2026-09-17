@@ -54,10 +54,10 @@ export function ClientHiringVelocity({
   }, [distribution])
 
   return (
-    <div className="flex flex-col w-full">
+    <div className="flex flex-col w-full h-full">
       {/* Editorial Header */}
-      <div className={isExport ? "mb-10 flex items-start justify-between" : "mb-8 flex items-start justify-between"}>
-        <div>
+      <div className={isExport ? "mb-10 flex items-start justify-between min-h-[130px]" : "mb-8 flex items-start justify-between min-h-[130px]"}>
+        <div className="pr-14">
           <h3 className={isExport ? "text-3xl font-bold tracking-tight text-slate-900" : "text-2xl font-bold tracking-tight text-slate-900"}>
             Hiring Velocity & Absorption Speed
           </h3>
@@ -77,7 +77,7 @@ export function ClientHiringVelocity({
           No hiring velocity data available for the current filter selection.
         </div>
       ) : (
-        <div className="flex flex-col md:flex-row items-center justify-center gap-12 md:gap-20 py-4">
+        <div className="flex flex-col items-center justify-center gap-10 py-6">
           {/* Centered Donut Chart */}
           <div className="h-56 w-56 relative shrink-0">
             <ResponsiveContainer width="100%" height="100%">
@@ -132,32 +132,39 @@ export function ClientHiringVelocity({
             </div>
           </div>
 
-          {/* Vertical Legend List */}
-          <div className="flex flex-col w-full max-w-xs gap-3">
-            <div className="text-left mb-2">
-              <span className="text-xs text-slate-400 font-medium">
-                Based on {chartData.total} responses
+          {/* Info Text and Legend */}
+          <div className="flex flex-col w-full max-w-sm">
+            <div className="flex flex-col mb-6 items-center text-center">
+              <span className={`${isExport ? 'text-lg' : 'text-base'} font-medium text-slate-800 leading-snug`}>
+                Time to First Job
+              </span>
+              <span className={`${isExport ? 'text-base' : 'text-sm'} font-normal text-slate-500 mt-1.5 leading-snug`}>
+                Based on {chartData.total} {chartData.total === 1 ? "response" : "responses"}
               </span>
             </div>
-            {chartData.items.map((item) => {
-              if (item.count === 0) return null
-              return (
-                <div key={item.key} className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <span
-                      className="w-3 h-3 rounded-full shrink-0"
-                      style={{ backgroundColor: item.color }}
-                    />
-                    <span className="text-[15px] font-medium text-slate-600">
-                      {item.label}
+            
+            {/* Legend */}
+            <div className="flex flex-col gap-3.5">
+              {chartData.items.map((item) => {
+                if (item.count === 0) return null
+                return (
+                  <div key={item.key} className="flex items-center justify-between gap-4">
+                    <div className="flex items-center gap-3.5">
+                      <span
+                        className="w-3 h-3 rounded-full shrink-0"
+                        style={{ backgroundColor: item.color }}
+                      />
+                      <span className={`${isExport ? 'text-base' : 'text-sm'} font-medium text-slate-600 truncate`}>
+                        {item.label}
+                      </span>
+                    </div>
+                    <span className={`${isExport ? 'text-base' : 'text-sm'} font-semibold text-slate-900 tabular-nums shrink-0`}>
+                      {item.pct}%
                     </span>
                   </div>
-                  <span className="text-[15px] font-semibold text-slate-900 tabular-nums">
-                    {item.pct}%
-                  </span>
-                </div>
-              )
-            })}
+                )
+              })}
+            </div>
           </div>
         </div>
       )}

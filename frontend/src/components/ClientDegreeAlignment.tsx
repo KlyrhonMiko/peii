@@ -62,14 +62,13 @@ export function ClientDegreeAlignment({ distribution, isLoading, isExport }: Cli
         </div>
       </div>
 
-      <div className="flex flex-col">
         {isLoading ? (
           <div className="animate-pulse flex flex-col gap-4">
             <div className="h-12 w-24 bg-slate-100 rounded"></div>
             <div className="h-3 w-full bg-slate-100 rounded-full"></div>
           </div>
         ) : !chartData || chartData.total === 0 ? (
-          <div className="text-slate-400 text-sm">No alignment data available in current survey</div>
+          <div className="text-slate-400 text-sm py-8">No alignment data available in current survey</div>
         ) : (
           <div className="flex flex-col items-center mt-8">
             {/* Donut Chart */}
@@ -154,6 +153,5 @@ export function ClientDegreeAlignment({ distribution, isLoading, isExport }: Cli
           </div>
         )}
       </div>
-    </div>
   )
 }

@@ -65,10 +65,10 @@ export function ClientEmploymentStability({
   }, [statusDistribution, typeDistribution])
 
   return (
-    <div className="flex flex-col w-full">
+    <div className="flex flex-col w-full h-full">
       {/* Editorial Header */}
-      <div className={isExport ? "mb-10 flex items-start justify-between" : "mb-8 flex items-start justify-between"}>
-        <div>
+      <div className={isExport ? "mb-10 flex items-start justify-between min-h-[130px]" : "mb-8 flex items-start justify-between min-h-[130px]"}>
+        <div className="pr-14">
           <h3 className={isExport ? "text-3xl font-bold tracking-tight text-slate-900" : "text-2xl font-bold tracking-tight text-slate-900"}>
             Employment Quality & Security
           </h3>
@@ -79,7 +79,7 @@ export function ClientEmploymentStability({
       </div>
 
       {isLoading ? (
-        <div className="animate-pulse flex flex-col gap-4 py-6">
+        <div className="animate-pulse flex flex-col gap-4 py-6 mt-auto">
           <div className="h-12 w-28 bg-slate-100 rounded" />
           <div className="h-4 w-full bg-slate-100 rounded-full" />
         </div>
@@ -108,14 +108,14 @@ export function ClientEmploymentStability({
                     <Cell key={`cell-${index}`} fill={CONTRACT_COLORS[entry.name] || DEFAULT_COLOR} />
                   ))}
                 </Pie>
-                <Tooltip 
+                <Tooltip
                   cursor={false}
                   wrapperStyle={{ zIndex: 100 }}
-                  contentStyle={{ 
+                  contentStyle={{
                     backgroundColor: '#ffffff',
-                    borderRadius: '8px', 
-                    border: '1px solid #e2e8f0', 
-                    boxShadow: '0 4px 12px -2px rgb(0 0 0 / 0.08)', 
+                    borderRadius: '8px',
+                    border: '1px solid #e2e8f0',
+                    boxShadow: '0 4px 12px -2px rgb(0 0 0 / 0.08)',
                     color: '#0f172a',
                     fontSize: '12px',
                     padding: '8px 12px'

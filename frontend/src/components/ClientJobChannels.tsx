@@ -40,9 +40,9 @@ export function ClientJobChannels({
   }, [distribution])
 
   return (
-    <div className="flex flex-col w-full">
+    <div className="flex flex-col w-full flex-1 h-full">
       {/* Editorial Header */}
-      <div className={isExport ? "mb-10 flex items-start justify-between" : "mb-8 flex items-start justify-between"}>
+      <div className={isExport ? "mb-10 flex items-start justify-between pr-14" : "mb-8 flex items-start justify-between pr-14"}>
         <div>
           <h3 className={isExport ? "text-3xl font-bold tracking-tight text-slate-900" : "text-2xl font-bold tracking-tight text-slate-900"}>
             First Job Acquisition Channels
@@ -54,17 +54,17 @@ export function ClientJobChannels({
       </div>
 
       {isLoading ? (
-        <div className="animate-pulse flex flex-col gap-3 py-6">
+        <div className="animate-pulse flex flex-col gap-3 py-6 mt-auto">
           {[1, 2, 3, 4].map((i) => (
             <div key={i} className="h-9 w-full bg-slate-100 rounded-lg" />
           ))}
         </div>
       ) : !chartData ? (
-        <div className="text-slate-400 text-sm py-8">
+        <div className="text-slate-400 text-sm py-8 mt-auto">
           No job acquisition channel data available for the current filter selection.
         </div>
       ) : (
-        <div className="flex flex-col gap-4 mt-2">
+        <div className="flex flex-col gap-4 mt-auto">
           {/* Vertical Bar Chart */}
           <div className="h-80 w-full">
             <ResponsiveContainer width="100%" height="100%">

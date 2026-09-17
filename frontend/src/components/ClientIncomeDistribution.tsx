@@ -85,10 +85,10 @@ export function ClientIncomeDistribution({
   }, [distribution])
 
   return (
-    <div className="flex flex-col w-full">
+    <div className="flex flex-col w-full flex-1 h-full">
       {/* Editorial Header */}
       <div className={isExport ? "mb-10 flex items-start justify-between" : "mb-8 flex items-start justify-between"}>
-        <div>
+        <div className="pr-14">
           <h3 className={isExport ? "text-3xl font-bold tracking-tight text-slate-900" : "text-2xl font-bold tracking-tight text-slate-900"}>
             Monthly Income Distribution
           </h3>
@@ -108,7 +108,7 @@ export function ClientIncomeDistribution({
           No income distribution data available for the current filter selection.
         </div>
       ) : (
-        <div className="flex flex-col gap-8">
+        <div className="flex flex-col gap-8 mt-auto">
           {/* Key Stat Typography */}
           <div className="flex flex-wrap items-baseline gap-12 border-b border-slate-100 pb-6 mb-2">
             <div className="flex flex-col gap-0.5">

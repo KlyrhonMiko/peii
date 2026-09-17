@@ -330,7 +330,7 @@ function ExportableSection({ id, name, children, filters, hideButton }: { id: st
   }
 
   return (
-    <div className="relative group/export w-full min-w-0">
+    <div className="relative group/export w-full flex-1 flex flex-col min-w-0">
       {!hideButton && (
         <button
           onClick={handleExport}
@@ -340,7 +340,7 @@ function ExportableSection({ id, name, children, filters, hideButton }: { id: st
           <Download className="w-4 h-4" />
         </button>
       )}
-      <div id={id} className="w-full min-w-0">
+      <div id={id} className="w-full flex-1 flex flex-col min-w-0">
         {children}
       </div>
     </div>
@@ -893,29 +893,29 @@ export default function DashboardPage() {
                 <h3 className="text-xl font-bold tracking-tight text-slate-900 uppercase">Employment</h3>
               </div>
 
-              <div className="grid grid-cols-1 lg:grid-cols-12 gap-16">
-                {/* Left: Main Charts (Velocity, Income, Channels) */}
-                <div className="lg:col-span-8 flex flex-col gap-16 min-w-0">
-                  <div className="pb-16 border-b border-slate-200">
-                    <ExportableSection id="chart-hiring-velocity" name="Hiring Velocity" filters={filters} hideButton={isExporting}>
-                      <ClientHiringVelocity distribution={outcomes?.time_to_first_job ?? null} isLoading={isLoading} />
-                    </ExportableSection>
-                  </div>
-                  <div className="pb-16 border-b border-slate-200">
+              <div className="flex flex-col gap-16">
+                {/* Row 1: The Wide Charts (Income Distribution & Job Search Channels) */}
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-16 pb-16 border-b border-slate-200">
+                  <div className="min-w-0 h-full flex flex-col">
                     <ExportableSection id="chart-income-distribution" name="Income Distribution" filters={filters} hideButton={isExporting}>
                       <ClientIncomeDistribution distribution={outcomes?.monthly_income ?? null} isLoading={isLoading} />
                     </ExportableSection>
                   </div>
-                  <div className="pb-8">
+                  <div className="lg:border-l lg:border-slate-200 lg:pl-16 min-w-0 h-full flex flex-col">
                     <ExportableSection id="chart-job-channels" name="Job Search Channels" filters={filters} hideButton={isExporting}>
                       <ClientJobChannels distribution={outcomes?.job_search_channel ?? null} isLoading={isLoading} />
                     </ExportableSection>
                   </div>
                 </div>
 
-                {/* Right: Side Charts (Stability, Outcomes, Alignment) */}
-                <div className="lg:col-span-4 flex flex-col gap-16 lg:border-l lg:border-slate-200 lg:pl-16 min-w-0">
-                  <div className="pb-16 border-b border-slate-200">
+                {/* Row 2: The Doughnut Charts (Velocity, Stability, Outcomes, Alignment) */}
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-12 lg:gap-10 pb-8">
+                  <div className="min-w-0 h-full flex flex-col">
+                    <ExportableSection id="chart-hiring-velocity" name="Hiring Velocity" filters={filters} hideButton={isExporting}>
+                      <ClientHiringVelocity distribution={outcomes?.time_to_first_job ?? null} isLoading={isLoading} />
+                    </ExportableSection>
+                  </div>
+                  <div className="md:border-l md:border-slate-200 md:pl-10 min-w-0 h-full flex flex-col">
                     <ExportableSection id="chart-employment-stability" name="Employment Stability" filters={filters} hideButton={isExporting}>
                       <ClientEmploymentStability
                         statusDistribution={outcomes?.employment_status ?? null}
@@ -924,12 +924,12 @@ export default function DashboardPage() {
                       />
                     </ExportableSection>
                   </div>
-                  <div className="pb-16 border-b border-slate-200">
+                  <div className="lg:border-l lg:border-slate-200 lg:pl-10 min-w-0 h-full flex flex-col">
                     <ExportableSection id="chart-key-outcomes" name="Key Outcomes" filters={filters} hideButton={isExporting}>
                       <ClientKeyOutcomes distribution={outcomes?.employment_stability ?? null} isLoading={isLoading} />
                     </ExportableSection>
                   </div>
-                  <div className="pb-8">
+                  <div className="md:border-l md:border-slate-200 md:pl-10 min-w-0 h-full flex flex-col">
                     <ExportableSection id="chart-degree-alignment" name="Degree Alignment" filters={filters} hideButton={isExporting}>
                       <ClientDegreeAlignment distribution={outcomes?.degree_alignment ?? null} isLoading={isLoading} />
                     </ExportableSection>
