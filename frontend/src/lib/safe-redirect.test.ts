@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { safeInternalPath } from "./safe-redirect"
+import { safeInternalPath, safeMfaReturnTo } from "./safe-redirect"
 
 describe("safeInternalPath", () => {
   afterEach(() => {
@@ -21,4 +21,25 @@ describe("safeInternalPath", () => {
       expect(safeInternalPath(value)).toBe("/researcher/dashboard")
     },
   )
+})
+
+describe("safeMfaReturnTo", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs()
+  })
+
+  it.each(["/mfa/verify", "/mfa/verify?returnTo=%2Fmfa%2Fverify"])(
+    "replaces a self-referential challenge destination: %s",
+    (value) => {
+      vi.stubEnv("APP_ORIGIN", "https://peii.example.gov.ph")
+
+      expect(safeMfaReturnTo(value)).toBe("/researcher/dashboard")
+    },
+  )
+
+  it("preserves a different safe portal destination", () => {
+    vi.stubEnv("APP_ORIGIN", "https://peii.example.gov.ph")
+
+    expect(safeMfaReturnTo("/settings")).toBe("/settings")
+  })
 })

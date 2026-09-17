@@ -2,6 +2,7 @@ import asyncio
 from collections.abc import Mapping
 from dataclasses import dataclass
 from functools import lru_cache
+from typing import Literal
 from uuid import UUID
 
 import jwt
@@ -13,6 +14,8 @@ from core.exceptions import AppError
 from core.logging import get_logger
 
 logger = get_logger(__name__)
+AuthLevel = Literal["aal1", "aal2"]
+_MISSING_AAL = object()
 
 
 @dataclass(frozen=True)
@@ -20,6 +23,7 @@ class AuthClaims:
     subject: UUID
     access_token: str
     session_id: UUID | None = None
+    aal: AuthLevel = "aal1"
     amr: tuple[str, ...] = ()
     email: str | None = None
     is_anonymous: bool | None = None
@@ -55,6 +59,7 @@ async def verify_bearer_token(authorization: str | None = Header(default=None)) 
             subject=_required_uuid_claim(claims, "sub"),
             access_token=access_token,
             session_id=_optional_uuid_claim(claims, "session_id"),
+            aal=_optional_aal_claim(claims.get("aal", _MISSING_AAL)),
             amr=_optional_amr_claim(claims.get("amr")),
             email=_optional_string_claim(claims.get("email"), "email"),
             is_anonymous=_optional_bool_claim(claims.get("is_anonymous"), "is_anonymous"),
@@ -100,6 +105,17 @@ def _optional_amr_claim(value: object) -> tuple[str, ...]:
             raise ValueError("amr entries must not be empty")
         methods.append(method)
     return tuple(methods)
+
+
+def _optional_aal_claim(value: object = _MISSING_AAL) -> AuthLevel:
+    """Parse Supabase's authenticator assurance level conservatively."""
+    if value is _MISSING_AAL:
+        return "aal1"
+    if value == "aal1":
+        return "aal1"
+    if value == "aal2":
+        return "aal2"
+    raise TypeError("aal must be aal1 or aal2")
 
 
 def _optional_string_claim(value: object, name: str) -> str | None:

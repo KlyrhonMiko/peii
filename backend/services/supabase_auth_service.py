@@ -1,3 +1,4 @@
+from collections.abc import Mapping
 from typing import Any, Literal
 from uuid import UUID
 
@@ -15,6 +16,85 @@ def _headers(secret: bool = False) -> dict[str, str]:
 
 def _auth_url(path: str) -> str:
     return f"{settings.SUPABASE_URL}/auth/v1{path}"
+
+
+MFA_REQUIRED_ERROR_CODE = "mfa_required"
+MFA_CHECK_UNAVAILABLE_ERROR_CODE = "mfa_check_unavailable"
+
+
+def _mfa_check_unavailable() -> AppError:
+    """Return a safe, stable error for an unavailable or invalid factor response."""
+    return AppError(
+        "Unable to verify multi-factor authentication status.",
+        status_code=503,
+        errors={"code": MFA_CHECK_UNAVAILABLE_ERROR_CODE},
+    )
+
+
+def _has_verified_factor(payload: object) -> bool:
+    """Validate the Auth `/user` shape and detect any verified factor.
+
+    Treat every verified factor type as requiring AAL2. That prevents a factor type
+    PEII does not yet render from silently weakening the portal boundary.
+    Supabase omits `factors` entirely when the authenticated user has none.
+    """
+    if not isinstance(payload, Mapping):
+        raise ValueError("Supabase Auth user response must be an object")
+    user_id = payload.get("id")
+    if not isinstance(user_id, str):
+        raise ValueError("Supabase Auth user response id must be a UUID")
+    try:
+        UUID(user_id)
+    except ValueError as exc:
+        raise ValueError("Supabase Auth user response id must be a UUID") from exc
+
+    factors = payload.get("factors", [])
+    if not isinstance(factors, list):
+        raise ValueError("Supabase Auth user response factors must be a list")
+
+    for factor in factors:
+        if not isinstance(factor, Mapping):
+            raise ValueError("Supabase Auth factor must be an object")
+        factor_type = factor.get("factor_type")
+        status = factor.get("status")
+        if (
+            not isinstance(factor_type, str)
+            or not factor_type.strip()
+            or not isinstance(status, str)
+            or not status.strip()
+        ):
+            raise ValueError("Supabase Auth factor has an invalid shape")
+        if status == "verified":
+            return True
+        if status != "unverified":
+            raise ValueError("Supabase Auth factor has an unknown status")
+    return False
+
+
+async def has_verified_mfa_factor(access_token: str) -> bool:
+    """Read the caller's current MFA factor state from Supabase Auth.
+
+    This intentionally performs no caching: a newly enrolled factor must not be
+    hidden by a stale negative result, and the bearer token remains caller-bound.
+    """
+    client = get_http_client()
+    try:
+        response = await client.get(
+            _auth_url("/user"),
+            headers={
+                "apikey": settings.SUPABASE_PUBLISHABLE_KEY,
+                "Authorization": f"Bearer {access_token}",
+            },
+        )
+    except httpx.HTTPError as exc:
+        raise _mfa_check_unavailable() from exc
+    if response.status_code != 200:
+        raise _mfa_check_unavailable()
+    try:
+        payload = response.json()
+        return _has_verified_factor(payload)
+    except (TypeError, ValueError) as exc:
+        raise _mfa_check_unavailable() from exc
 
 
 async def password_login(email: str, password: str) -> dict[str, Any]:

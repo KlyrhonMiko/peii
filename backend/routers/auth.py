@@ -17,9 +17,11 @@ from core.rate_limit import (
     normalize_rate_limit_identifier,
 )
 from core.responses import success_response
+from models.user import User
 from schemas.auth import (
     AuthSession,
     CurrentUser,
+    CurrentUserUpdate,
     GoogleSurveyAttestationAcknowledgement,
     GoogleSurveyAttestationRequest,
     LoginRequest,
@@ -47,6 +49,23 @@ router = APIRouter()
 
 def _ip_address(request: Request) -> str | None:
     return resolve_client_ip(request)
+
+
+def _current_user_response(
+    user: User, permissions: list[str], roles: list[str]
+) -> CurrentUser:
+    return CurrentUser(
+        id=user.id,
+        user_id=user.user_id,
+        email=user.email,
+        username=user.username,
+        first_name=user.first_name,
+        last_name=user.last_name,
+        middle_name=user.middle_name,
+        contact=user.contact,
+        permissions=permissions,
+        roles=roles,
+    )
 
 
 async def _logout_after_password_reset(access_token: str) -> None:
@@ -124,17 +143,35 @@ async def login(
 )
 async def me(session: AsyncDBSession, principal: CurrentPrincipal) -> APIResponse[CurrentUser]:
     permissions, roles = await auth_service.current_user_data(session, principal.user)
-    current_user = CurrentUser(
-        id=principal.user.id,
-        user_id=principal.user.user_id,
-        email=principal.user.email,
-        username=principal.user.username,
-        first_name=principal.user.first_name,
-        last_name=principal.user.last_name,
-        permissions=permissions,
-        roles=roles,
+    return success_response(_current_user_response(principal.user, permissions, roles))
+
+
+@router.patch(
+    "/me",
+    response_model=APIResponse[CurrentUser],
+    summary="Update current user",
+    description=(
+        "Update the authenticated user's username, names, and contact details. "
+        "Email, status, roles, and permissions remain server-managed."
+    ),
+)
+async def update_me(
+    payload: CurrentUserUpdate,
+    session: AsyncDBSession,
+    principal: CurrentPrincipal,
+    request: Request,
+) -> APIResponse[CurrentUser]:
+    user = await auth_service.update_current_user(
+        session,
+        principal.user,
+        payload,
+        ip_address=_ip_address(request),
     )
-    return success_response(current_user)
+    permissions, roles = await auth_service.current_user_data(session, user)
+    return success_response(
+        _current_user_response(user, permissions, roles),
+        message="Profile updated.",
+    )
 
 
 @router.post(

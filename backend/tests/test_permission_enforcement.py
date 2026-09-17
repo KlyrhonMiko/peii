@@ -159,6 +159,7 @@ async def test_me_requires_portal_access(client):
         return AuthClaims(
             subject=auth_user_id,
             access_token="test",
+            aal="aal2",
             amr=("password",),
             is_anonymous=False,
         )

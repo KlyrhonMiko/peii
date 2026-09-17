@@ -11,6 +11,24 @@ for authentication, RBAC, survey management, responses, audit logs, and sentimen
 - `backend/`: FastAPI, SQLModel, Alembic, PostgreSQL, Supabase Auth, Ruff, mypy, and pytest
   on Python 3.14.
 
+Authenticated portal users can open `/settings` to update their own profile, change their
+password after email reauthentication, revoke sign-in sessions across devices, and review
+their effective access. The page links to existing survey and administration tools only when
+the current user has the relevant capability. Email, roles, deployment secrets, and the global
+consent contract are not editable there; survey metadata and retention remain in the survey
+editor and lock after response history exists. Revoked sessions' already-issued access tokens
+may remain valid until they expire.
+
+Portal users may optionally enroll one or more TOTP authenticator apps from `/settings`; once a
+factor is verified, every portal sign-in must complete the `/mfa/verify` challenge before access
+is restored. Unfinished setup can be cancelled, and starting over discards abandoned unverified
+TOTP factors. Setup keys are shown only during the active enrollment response, and PEII does not
+provide recovery codes. The Google-authenticated respondent survey uses an isolated session and
+does not enter this portal MFA flow.
+Lost-factor recovery requires an authorized operator to verify identity, remove the affected
+factor through Supabase's server-side admin API, revoke sessions, and have the user re-enroll;
+the procedure is documented in [backend/README.md](backend/README.md#optional-supabase-mfa-enforcement).
+
 ## Prerequisites
 
 - Node.js and npm compatible with Next.js 16

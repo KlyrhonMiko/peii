@@ -12,7 +12,7 @@ from core.database import get_analytics_async_session, get_async_session, get_se
 from core.exceptions import AppError
 from models.user import User
 from schemas.common import AuditQueryParams, ListQueryParams
-from services import auth_service
+from services import auth_service, supabase_auth_service
 
 DBSession = Annotated[Session, Depends(get_session)]
 AsyncDBSession = Annotated[AsyncSession, Depends(get_async_session)]
@@ -52,6 +52,14 @@ async def get_current_principal(
     if "portal.access" not in permissions:
         raise AppError(
             "You do not have permission to perform this action.", status_code=403
+        )
+    if claims.aal == "aal1" and await supabase_auth_service.has_verified_mfa_factor(
+        claims.access_token
+    ):
+        raise AppError(
+            "Multi-factor authentication is required.",
+            status_code=403,
+            errors={"code": supabase_auth_service.MFA_REQUIRED_ERROR_CODE},
         )
     return Principal(
         user=user,

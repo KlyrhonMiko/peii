@@ -14,3 +14,11 @@ export function safeInternalPath(value: unknown): string {
 
   return `${destination.pathname}${destination.search}`
 }
+
+export function safeMfaReturnTo(value: unknown): string {
+  const destination = safeInternalPath(value)
+  // The challenge cannot send an already-verified session back to itself.
+  return destination === "/mfa/verify" || destination.startsWith("/mfa/verify?")
+    ? DEFAULT_DESTINATION
+    : destination
+}

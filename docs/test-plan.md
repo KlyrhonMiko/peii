@@ -12,7 +12,7 @@ PEII is a web system for alumni-employability research. Staff manage surveys and
 
 We will test:
 
-- Portal sign-in, sign-out, invitation, recovery, and access based on a person's role.
+- Portal sign-in, sign-out, invitation, recovery, optional TOTP MFA, and access based on a person's role.
 - Survey creation and normal, non-ML researcher dashboards and aggregates.
 - The public survey: Google-based respondent sign-in, consent, its two stages, safe repeat submission, and withdrawal.
 - Access to aggregate, raw, and identity data; exports; retention; erasure; and audit logs.
@@ -59,6 +59,7 @@ Before testing, the team must agree the supported browsers/devices and the perfo
 | What to test | How to test it | Success result | Expected failure or safe response | Tester |
 | --- | --- | --- | --- | --- |
 | Portal access | Sign in as an active staff user, use a permitted page, then sign out. Try a respondent session and a user without permission. | Permitted page opens; sign-out ends access. | Wrong session or missing permission shows a safe denial and no data. | End user + IT expert |
+| Optional portal MFA | From Settings, enroll a TOTP factor, try an invalid code, verify a valid code, sign in again through `/mfa/verify`, add a backup factor, and remove a factor only after AAL2 verification. | Setup shows a QR/fallback key only during the active flow; verified factors challenge portal sign-in and successful verification restores the requested page. | Invalid codes are generic and retryable; stale AAL1 sessions cannot call portal APIs; the isolated Google respondent session never enters this flow. | IT expert |
 | Invite, recovery, and password change | Use test invitations and recovery links; try expired or reused links. | Approved flow works; a reset link is one-time. | Invalid or reused link cannot change a password and shows a safe message. | End user + IT expert |
 | Researcher work | Create, edit, archive, search, and view a synthetic survey and non-ML results. | Changes save, results match approved aggregate data, and actions are audited. | Invalid changes or missing permission are rejected without misleading results. | End user + IT expert |
 | Public survey access and consent | Use a test Google respondent, read consent, decline once, then accept and complete both stages. | Survey requires valid respondent proof; consent is recorded; both stages make one response. | Token alone, invalid consent, or missing required answer does not submit data. | End user + IT expert |

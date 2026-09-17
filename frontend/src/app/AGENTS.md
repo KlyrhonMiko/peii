@@ -14,6 +14,11 @@ Follow the route-area guide when editing a nested route:
 - `layout.tsx` defines app-wide metadata, fonts, and the top-level `TooltipProvider`.
 - `page.tsx` is the public PEII landing page.
 - `researcher/` contains authenticated dashboard, analytics, survey, and model routes.
+- `settings/` contains the shared authenticated account page and server actions for self-service
+  profile changes, password reauthentication/change, global sign-out, and optional TOTP factor
+  enrollment. Workspace links are filtered by effective capabilities rather than role names.
+- `mfa/verify/` is the portal-only AAL1-to-AAL2 TOTP challenge. It never uses the isolated
+  Google respondent session or the backend browser proxy.
 - `admin/` contains authenticated, permission-gated user, role, and audit-log management routes.
 - `survey/` contains Google-authenticated tokenized alumni survey routes, loading UI, and the
   removed `/survey/withdraw` route (returns not found).

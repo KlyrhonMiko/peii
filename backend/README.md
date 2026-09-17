@@ -83,6 +83,35 @@ run provider smoke tests for invite, recovery, reauthentication, invalid/expired
 change, reset global logout, and reset-grant replay; application tests do not exercise the hosted
 provider.
 
+## Optional Supabase MFA enforcement
+
+Portal principal resolution honors Supabase's `aal` JWT claim. A missing claim is treated as
+`aal1`; malformed values are rejected as unauthenticated. For an `aal1` portal session, the
+backend reads `/auth/v1/user` with that session's bearer token and fails closed if the response
+cannot be validated. Any verified Supabase factor requires a fresh `aal2` session and returns
+HTTP 403 with `errors={"code":"mfa_required"}`. AAL2 sessions skip the factor lookup. This is
+opt-in: accounts without a verified factor remain usable at AAL1. Provider errors or malformed
+factor data fail closed with HTTP 503 and `errors={"code":"mfa_check_unavailable"}`. A valid
+Supabase user response may omit `factors` when none are enrolled; that means an empty factor
+list, not a provider error. Google respondent routes and public survey routes do not use this
+portal gate. The frontend must complete Supabase's factor challenge and send the resulting AAL2
+access token before retrying portal requests.
+The invite/recovery `/auth/password/reset` route is an intentional exception: it uses a verified,
+one-time reset grant rather than `CurrentPrincipal`, so an AAL1 recovery session may reset its
+password and is then globally signed out. That session still cannot enter the portal while a
+verified factor remains enrolled; it must complete MFA and obtain an AAL2 token first.
+
+If a user loses every verified factor, password recovery alone does not remove MFA. An
+authorized operator must: (1) verify the user's identity through the established out-of-band
+support process and record the recovery approval; (2) use a server-only Supabase admin client to
+list that user's factors and delete only the lost factor(s) with
+`auth.admin.mfa.deleteFactor({ id: factorId, userId })`; (3) revoke/confirm revocation of the
+user's active sessions using the existing admin session-revocation workflow; and (4) ask the
+user to sign in afresh and enroll a new authenticator plus a backup. Deleting a verified factor
+also signs out its active sessions at Supabase. Never expose the admin key, factor setup secret,
+or recovery details to the browser or application logs. See the
+[Supabase admin factor API](https://supabase.com/docs/reference/javascript/auth-admin-deletefactor).
+
 ## Database migrations
 
 Run migrations from `backend/`:
@@ -307,7 +336,8 @@ Services:
 
 Routes are mounted below `API_V1_PREFIX` (normally `/api/v1`):
 
-- `/auth`: login, current principal, logout, recovery, and password changes.
+- `/auth`: login, current principal and self-service profile updates, logout, recovery, and
+  password changes.
 - `/rbac`: permissions, roles, and role assignments.
 - `/users` and `/audit-logs`: administration and audit history.
 - `/surveys`: surveys plus nested sections, questions, and
