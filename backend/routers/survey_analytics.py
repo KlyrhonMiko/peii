@@ -83,13 +83,13 @@ async def compute_peii(
     batch, department, degree = survey_analytics_service.normalize_peii_filters(
         batch, department, degree
     )
-    l1_key = ("peii", str(survey_id), "outcomes-v1", batch or "", department or "", degree or "")
+    l1_key = ("peii", str(survey_id), "outcomes-v11", batch or "", department or "", degree or "")
     cached = get_analytics_cached(l1_key)
     if cached is not None:
         http_response.headers["X-Cache"] = "HIT"
         return success_response(cast(PEIIAnalyticsResponse, cached))
     redis_key = build_cache_key(
-        survey_id, "outcomes-v1", batch or "", department or "", degree or ""
+        survey_id, "outcomes-v11", batch or "", department or "", degree or ""
     )
     redis_cached = await cache_get("peii", redis_key)
     if isinstance(redis_cached, dict):

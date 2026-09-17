@@ -218,7 +218,7 @@ async def analyze_sentiment(
 CACHE_FILE = "ml_cache.json"
 # Bump this version whenever the scoring/calibration logic changes.
 # The loader will auto-migrate older caches to the new version.
-CACHE_VERSION = 2
+CACHE_VERSION = 5
 
 # ---------------------------------------------------------------------------
 # Intent detection — Tagalog + English regex patterns
@@ -331,59 +331,10 @@ def _calibrate_polarity(pos: float, neg: float, intent: str) -> float:
 
 def _migrate_cache(data: dict) -> dict:
     """
-    Migrate a v1 cache to v2.
-
-    v1 scores were computed without intent-awareness, which caused:
-      - suggestion answers to score 1.0 (over-confident positive from Tagalog starters)
-      - suggestion answers to score 0.0 (model read hopeful phrases as neutral)
-
-    Migration rules for 'suggestion' intent entries:
-      - score  1.0  →  0.5   (cap inflated positives)
-      - score -1.0  → -0.5   (cap inflated negatives)
-      - score  0.0  →  0.5   (bump neutral-scored hopeful suggestions, unless genuinely negative)
+    Migrate older caches to the current version.
     """
     migrated: dict = {"__version__": CACHE_VERSION}
-    fixed = 0
-
-    for key, value in data.items():
-        if key == "__version__":
-            continue
-
-        # Parse question and answer from the prompt key
-        # Key format: "Question: {q_text} Answer: {a_text}"
-        q_text, a_text = "", key
-        if "Question:" in key and "Answer:" in key:
-            parts = key.split("Answer:", 1)
-            q_text = parts[0].replace("Question:", "").strip()
-            a_text = parts[1].strip()
-
-        intent = _classify_intent(a_text, q_text)
-        new_value = []
-
-        for category, score in value:
-            if intent == "suggestion":
-                if score == 1.0:
-                    new_value.append([category, 0.5])
-                    fixed += 1
-                elif score == -1.0:
-                    new_value.append([category, -0.5])
-                    fixed += 1
-                elif score == 0.0 and not _NEGATIVE_RE.search(a_text):
-                    # Hopeful suggestions with no negative keywords → bump to 0.5
-                    new_value.append([category, 0.5])
-                    fixed += 1
-                else:
-                    new_value.append([category, score])
-            else:
-                new_value.append([category, score])
-
-        migrated[key] = new_value
-
-    if fixed:
-        logger.info(
-            f"Cache migration v1→v2: corrected {fixed} intent-unaware polarity scores."
-        )
-
+    logger.info("Cache migration to v4: Purging all cached ML results to force heuristic re-evaluation.")
     return migrated
 
 

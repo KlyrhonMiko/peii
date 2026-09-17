@@ -1,7 +1,8 @@
 "use client"
 
 import { useState, useMemo, useRef, useCallback } from "react"
-import { ThumbsDown, ThumbsUp, Minus } from "lucide-react"
+import { ThumbsDown, ThumbsUp, Minus, ChevronDown } from "lucide-react"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { type QualitativeFeedback, markFalsePositive } from "@/lib/surveys"
 import { getDimensionColor } from "@/lib/dimension-colors"
 
@@ -58,6 +59,10 @@ export function ClientCurriculumFeedback({
   const [polarityOverrides, setPolarityOverrides] = useState<Record<string, number>>({})
   const [selectedDimension, setSelectedDimension] = useState<string | null>(null)
   const [activeTab, setActiveTab] = useState<string>("all")
+  const [displayLimit, setDisplayLimit] = useState<number>(30)
+  const [sentimentSort, setSentimentSort] = useState<"negative" | "positive" | "neutral">("negative")
+  const [isPopoverOpen, setIsPopoverOpen] = useState(false)
+  const [isSortPopoverOpen, setIsSortPopoverOpen] = useState(false)
   const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // Separate substantive vs placeholder feedbacks
@@ -119,10 +124,17 @@ export function ClientCurriculumFeedback({
         }
         return f
       })
-      .sort((a, b) => (a.sentiment_score ?? 0) - (b.sentiment_score ?? 0))
-  }, [feedbacks, substantiveFeedbacks, placeholderFeedbacks, activeTab, markedIds, polarityOverrides, selectedDimension])
+      .sort((a, b) => {
+        const scoreA = a.sentiment_score ?? 0
+        const scoreB = b.sentiment_score ?? 0
+        if (sentimentSort === "negative") return scoreA - scoreB
+        if (sentimentSort === "positive") return scoreB - scoreA
+        if (sentimentSort === "neutral") return Math.abs(scoreA) - Math.abs(scoreB)
+        return scoreA - scoreB
+      })
+  }, [feedbacks, substantiveFeedbacks, placeholderFeedbacks, activeTab, markedIds, polarityOverrides, selectedDimension, sentimentSort])
 
-  const displayedFeedbackCount = Math.min(filteredFeedbacks.length, 30)
+  const displayedFeedbackCount = Math.min(filteredFeedbacks.length, displayLimit)
   const retainedFeedbackCount = activeTab === "placeholders" ? placeholderFeedbacks.length : substantiveFeedbacks.length
   const placeholderCount = qualitativeFeedbackPlaceholderCount ?? placeholderFeedbacks.length
 
@@ -153,96 +165,173 @@ export function ClientCurriculumFeedback({
         <div>
           <h3 className="text-2xl font-bold tracking-tight text-slate-900 flex items-baseline gap-3">
             Curriculum & Improvement Feedback
-            {!isLoading && qualitativeFeedbackTotal > 0 && (
+            {!isLoading && substantiveFeedbacks.length > 0 && (
               <span className="text-sm font-normal text-slate-400">
-                {qualitativeFeedbackTotal} entries
+                {substantiveFeedbacks.length} entries
               </span>
             )}
           </h3>
-          <p className="text-sm text-slate-500 mt-1">
+          <p className="text-sm text-slate-500 mt-1 max-w-3xl">
             {qualitativeFeedbackTotal > 0
-              ? `Showing ${displayedFeedbackCount} of the newest ${retainedFeedbackCount} retained feedback entries (${qualitativeFeedbackTotal} matching entries).${qualitativeFeedbackTruncated ? " Older matching entries are not retained." : ""} Ranked by critical sentiment.`
-              : "Ranked by critical sentiment (Needs Attention)"}
+              ? `Showing ${displayedFeedbackCount} of the newest ${retainedFeedbackCount} feedback entries. Note: Placeholder and noise comments (e.g., "asdad", "N/A", "none") are not counted in sentiment metrics.`
+              : "No actionable feedback available"}
           </p>
         </div>
 
         {!isLoading && (dimensions.length > 0 || placeholderFeedbacks.length > 0) && (
-          <div className="flex items-center gap-6 border-b border-slate-200 pb-0 overflow-x-auto no-scrollbar">
-            <button
-              onClick={() => {
-                setActiveTab("all")
-                setSelectedDimension(null)
-              }}
-              className={`pb-3 text-xs font-medium border-b-2 transition-all whitespace-nowrap flex items-center gap-1.5 ${
-                activeTab === "all" && selectedDimension === null 
-                  ? "border-slate-900 text-slate-900 font-semibold" 
-                  : "border-transparent text-slate-500 hover:text-slate-800"
-              }`}
-            >
-              All Feedback
-              {substantiveFeedbacks.length > 0 && (
-                <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-slate-100 text-slate-600 font-medium">
-                  {substantiveFeedbacks.length}
-                </span>
-              )}
-            </button>
-            {dimensions.map(dim => {
-              const isSelected = activeTab !== "placeholders" && selectedDimension === dim
-              const dimColor = getDimensionColor(dim)
-              const shortName = (dim.split(" and ")[0] ?? dim).replace(/Government.*/, "Govt Trust")
-              const countInDim = substantiveFeedbacks.filter(f => f.dimension === dim).length
-              
-              return (
-                <button
-                  key={dim}
-                  onClick={() => {
-                    setActiveTab("dimension")
-                    setSelectedDimension(dim)
-                  }}
-                  className={`pb-3 text-xs font-medium border-b-2 transition-all whitespace-nowrap flex items-center gap-1.5 ${
-                    isSelected 
-                      ? "text-slate-900 font-semibold" 
-                      : "border-transparent text-slate-500 hover:text-slate-800"
-                  }`}
-                  style={{
-                    borderBottomColor: isSelected ? dimColor.hex : "transparent"
-                  }}
-                  title={dim}
-                >
-                  <span 
-                    className="w-2 h-1 rounded-[1px] shrink-0" 
-                    style={{ backgroundColor: dimColor.hex }} 
-                  />
-                  {shortName}
-                  {countInDim > 0 && (
-                    <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-slate-100 text-slate-500 font-normal">
-                      {countInDim}
-                    </span>
-                  )}
+          <div className="flex flex-wrap items-center gap-8 border-b border-slate-200 pb-4">
+            <div className="flex items-center gap-3">
+              <span className="text-sm font-medium text-slate-500">Filter category:</span>
+              <Popover open={isPopoverOpen} onOpenChange={setIsPopoverOpen}>
+              <PopoverTrigger asChild>
+                <button className="flex items-center gap-2 text-sm font-medium border border-slate-200 rounded-md px-3 py-1.5 bg-white text-slate-900 hover:bg-slate-50 transition-colors shadow-sm max-w-[280px] sm:max-w-xs">
+                  <span className="truncate">
+                    {activeTab === "all" ? "All Feedback" : activeTab === "placeholders" ? "Placeholders" : selectedDimension}
+                  </span>
+                  <ChevronDown className="w-4 h-4 text-slate-400 shrink-0" />
                 </button>
-              )
-            })}
+              </PopoverTrigger>
+              <PopoverContent className="w-[300px] p-2" align="start">
+                <div className="flex flex-col gap-1">
+                  <button
+                    onClick={() => {
+                      setActiveTab("all")
+                      setSelectedDimension(null)
+                      setDisplayLimit(30)
+                      setIsPopoverOpen(false)
+                    }}
+                    className={`flex items-center justify-between px-3 py-2 text-sm rounded-md transition-colors ${
+                      activeTab === "all" ? "bg-slate-100 font-medium text-slate-900" : "hover:bg-slate-50 text-slate-700"
+                    }`}
+                  >
+                    <span>All Feedback</span>
+                    <span className="text-xs bg-slate-200/60 text-slate-600 px-1.5 py-0.5 rounded-full shrink-0">
+                      {substantiveFeedbacks.length}
+                    </span>
+                  </button>
 
-            {/* Dedicated Placeholders Tab */}
-            {(placeholderCount > 0 || placeholderFeedbacks.length > 0) && (
-              <button
-                onClick={() => {
-                  setActiveTab("placeholders")
-                  setSelectedDimension(null)
-                }}
-                className={`pb-3 text-xs font-medium border-b-2 transition-all whitespace-nowrap flex items-center gap-1.5 ml-auto ${
-                  activeTab === "placeholders"
-                    ? "border-amber-600 text-amber-900 font-semibold"
-                    : "border-transparent text-slate-400 hover:text-slate-700"
-                }`}
-                title="View non-substantive entries (e.g. 'None', 'N/A', '.') excluded from sentiment analysis"
-              >
-                <span className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0" />
-                Placeholders
-                <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-amber-50 text-amber-700 font-medium border border-amber-200/60">
-                  {placeholderCount}
-                </span>
-              </button>
+                  {dimensions.length > 0 && <div className="h-px bg-slate-100 my-1 mx-2" />}
+
+                  {dimensions.map(dim => {
+                    const isSelected = activeTab !== "placeholders" && selectedDimension === dim
+                    const dimColor = getDimensionColor(dim)
+                    const shortName = (dim.split(" and ")[0] ?? dim).replace(/Government.*/, "Govt Trust")
+                    const countInDim = substantiveFeedbacks.filter(f => f.dimension === dim).length
+                    
+                    return (
+                      <button
+                        key={dim}
+                        onClick={() => {
+                          setActiveTab("dimension")
+                          setSelectedDimension(dim)
+                          setDisplayLimit(30)
+                          setIsPopoverOpen(false)
+                        }}
+                        className={`flex items-center justify-between px-3 py-2 text-sm rounded-md transition-colors ${
+                          isSelected ? "bg-slate-100 font-medium text-slate-900" : "hover:bg-slate-50 text-slate-700"
+                        }`}
+                      >
+                        <div className="flex items-center gap-2.5 truncate pr-3">
+                          <span 
+                            className="w-2 h-2 rounded-full shrink-0" 
+                            style={{ backgroundColor: dimColor.hex }} 
+                          />
+                          <span className="truncate">{shortName}</span>
+                        </div>
+                        <span className="text-xs bg-slate-200/60 text-slate-600 px-1.5 py-0.5 rounded-full shrink-0">
+                          {countInDim}
+                        </span>
+                      </button>
+                    )
+                  })}
+
+                  {(placeholderCount > 0 || placeholderFeedbacks.length > 0) && (
+                    <>
+                      <div className="h-px bg-slate-100 my-1 mx-2" />
+                      <button
+                        onClick={() => {
+                          setActiveTab("placeholders")
+                          setSelectedDimension(null)
+                          setDisplayLimit(30)
+                          setIsPopoverOpen(false)
+                        }}
+                        className={`flex items-center justify-between px-3 py-2 text-sm rounded-md transition-colors ${
+                          activeTab === "placeholders"
+                            ? "bg-amber-100 font-medium text-amber-900"
+                            : "hover:bg-amber-50 text-amber-700"
+                        }`}
+                        title="View non-substantive entries (e.g. 'None', 'N/A', '.') excluded from sentiment analysis"
+                      >
+                        <div className="flex items-center gap-2.5 truncate pr-3">
+                          <span className="w-2 h-2 rounded-full bg-amber-400 shrink-0" />
+                          <span className="truncate">Placeholders</span>
+                        </div>
+                        <span className="text-xs bg-amber-200/50 text-amber-800 border border-amber-200/50 px-1.5 py-0.5 rounded-full shrink-0">
+                          {placeholderCount}
+                        </span>
+                      </button>
+                    </>
+                  )}
+                </div>
+              </PopoverContent>
+            </Popover>
+            </div>
+
+            {/* Sort Selector */}
+            {activeTab !== "placeholders" && (
+              <div className="flex items-center gap-3 shrink-0">
+                <span className="text-sm text-slate-500 font-medium">Sort by:</span>
+                <Popover open={isSortPopoverOpen} onOpenChange={setIsSortPopoverOpen}>
+                  <PopoverTrigger asChild>
+                    <button className="flex items-center gap-2 text-sm font-medium border border-slate-200 rounded-md px-3 py-1.5 bg-white text-slate-900 hover:bg-slate-50 transition-colors shadow-sm w-40 justify-between">
+                      <span className="truncate">
+                        {sentimentSort === "negative" ? "Negative First" : sentimentSort === "positive" ? "Positive First" : "Neutral First"}
+                      </span>
+                      <ChevronDown className="w-4 h-4 text-slate-400 shrink-0" />
+                    </button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-40 p-1.5" align="end">
+                    <div className="flex flex-col gap-0.5">
+                      <button
+                        onClick={() => {
+                          setSentimentSort("negative")
+                          setDisplayLimit(30)
+                          setIsSortPopoverOpen(false)
+                        }}
+                        className={`text-left px-2 py-1.5 text-sm rounded-md transition-colors ${
+                          sentimentSort === "negative" ? "bg-slate-100 font-medium text-slate-900" : "hover:bg-slate-50 text-slate-700"
+                        }`}
+                      >
+                        Negative First
+                      </button>
+                      <button
+                        onClick={() => {
+                          setSentimentSort("positive")
+                          setDisplayLimit(30)
+                          setIsSortPopoverOpen(false)
+                        }}
+                        className={`text-left px-2 py-1.5 text-sm rounded-md transition-colors ${
+                          sentimentSort === "positive" ? "bg-slate-100 font-medium text-slate-900" : "hover:bg-slate-50 text-slate-700"
+                        }`}
+                      >
+                        Positive First
+                      </button>
+                      <button
+                        onClick={() => {
+                          setSentimentSort("neutral")
+                          setDisplayLimit(30)
+                          setIsSortPopoverOpen(false)
+                        }}
+                        className={`text-left px-2 py-1.5 text-sm rounded-md transition-colors ${
+                          sentimentSort === "neutral" ? "bg-slate-100 font-medium text-slate-900" : "hover:bg-slate-50 text-slate-700"
+                        }`}
+                      >
+                        Neutral First
+                      </button>
+                    </div>
+                  </PopoverContent>
+                </Popover>
+              </div>
             )}
           </div>
         )}
@@ -384,16 +473,30 @@ export function ClientCurriculumFeedback({
                     </div>
                     <SentimentBadge score={score} />
                   </div>
-                  <p className="text-xl font-light tracking-tight text-slate-900 leading-snug">
-                    &ldquo;{f.response_text}&rdquo;
-                  </p>
+                  <div className="flex flex-col gap-3">
+                    <p className="text-[13px] font-medium text-slate-500 bg-slate-50 rounded-md px-3 py-2 border border-slate-100">
+                      <span className="font-semibold text-slate-400 mr-2">Q.</span>
+                      {f.question_text}
+                    </p>
+                    <p className="text-xl font-light tracking-tight text-slate-900 leading-snug pl-1">
+                      &ldquo;{f.response_text}&rdquo;
+                    </p>
+                  </div>
                 </div>
               )
             })}
             
             {filteredFeedbacks.length > displayedFeedbackCount && (
-              <div className="py-6 text-center text-xs font-medium text-slate-400 uppercase tracking-widest border-t border-slate-200">
-                Showing {displayedFeedbackCount} of {filteredFeedbacks.length} retained feedback entries
+              <div className="py-8 text-center border-t border-slate-200 flex flex-col items-center gap-3">
+                <span className="text-xs font-medium text-slate-400 uppercase tracking-widest">
+                  Showing {displayedFeedbackCount} of {filteredFeedbacks.length} retained feedback entries
+                </span>
+                <button
+                  onClick={() => setDisplayLimit(prev => prev + 30)}
+                  className="px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-md hover:bg-slate-50 transition-colors"
+                >
+                  Load More
+                </button>
               </div>
             )}
           </div>

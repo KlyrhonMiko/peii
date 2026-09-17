@@ -7,13 +7,13 @@ import re
 DIMENSION_REGEXES: dict[str, re.Pattern[str]] = {
     "Employability and Economic Mobility": re.compile(
         r"\b("
-        r"job\w*|career\w*|work\w*|employ\w*|trabaho|hanapbuhay|workplace|professional\w*|"
+        r"job\w*|career\w*|work\b|working\b|workers?\b|worked\b|employ\w*|trabaho|hanapbuhay|workplace|professional\w*|"
         r"salary|salaries|sweldo|sahod|income|economic\s+mobility|earning|"
         r"hire\w*|hiring|promot\w*|job\s+search|job\s+hunting|job\s+placement|"
         r"cv\b|resume\w*|curriculum\s+vitae|portfolio|interview\w*|mock\s+interview\w*|"
         r"internship\w*|ojt\b|practicum|apprentice\w*|immersion|industry\w*|industry\s+partnerships?|"
         r"technical\s+skills?|tech\s+skills?|ai\b|artificial\s+intelligence|automation|machine\s+learning|"
-        r"programming|coding|software|developer|it\s+skills?|technology\w*|tech\w*|"
+        r"programming|coding|software|developer|it\s+skills?|technology\w*|tech\b|"
         r"computer\s+literacy|digital\s+literacy|"
         r"financial\s+literacy|financial\s+skills?|financial\s+management|"
         r"business\w*|negosyo|freelanc\w*|entrepreneur\w*|corporate|labor\s+market|"
@@ -29,7 +29,9 @@ DIMENSION_REGEXES: dict[str, re.Pattern[str]] = {
         r"maiahon|naitaguyod|itaguyod|makaahon|kahirapan|poverty|"
         r"gastusin\s+(?:sa\s+bahay|ng\s+pamilya)|pabigat\s+sa\s+pamilya|"
         r"provide\s+(?:for\s+)?(?:my\s+|our\s+|the\s+)?(?:family|pamilya|parents|magulang|household)|"
-        r"financial\s+(?:stability|security|burden|independence|struggles?|situation\s+of\s+my\s+family)"
+        r"financial\s+(?:stability|security|burden|independence|struggles?|situation\s+of\s+my\s+family)|"
+        r"breadwinner|kinabukasan|ahon|financial\s+support|savings|utang|debt|expenses|bills|tuition|"
+        r"mother|father|mama|papa|kuya|ate|poor|hirap"
         r")\b",
         re.IGNORECASE,
     ),
@@ -39,8 +41,10 @@ DIMENSION_REGEXES: dict[str, re.Pattern[str]] = {
         r"leadership|soft\s+skills?|communication|public\s+speak\w*|presentation|interpersonal|"
         r"confidence|self-confidence|self-esteem|self-improvement|sarili|buhay|"
         r"life\s+quality|quality\s+of\s+life|wellness|well-being|wellbeing|mental\s+health|stress|counsell?ing|mental\s+support|guidance|"
-        r"seminars?|workshops?|webinars?|life\s+skills?|financial\s+literacy|financial\s+skills?|"
-        r"curricular|extracurricular|courses?|major\s+in|debate|experiential"
+        r"seminars?|workshops?|webinars?|life\s+skills?|"
+        r"curricular|extracurricular|courses?|major\s+in|debate|experiential|"
+        r"academic\w*|teach\w*|teachers?|professors?|instructors?|guro|pedagogy|lessons?|class\b|classes|subjects?|teaching\s+resources|learning\s+materials|literature|books|"
+        r"facilities|equipment|laboratory|study\w*|projects?|graduat\w*|educat\w*|learn\w*|degree"
         r")\b",
         re.IGNORECASE,
     ),
@@ -50,7 +54,8 @@ DIMENSION_REGEXES: dict[str, re.Pattern[str]] = {
         r"giving\s+back|give\s+back|paglilingkod|ambag\s+sa\s+lipunan|pagtulong\s+sa\s+kapwa|"
         r"serbisyo\s+sa\s+bayan|serve\s+(?:the\s+)?(?:community|society|country|bayan)|"
         r"community\s+service|outreach|advocacy|advocate|active\s+citizen\w*|"
-        r"contribut\w+\s+(?:to\s+)?(?:the\s+)?(?:community|society|lipunan|bayan)"
+        r"contribut\w+\s+(?:to\s+)?(?:the\s+)?(?:community|society|lipunan|bayan)|"
+        r"environment|kalikasan|kapwa|social\s+responsibility|awareness|public\s+service|nation\s+building|youth\s+empowerment|involve\w*|participat\w*"
         r")\b",
         re.IGNORECASE,
     ),
@@ -63,7 +68,7 @@ DIMENSION_REGEXES: dict[str, re.Pattern[str]] = {
         r"tuition[-\s]free|libre\w*\s+tuition|financial\s+aid|ayuda|"
         r"public\s+investment|government\s+support|government\s+programs?|lgu\s+programs?|"
         r"trust\s+(?:in|the)\s+(?:local\s+)?government|tiwala\s+sa\s+pamahalaan|"
-        r"facilities|uniforms?|printing|devices?|laptops?|ipads?|tablets?|teaching\s+resources|materials"
+        r"uniforms?|printing|devices?|laptops?|ipads?|tablets?"
         r")\b",
         re.IGNORECASE,
     ),
@@ -73,8 +78,17 @@ DIMENSION_REGEXES: dict[str, re.Pattern[str]] = {
 # before running the keyword regex scan over the answer text.
 QUESTION_DIM_HINTS: list[tuple[str, str]] = [
     ("technical", "Employability and Economic Mobility"),
+    ("career", "Employability and Economic Mobility"),
+    ("job", "Employability and Economic Mobility"),
     ("leaders", "Government Trust and LGU Support Valuation"),
     ("pasig", "Government Trust and LGU Support Valuation"),
+    ("community", "Civic Engagement and Community Contribution"),
+    ("society", "Civic Engagement and Community Contribution"),
+    ("family", "Family Upliftment and Financial Stability"),
+    ("financial", "Family Upliftment and Financial Stability"),
+    ("personal", "Personal Development and Life Quality"),
+    ("skills", "Personal Development and Life Quality"),
+    ("academic", "Personal Development and Life Quality"),
 ]
 
 
@@ -104,7 +118,13 @@ def heuristic_dimension(answer_lower: str, question_lower: str) -> str:
     for dim, pattern in DIMENSION_REGEXES.items():
         matches = len(pattern.findall(answer_lower))
         if matches > 0:
-            dim_scores[dim] += 1.5 + (matches * 0.5)
+            # Drastically boost rare dimensions so they win ties and get promoted easily
+            if dim == "Civic Engagement and Community Contribution":
+                dim_scores[dim] += 5.0 + (matches * 2.0)
+            elif dim == "Family Upliftment and Financial Stability":
+                dim_scores[dim] += 4.5 + (matches * 2.0)
+            else:
+                dim_scores[dim] += 1.5 + (matches * 0.5)
 
     best = max(dim_scores, key=lambda d: dim_scores[d])
     # Only promote away from "General Feedback" if a real dimension won

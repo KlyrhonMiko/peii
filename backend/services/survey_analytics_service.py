@@ -75,12 +75,27 @@ _CRITICAL_KEYWORDS: list[str] = [
     "clean the toilets", "ventilation", "aircon", "bulok", "pangit",
     "kulang", "lack", "delayed", "unfair", "inadequate", "guessed",
     "pinagpawisan", "pinagpapawisan", "demotivating", "poor", "disappoint",
+    "bad", "terrible", "worst", "hate", "useless", "waste", "boring", "toxic",
+    "corrupt", "lazy", "slow", "hard", "difficult", "strict", "problem"
 ]
 
 # Pre-compiled regex so critical keywords are matched with word boundaries,
 # preventing false positives like "lacked" matching "lack".
 _CRITICAL_PATTERN = re.compile(
     r"\b(?:" + "|".join(re.escape(w) for w in _CRITICAL_KEYWORDS) + r")\b",
+    re.IGNORECASE,
+)
+
+_SUGGESTION_KEYWORDS: list[str] = [
+    "offer", "recommend", "incorporat", "should", "suggest", "maybe", 
+    "activities", "seminar", "webinar", "experiential", "field trip",
+    "proposal", "propose", "more", "add", "include", "better", "focus", 
+    "need", "improve", "provide", "skills", "topics", "training", "subject", 
+    "lessons", "practical", "application", "hope", "wish", "want", "good if"
+]
+
+_SUGGESTION_PATTERN = re.compile(
+    r"\b(?:" + "|".join(re.escape(w) for w in _SUGGESTION_KEYWORDS) + r")",
     re.IGNORECASE,
 )
 
@@ -1057,17 +1072,28 @@ async def compute_peii_scores(
                                 critical_score = len(
                                     _CRITICAL_PATTERN.findall(lower_text)
                                 )
+                                suggestion_score = len(
+                                    _SUGGESTION_PATTERN.findall(lower_text)
+                                )
+                                
+                                is_all_caps = text_ans_clean.isupper()
+                                
                                 if avg_polarity < -0.3 and positive_score > critical_score:
                                     avg_polarity = 0.5
                                 elif avg_polarity > 0.3 and critical_score > positive_score:
                                     avg_polarity = -0.5
-                                # Apply heuristic dimension cross-check: if ML
-                                # returned a generic bucket, try to promote to a
-                                # more specific PEII dimension via keyword scoring.
-                                if primary_dim == "General Feedback":
-                                    primary_dim = _heuristic_dimension(
-                                        lower_text, qtext.lower()
-                                    )
+                                elif avg_polarity < 0 and critical_score == 0 and not is_all_caps:
+                                    # Heuristic: Neutralize constructive suggestions or short phrases mistagged as negative
+                                    if suggestion_score > 0 or len(text_ans_clean) < 60:
+                                        avg_polarity = 0.0
+                                # Apply heuristic dimension cross-check: the ML model
+                                # tends to over-classify into Employability. If our keyword
+                                # heuristic finds a specific dimension, use that instead to balance.
+                                heuristic_dim = _heuristic_dimension(
+                                    lower_text, qtext.lower()
+                                )
+                                if heuristic_dim != "General Feedback" or primary_dim == "General Feedback":
+                                    primary_dim = heuristic_dim
                         else:
                             lower_text = text_ans_clean.lower()
                             # Score positives (substring) vs negatives (word-boundary)
@@ -1103,6 +1129,15 @@ async def compute_peii_scores(
                                     if fp_polarity_override is not None
                                     else -avg_polarity
                                 )
+
+                        # Global heuristic to neutralize non-critical constructive feedback and short topics
+                        # Applies to both ML-scored and heuristic-scored sentiments.
+                        if avg_polarity < 0 and not is_fp and not text_ans_clean.isupper():
+                            lower_t = text_ans_clean.lower()
+                            c_score = len(_CRITICAL_PATTERN.findall(lower_t))
+                            s_score = len(_SUGGESTION_PATTERN.findall(lower_t))
+                            if c_score == 0 and (s_score > 0 or len(text_ans_clean) < 60):
+                                avg_polarity = 0.0
 
                         qualitative_feedback = QualitativeFeedback(
                             response_id=str(response_id),
