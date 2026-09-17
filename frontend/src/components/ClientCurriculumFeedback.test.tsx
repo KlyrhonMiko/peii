@@ -1,9 +1,35 @@
-import { render, screen } from "@testing-library/react"
+import { fireEvent, render, screen } from "@testing-library/react"
 import { describe, expect, it } from "vitest"
 
 import { ClientCurriculumFeedback } from "./ClientCurriculumFeedback"
 
 describe("ClientCurriculumFeedback", () => {
+  it("renders single-button popover triggers and opens the category filter", async () => {
+    const { container } = render(
+      <ClientCurriculumFeedback
+        surveyId="survey-id"
+        feedbacks={[{
+          response_id: "response-1",
+          question_id: "question-1",
+          question_text: "Feedback",
+          response_text: "Improve the curriculum",
+          sentiment_score: 0,
+          is_false_positive: false,
+          dimension: "Curriculum",
+        }]}
+        qualitativeFeedbackTotal={1}
+        qualitativeFeedbackTruncated={false}
+      />,
+    )
+
+    expect(container.querySelector("button button")).toBeNull()
+    fireEvent.click(screen.getByRole("button", { name: "Negative First" }))
+    fireEvent.click(await screen.findByRole("button", { name: "Positive First" }))
+    expect(screen.getByRole("button", { name: "Positive First" })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole("button", { name: "All Feedback" }))
+    expect(await screen.findByRole("button", { name: /Curriculum/ })).toBeInTheDocument()
+  })
+
   it("renders only 30 entries and identifies the newest retained subset and total", () => {
     const feedbacks = Array.from({ length: 200 }, (_, index) => ({
       response_id: `response-${index}`,

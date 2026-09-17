@@ -183,14 +183,14 @@ export function ClientCurriculumFeedback({
             <div className="flex items-center gap-3">
               <span className="text-sm font-medium text-slate-500">Filter category:</span>
               <Popover open={isPopoverOpen} onOpenChange={setIsPopoverOpen}>
-              <PopoverTrigger asChild>
-                <button className="flex items-center gap-2 text-sm font-medium border border-slate-200 rounded-md px-3 py-1.5 bg-white text-slate-900 hover:bg-slate-50 transition-colors shadow-sm max-w-[280px] sm:max-w-xs">
+                <PopoverTrigger
+                  render={<button type="button" className="flex items-center gap-2 text-sm font-medium border border-slate-200 rounded-md px-3 py-1.5 bg-white text-slate-900 hover:bg-slate-50 transition-colors shadow-sm max-w-[280px] sm:max-w-xs" />}
+                >
                   <span className="truncate">
                     {activeTab === "all" ? "All Feedback" : activeTab === "placeholders" ? "Placeholders" : selectedDimension}
                   </span>
                   <ChevronDown className="w-4 h-4 text-slate-400 shrink-0" />
-                </button>
-              </PopoverTrigger>
+                </PopoverTrigger>
               <PopoverContent className="w-[300px] p-2" align="start">
                 <div className="flex flex-col gap-1">
                   <button
@@ -274,7 +274,7 @@ export function ClientCurriculumFeedback({
                   )}
                 </div>
               </PopoverContent>
-            </Popover>
+              </Popover>
             </div>
 
             {/* Sort Selector */}
@@ -282,13 +282,13 @@ export function ClientCurriculumFeedback({
               <div className="flex items-center gap-3 shrink-0">
                 <span className="text-sm text-slate-500 font-medium">Sort by:</span>
                 <Popover open={isSortPopoverOpen} onOpenChange={setIsSortPopoverOpen}>
-                  <PopoverTrigger asChild>
-                    <button className="flex items-center gap-2 text-sm font-medium border border-slate-200 rounded-md px-3 py-1.5 bg-white text-slate-900 hover:bg-slate-50 transition-colors shadow-sm w-40 justify-between">
-                      <span className="truncate">
-                        {sentimentSort === "negative" ? "Negative First" : sentimentSort === "positive" ? "Positive First" : "Neutral First"}
-                      </span>
-                      <ChevronDown className="w-4 h-4 text-slate-400 shrink-0" />
-                    </button>
+                  <PopoverTrigger
+                    render={<button type="button" className="flex items-center gap-2 text-sm font-medium border border-slate-200 rounded-md px-3 py-1.5 bg-white text-slate-900 hover:bg-slate-50 transition-colors shadow-sm w-40 justify-between" />}
+                  >
+                    <span className="truncate">
+                      {sentimentSort === "negative" ? "Negative First" : sentimentSort === "positive" ? "Positive First" : "Neutral First"}
+                    </span>
+                    <ChevronDown className="w-4 h-4 text-slate-400 shrink-0" />
                   </PopoverTrigger>
                   <PopoverContent className="w-40 p-1.5" align="end">
                     <div className="flex flex-col gap-0.5">
