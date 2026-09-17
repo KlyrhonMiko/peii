@@ -308,7 +308,10 @@ function ExportableSection({ id, name, children, filters, hideButton }: { id: st
             margin: '0',
             borderRadius: '0px'
           },
-          filter: (node: HTMLElement) => node.getAttribute('data-export-exclude') !== 'true'
+          filter: (node: HTMLElement) => {
+            if (node.nodeType !== 1) return true;
+            return node.getAttribute('data-export-exclude') !== 'true';
+          }
         })
         if (currentFilters.current !== exportFilters) throw new Error("Filters changed during export. Please export again.")
         const link = document.createElement('a')
@@ -391,10 +394,14 @@ export default function DashboardPage() {
 
         const sections = [
           { id: 'section-overview', suffix: '1-Overview' },
-          { id: 'section-performance', suffix: '2-Performance' },
+          { id: 'export-performance-trends', suffix: '2a-Performance-Trends' },
+          { id: 'chart-domain-gain', suffix: '2b-Performance-Domains' },
           { id: 'section-employment', suffix: '3-Employment' },
           { id: 'section-feedback', suffix: '4-Feedback' },
         ]
+
+        const JSZip = (await import('jszip')).default
+        const zip = new JSZip()
 
         for (const section of sections) {
           const el = document.getElementById(section.id)
@@ -412,16 +419,29 @@ export default function DashboardPage() {
                 margin: '0',
                 borderRadius: '0px'
               },
-              filter: (node: HTMLElement) => node.getAttribute('data-export-exclude') !== 'true'
+              filter: (node: HTMLElement) => {
+                if (node.nodeType !== 1) return true;
+                return node.getAttribute('data-export-exclude') !== 'true';
+              }
             })
-            const link = document.createElement('a')
-            link.href = dataUrl
-            link.download = `${baseFilename} - ${section.suffix}.png`
-            link.click()
-            // Delay to prevent browser blocking
-            await new Promise(r => setTimeout(r, 500))
+            
+            const base64Data = dataUrl.split(',')[1]
+            if (base64Data) {
+              zip.file(`${section.suffix}.png`, base64Data, { base64: true })
+            }
+            
+            // Short delay to let the browser breathe
+            await new Promise(r => setTimeout(r, 100))
           }
         }
+
+        const blob = await zip.generateAsync({ type: 'blob' })
+        const zipUrl = URL.createObjectURL(blob)
+        const link = document.createElement('a')
+        link.href = zipUrl
+        link.download = `${baseFilename} - Complete Dashboard.zip`
+        link.click()
+        URL.revokeObjectURL(zipUrl)
       })();
 
       toast.promise(exportPromise, {
@@ -860,11 +880,10 @@ export default function DashboardPage() {
 
             {/* SECTION 2: PERFORMANCE */}
             <section id="section-performance" className="scroll-mt-32">
-              <ExportableSection id="export-section-performance" name="Performance Section" filters={filters} hideButton={isExporting}>
-              <div className="mb-8 border-b border-slate-900 pb-2">
-                <h3 className="text-xl font-bold tracking-tight text-slate-900 uppercase">Performance</h3>
-              </div>
-              <div className="flex flex-col gap-16">
+              <ExportableSection id="export-performance-trends" name="Performance Trends" filters={filters} hideButton={isExporting}>
+                <div className="mb-8 border-b border-slate-900 pb-2">
+                  <h3 className="text-xl font-bold tracking-tight text-slate-900 uppercase">Performance</h3>
+                </div>
                 {filters.batch === "All Batches" && (
                   <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 lg:gap-12 pb-12 border-b border-slate-200">
                     <ExportableSection id="chart-historical-trend" name="Historical Trend" filters={filters} hideButton={isExporting}>
@@ -876,14 +895,13 @@ export default function DashboardPage() {
                     </ExportableSection>
                   </div>
                 )}
-
-                <div className="pb-4">
-                  <ExportableSection id="chart-domain-gain" name="Domain Gain" filters={filters} hideButton={isExporting}>
-                    <ClientDomainGainChart data={chartData} isLoading={isLoading} />
-                  </ExportableSection>
-                </div>
-              </div>
               </ExportableSection>
+
+              <div className="pb-4 mt-8">
+                <ExportableSection id="chart-domain-gain" name="Domain Gain" filters={filters} hideButton={isExporting}>
+                  <ClientDomainGainChart data={chartData} isLoading={isLoading} />
+                </ExportableSection>
+              </div>
             </section>
 
             {/* SECTION 3: EMPLOYMENT */}
