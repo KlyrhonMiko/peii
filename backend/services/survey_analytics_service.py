@@ -735,9 +735,8 @@ async def compute_peii_scores(
     degree: str | None = None,
 ) -> PEIIAnalyticsResponse:
     batch_year, department, degree = normalize_peii_filters(batch_year, department, degree)
-    # 1. Find target surveys
+    # 1. Find active target surveys
     query = select(Survey).where(
-        col(Survey.title) == "GRADUATE TRACER STUDY SURVEY",
         col(Survey.status) == "Active",
         col(Survey.is_deleted).is_(False),
     )

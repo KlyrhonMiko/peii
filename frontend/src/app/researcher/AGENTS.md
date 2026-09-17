@@ -6,9 +6,9 @@ and survey management/detail/settings routes.
 
 ## Current Responsibilities
 - `layout.tsx` owns the researcher shell, sticky top bar, and `SidebarProvider`.
-- `dashboard/page.tsx` owns department/batch filter state, derives summary values, and
-  renders the unified analytics dashboard including cohort trends, PEII dimensions, and sentiment
-  divergence chart wrappers.
+- `dashboard/page.tsx` lists active surveys for explicit selection, owns department/batch
+  filter state for the selected survey, derives summary values, and renders the unified analytics
+  dashboard including cohort trends, PEII dimensions, and sentiment divergence chart wrappers.
 - `survey/page.tsx` authenticates with `surveys.read` and composes the live
    `SurveyManagement` client component. That component owns survey CRUD, structure
    editing/reordering, retention settings, response, aggregate, raw, identity,

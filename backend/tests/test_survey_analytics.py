@@ -179,7 +179,7 @@ async def test_peii_sql_filters_and_bounds_qualitative_feedback(client) -> None:
     try:
         survey = Survey(
             survey_id=f"SURV-{uuid4().hex[:8]}",
-            title="GRADUATE TRACER STUDY SURVEY",
+            title="Graduate outcomes survey for 2024",
             status="Active",
         )
         session.add(survey)
@@ -432,4 +432,3 @@ async def test_peii_qualitative_feedback_identifies_and_excludes_placeholders(cl
             assert total_classified == 1
     finally:
         await session.close()
-

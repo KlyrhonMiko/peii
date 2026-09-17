@@ -22,11 +22,10 @@ import { Target, AlertTriangle, Database, Users, TrendingUp, Download, Loader2 }
 import {
   fetchSurveys,
   fetchPEII,
-  TRACER_STUDY_SURVEY_TITLE,
 } from "@/lib/surveys"
 import { getDimensionColor } from "@/lib/dimension-colors"
 import type { PEIIDomainScore } from "@/components/ClientDomainGainChart"
-import type { PEIIAnalyticsResponse, PEIIDemographics, PEIIHistoricalTrend, FeedbackClassification, QualitativeFeedback } from "@/lib/surveys"
+import type { PEIIAnalyticsResponse, PEIIDemographics, PEIIHistoricalTrend, FeedbackClassification, QualitativeFeedback, Survey } from "@/lib/surveys"
 
 function AnalyticsSkeleton({ filters }: { filters?: { batch: string } }) {
   const showTrends = !filters || filters.batch === "All Batches"
@@ -305,7 +304,7 @@ function ExportableSection({ id, name, children, filters, hideButton }: { id: st
             margin: '0',
             borderRadius: '0px'
           },
-          filter: (node: any) => node?.getAttribute?.('data-export-exclude') !== 'true'
+          filter: (node: HTMLElement) => node.getAttribute('data-export-exclude') !== 'true'
         })
         if (currentFilters.current !== exportFilters) throw new Error("Filters changed during export. Please export again.")
         const link = document.createElement('a')
@@ -328,13 +327,15 @@ function ExportableSection({ id, name, children, filters, hideButton }: { id: st
 
   return (
     <div className="relative group/export w-full min-w-0">
-      <button
-        onClick={handleExport}
-        title={`Export ${name} as Image`}
-        className="absolute top-2 right-2 z-20 transition-colors duration-300 p-2 rounded-lg text-slate-400 hover:text-slate-900 hover:bg-slate-100/80"
-      >
-        <Download className="w-4 h-4" />
-      </button>
+      {!hideButton && (
+        <button
+          onClick={handleExport}
+          title={`Export ${name} as Image`}
+          className="absolute top-2 right-2 z-20 transition-colors duration-300 p-2 rounded-lg text-slate-400 hover:text-slate-900 hover:bg-slate-100/80"
+        >
+          <Download className="w-4 h-4" />
+        </button>
+      )}
       <div id={id} className="w-full min-w-0">
         {children}
       </div>
@@ -343,6 +344,11 @@ function ExportableSection({ id, name, children, filters, hideButton }: { id: st
 }
 
 export default function DashboardPage() {
+  const [surveys, setSurveys] = useState<Survey[]>([])
+  const [selectedSurveyId, setSelectedSurveyId] = useState("")
+  const [isSurveyLoading, setIsSurveyLoading] = useState(true)
+  const [surveyError, setSurveyError] = useState(false)
+  const [surveyRefreshKey, setSurveyRefreshKey] = useState(0)
   const [filters, setFilters] = useState({ department: "All Departments", degree: "All Degrees", batch: "All Batches" })
   const [chartData, setChartData] = useState<PEIIDomainScore[]>([])
   const [demographics, setDemographics] = useState<PEIIDemographics | null>(null)
@@ -355,8 +361,7 @@ export default function DashboardPage() {
   const [qualitativeFeedbackTruncated, setQualitativeFeedbackTruncated] = useState(false)
   const [qualitativeFeedbackPlaceholderCount, setQualitativeFeedbackPlaceholderCount] = useState(0)
   const [outcomes, setOutcomes] = useState<PEIIAnalyticsResponse["outcome_distributions"] | null>(null)
-  const [surveyId, setSurveyId] = useState<string | null>(null)
-  const [isLoading, setIsLoading] = useState(true)
+  const [isLoading, setIsLoading] = useState(false)
   const [fetchError, setFetchError] = useState<string | null>(null)
   const [refreshKey, setRefreshKey] = useState(0)
   const [availableBatches, setAvailableBatches] = useState<string[]>([])
@@ -402,7 +407,7 @@ export default function DashboardPage() {
                 margin: '0',
                 borderRadius: '0px'
               },
-              filter: (node: any) => node?.getAttribute?.('data-export-exclude') !== 'true'
+              filter: (node: HTMLElement) => node.getAttribute('data-export-exclude') !== 'true'
             })
             const link = document.createElement('a')
             link.href = dataUrl
@@ -434,6 +439,40 @@ export default function DashboardPage() {
     let cancelled = false
     const controller = new AbortController()
 
+    async function loadSurveys() {
+      setIsSurveyLoading(true)
+      setSurveyError(false)
+      try {
+        const activeSurveys: Survey[] = []
+        let offset = 0
+        while (true) {
+          const page = await fetchSurveys({ status: "Active", limit: 100, offset }, controller.signal)
+          activeSurveys.push(...page.surveys)
+          if (!page.pagination?.has_next || page.surveys.length === 0) break
+          offset += 100
+        }
+        if (!cancelled) setSurveys(activeSurveys)
+      } catch (error) {
+        if (cancelled || controller.signal.aborted) return
+        console.error("Failed to load active surveys", error)
+        setSurveyError(true)
+      } finally {
+        if (!cancelled) setIsSurveyLoading(false)
+      }
+    }
+
+    void loadSurveys()
+    return () => {
+      cancelled = true
+      controller.abort()
+    }
+  }, [surveyRefreshKey])
+
+  useEffect(() => {
+    if (!selectedSurveyId) return
+    let cancelled = false
+    const controller = new AbortController()
+
     const isFilterChange = prevFiltersRef.current !== filters
     prevFiltersRef.current = filters
 
@@ -449,7 +488,6 @@ export default function DashboardPage() {
         setQualitativeFeedbackTotal(0)
         setQualitativeFeedbackTruncated(false)
         setOutcomes(null)
-        setSurveyId(null)
       }
 
       if (!cancelled) {
@@ -459,28 +497,8 @@ export default function DashboardPage() {
         setFetchError(null)
       }
       try {
-        const { surveys } = await fetchSurveys(
-          {
-            status: "Active",
-            search: TRACER_STUDY_SURVEY_TITLE,
-            limit: 100,
-          },
-          controller.signal,
-        )
-        const activeTracerSurvey = surveys.find(s => s.title === TRACER_STUDY_SURVEY_TITLE)
-        if (!activeTracerSurvey) {
-          if (!cancelled) {
-            resetFetchedData()
-            setAvailableBatches([])
-            setAvailableDepartments([])
-            isInitialDataLoaded.current = false
-          }
-          return
-        }
-        if (!cancelled) setSurveyId(activeTracerSurvey.id)
-
         const data = await fetchPEII(
-          activeTracerSurvey.id,
+          selectedSurveyId,
           {
             batch: filters.batch,
             department: filters.department,
@@ -559,7 +577,7 @@ export default function DashboardPage() {
       cancelled = true
       controller.abort()
     }
-  }, [filters, refreshKey])
+  }, [selectedSurveyId, filters, refreshKey])
 
   const analyticsMetrics = useMemo(() => {
     if (!demographics) return []
@@ -637,10 +655,35 @@ export default function DashboardPage() {
             Real-time analytics and deep dive into the institutional factors driving the Pasig Education Impact Index.
           </p>
         </div>
-        {/* Only hide filters if the database is completely empty (no active filters and 0 results) */}
-        {(!isLoading && !fetchError && (!demographics || demographics.total_responses === 0) && filters.department === "All Departments" && filters.batch === "All Batches") ? null : (
+        <div className="flex flex-col items-start gap-3 sm:items-end">
+          <div className="flex flex-col gap-1">
+            <label htmlFor="dashboard-survey" className="text-xs font-medium text-muted-foreground">Survey</label>
+            <select
+              id="dashboard-survey"
+              value={selectedSurveyId}
+              disabled={isSurveyLoading || isExporting}
+              onChange={(event) => {
+                setSelectedSurveyId(event.target.value)
+                setFilters({ department: "All Departments", degree: "All Degrees", batch: "All Batches" })
+                setAvailableBatches([])
+                setAvailableDepartments([])
+                setAvailableDegrees([])
+                isInitialDataLoaded.current = false
+                setFetchError(null)
+                setIsLoading(Boolean(event.target.value))
+              }}
+              className="h-9 w-full max-w-80 rounded-md border border-input bg-background px-3 text-sm text-foreground shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 sm:min-w-64"
+            >
+              <option value="">{isSurveyLoading ? "Loading surveys…" : "Select a survey"}</option>
+              {surveys.map((survey) => (
+                <option key={survey.id} value={survey.id}>{survey.title} ({survey.surveyId})</option>
+              ))}
+            </select>
+          </div>
+          {selectedSurveyId && (isLoading || fetchError || demographics?.total_responses || filters.department !== "All Departments" || filters.batch !== "All Batches") && (
           <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 sm:gap-6">
             <DashboardFilters
+              key={selectedSurveyId}
               disabled={isExporting}
               onFilterChange={(nextFilters) => {
                 if (isExporting) return
@@ -663,11 +706,23 @@ export default function DashboardPage() {
               <span>{isExporting ? "Exporting..." : "Export"}</span>
             </Button>
           </div>
-        )}
+          )}
+        </div>
       </div>
 
       {/* Main Content Area */}
-      {isLoading ? (
+      {surveyError ? (
+        <div role="alert" className="mt-8 flex flex-col items-center gap-4 py-24 text-center">
+          <h3 className="text-xl font-semibold text-foreground">Unable to load surveys</h3>
+          <Button onClick={() => setSurveyRefreshKey(key => key + 1)}>Retry</Button>
+        </div>
+      ) : isSurveyLoading ? (
+        <AnalyticsSkeleton />
+      ) : surveys.length === 0 ? (
+        <div className="mt-8 py-24 text-center text-muted-foreground">No active surveys are available.</div>
+      ) : !selectedSurveyId ? (
+        <div className="mt-8 py-24 text-center text-muted-foreground">Select an active survey to view its dashboard.</div>
+      ) : isLoading ? (
         <AnalyticsSkeleton filters={filters} />
       ) : fetchError ? (
         <div role="alert" className="mt-8 flex flex-col items-center justify-center gap-4 rounded-2xl border border-slate-300 bg-slate-50/50 px-6 py-24 text-center">
@@ -688,7 +743,7 @@ export default function DashboardPage() {
           <p className="text-slate-500 max-w-md mb-6">
             {(filters.department !== "All Departments" || filters.batch !== "All Batches")
               ? "There are no survey responses matching the selected filters. Try adjusting your batch or department criteria."
-              : "The analytics database is currently empty. Wait for alumni to complete the tracer study."}
+              : "No PEII dashboard data is available for this survey yet. It may have no responses or lack the questions used by PEII."}
           </p>
         </div>
       ) : (
@@ -852,7 +907,7 @@ export default function DashboardPage() {
                 <div className="pb-8">
                   <ExportableSection id="chart-curriculum-feedback" name="Curriculum Feedback" filters={filters} hideButton={isExporting}>
                     <ClientCurriculumFeedback
-                      surveyId={surveyId}
+                      surveyId={selectedSurveyId}
                       feedbacks={qualitativeFeedback}
                       qualitativeFeedbackTotal={qualitativeFeedbackTotal}
                       qualitativeFeedbackTruncated={qualitativeFeedbackTruncated}
