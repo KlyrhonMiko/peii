@@ -3,9 +3,13 @@
 import { revalidatePath } from "next/cache"
 import { redirect } from "next/navigation"
 
-import { getPortalMfaChallenge, requirePortalUser } from "@/lib/auth"
+import { getPortalMfaChallenge, requirePortalUser, type PortalMfaStatus } from "@/lib/auth"
 import { safeMfaReturnTo } from "@/lib/safe-redirect"
 import { createSupabaseServerClient } from "@/lib/supabase/server"
+
+export async function getMfaChallengeAction(): Promise<PortalMfaStatus> {
+  return await getPortalMfaChallenge()
+}
 
 const MFA_CODE_PATTERN = /^\d{6}$/
 const MFA_FACTOR_ID_PATTERN =

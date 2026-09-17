@@ -60,7 +60,7 @@ describe("portal authentication MFA guard", () => {
     vi.stubGlobal("fetch", fetchMock)
 
     await expect(requirePortalUser("portal.access", "/settings?tab=security")).rejects.toThrow(
-      "REDIRECT:/mfa/verify?returnTo=%2Fsettings%3Ftab%3Dsecurity",
+      "REDIRECT:/?mfa=true&returnTo=%2Fsettings%3Ftab%3Dsecurity",
     )
     expect(mocks.getAuthenticatorAssuranceLevel).toHaveBeenCalledWith("access")
     expect(fetchMock).not.toHaveBeenCalled()
@@ -75,7 +75,7 @@ describe("portal authentication MFA guard", () => {
     }), { status: 403, headers: { "Content-Type": "application/json" } })))
 
     await expect(requirePortalUser("portal.access", "/researcher/dashboard")).rejects.toThrow(
-      "REDIRECT:/mfa/verify?returnTo=%2Fresearcher%2Fdashboard",
+      "REDIRECT:/?mfa=true&returnTo=%2Fresearcher%2Fdashboard",
     )
   })
 

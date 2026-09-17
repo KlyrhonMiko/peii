@@ -28,7 +28,7 @@ describe("safeMfaReturnTo", () => {
     vi.unstubAllEnvs()
   })
 
-  it.each(["/mfa/verify", "/mfa/verify?returnTo=%2Fmfa%2Fverify"])(
+  it.each(["/?mfa=true", "/?mfa=true&returnTo=%2F%3Fmfa%3Dtrue"])(
     "replaces a self-referential challenge destination: %s",
     (value) => {
       vi.stubEnv("APP_ORIGIN", "https://peii.example.gov.ph")

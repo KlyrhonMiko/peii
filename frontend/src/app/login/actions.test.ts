@@ -92,7 +92,7 @@ describe("loginAction", () => {
     formData.set("returnTo", "/settings")
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response(200)))
 
-    await expect(loginAction(null, formData)).rejects.toThrow("REDIRECT:/mfa/verify?returnTo=%2Fsettings")
+    await expect(loginAction(null, formData)).rejects.toThrow("REDIRECT:/?mfa=true&returnTo=%2Fsettings")
     expect(mocks.getAuthenticatorAssuranceLevel).toHaveBeenCalledWith("access")
   })
 

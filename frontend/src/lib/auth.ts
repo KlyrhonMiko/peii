@@ -168,7 +168,7 @@ function hasOAuthAuthenticationMethod(value: unknown): boolean {
 }
 
 function redirectToMfa(returnTo: string): never {
-  redirect(`/mfa/verify?returnTo=${encodeURIComponent(safeMfaReturnTo(returnTo))}`)
+  redirect(`/?mfa=true&returnTo=${encodeURIComponent(safeMfaReturnTo(returnTo))}`)
 }
 
 async function isMfaRequiredResponse(response: Response): Promise<boolean> {

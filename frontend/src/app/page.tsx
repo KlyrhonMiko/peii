@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { LoginModal } from "@/components/LoginModal";
+import { MfaModal } from "@/components/MfaModal";
 import { ForgotPasswordModal } from "@/components/ForgotPasswordModal";
 import { motion, useReducedMotion } from "motion/react";
 
@@ -227,6 +228,7 @@ export default function Home() {
       </main>
       <Suspense fallback={null}>
         <ForgotPasswordModal />
+        <MfaModal />
       </Suspense>
     </div>
   );

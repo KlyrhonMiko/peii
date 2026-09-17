@@ -58,7 +58,7 @@ export async function loginAction(state: LoginState, formData: FormData): Promis
 
   const destination = safeMfaReturnTo(formData.get("returnTo"))
   if (assurance.currentLevel !== "aal2" && assurance.nextLevel === "aal2") {
-    redirect(`/mfa/verify?returnTo=${encodeURIComponent(destination)}`)
+    redirect(`/?mfa=true&returnTo=${encodeURIComponent(destination)}`)
   }
   redirect(destination)
 }
