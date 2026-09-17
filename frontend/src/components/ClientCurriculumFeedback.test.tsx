@@ -49,7 +49,7 @@ describe("ClientCurriculumFeedback", () => {
       />,
     )
 
-    expect(screen.getByText(/showing 30 of the newest 200 retained feedback entries \(245 matching entries\)/i)).toBeInTheDocument()
+    expect(screen.getByText(/showing 30 of the newest 200 feedback entries \(245 matching entries\)\. note: placeholder and noise comments/i)).toBeInTheDocument()
     expect(screen.getAllByText(/Feedback \d+/)).toHaveLength(30)
     expect(screen.queryByText(/Feedback 31/)).not.toBeInTheDocument()
   })

@@ -38,6 +38,39 @@ async def _create_public_survey(client):
     return survey["survey_id"], question.json()["data"]["id"]
 
 
+async def test_cta_endpoint_returns_the_single_active_designated_survey(client):
+    first_survey_id, _ = await _create_public_survey(client)
+    second_survey_id, _ = await _create_public_survey(client)
+
+    missing = await client.get("/api/v1/survey/cta")
+    assert missing.status_code == 404
+    assert set(missing.json()) == {"data", "message", "errors", "meta"}
+
+    first_update = await client.patch(
+        f"/api/v1/surveys/{first_survey_id}", json={"is_cta": True}
+    )
+    assert first_update.status_code == 200
+
+    first_cta = await client.get("/api/v1/survey/cta")
+    assert first_cta.status_code == 200
+    assert first_cta.json()["data"] == {
+        "survey_id": first_survey_id,
+        "title": first_update.json()["data"]["title"],
+    }
+
+    second_update = await client.patch(
+        f"/api/v1/surveys/{second_survey_id}", json={"is_cta": True}
+    )
+    assert second_update.status_code == 200
+
+    second_cta = await client.get("/api/v1/survey/cta")
+    assert second_cta.status_code == 200
+    assert second_cta.json()["data"] == {
+        "survey_id": second_survey_id,
+        "title": second_update.json()["data"]["title"],
+    }
+
+
 def _consent(version: str | None = None, accepted: bool = True) -> dict[str, object]:
     return {
         "accepted": accepted,

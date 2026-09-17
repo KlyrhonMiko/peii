@@ -49,7 +49,7 @@ export function ClientCurriculumFeedback({
   surveyId,
   feedbacks,
   qualitativeFeedbackTotal,
-  qualitativeFeedbackTruncated: _qualitativeFeedbackTruncated,
+  qualitativeFeedbackTruncated,
   qualitativeFeedbackPlaceholderCount,
   isLoading,
   onRefresh,
@@ -173,7 +173,7 @@ export function ClientCurriculumFeedback({
           </h3>
           <p className="text-sm text-slate-500 mt-1 max-w-3xl">
             {qualitativeFeedbackTotal > 0
-              ? `Showing ${displayedFeedbackCount} of the newest ${retainedFeedbackCount} feedback entries. Note: Placeholder and noise comments (e.g., "asdad", "N/A", "none") are not counted in sentiment metrics.`
+              ? `Showing ${displayedFeedbackCount} of the newest ${retainedFeedbackCount} feedback entries${qualitativeFeedbackTruncated ? ` (${qualitativeFeedbackTotal} matching entries)` : ""}. Note: Placeholder and noise comments (e.g., "asdad", "N/A", "none") are not counted in sentiment metrics.`
               : "No actionable feedback available"}
           </p>
         </div>

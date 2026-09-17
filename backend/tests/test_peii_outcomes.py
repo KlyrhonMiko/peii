@@ -141,7 +141,6 @@ async def test_outcomes_use_post_mapping_valid_answers_and_filtered_stream(clien
         for field, state_value in [
             ("status", "Inactive"),
             ("status", "Closed"),
-            ("title", "Different questionnaire"),
             ("is_deleted", True),
         ]:
             survey.status = "Active"
@@ -154,6 +153,15 @@ async def test_outcomes_use_post_mapping_valid_answers_and_filtered_stream(clien
             assert excluded.outcome_distributions.employment_stability is None
             assert excluded.outcome_distributions.degree_alignment is None
             assert excluded.cohort_result.domains == []
+
+        survey.status = "Active"
+        survey.title = "Different questionnaire"
+        survey.is_deleted = False
+        session.add(survey)
+        await session.commit()
+        renamed = await analytics.compute_peii_scores(session, survey_ids=[survey.id])
+        assert renamed.outcome_distributions.employment_stability is None
+        assert renamed.outcome_distributions.degree_alignment is not None
     finally:
         await generator.aclose()
 
@@ -213,7 +221,7 @@ async def test_peii_sentinel_filters_share_versioned_cache_and_invalidate(client
     assert calls[0]["batch_year"] is None
     assert calls[0]["department"] is None
     assert calls[0]["degree"] is None
-    assert keys == [("peii", build_cache_key(survey_id, "outcomes-v1", "", "", ""))]
+    assert keys == [("peii", build_cache_key(survey_id, "outcomes-v12", "", "", ""))]
     invalidate_survey_analytics(survey_id)
     assert (await client.get(url)).status_code == 200
     assert len(calls) == 2

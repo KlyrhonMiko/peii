@@ -398,10 +398,14 @@ async def test_peii_qualitative_feedback_identifies_and_excludes_placeholders(cl
         session.add_all([year_question, feedback_question])
         await session.flush()
 
-        # Add 1 placeholder response and 1 substantive response
+        # Add placeholder, missing, and substantive responses.
         placeholder_resp = SurveyResponse(
             survey_id=survey.id,
             answers={str(year_question.id): "2024", str(feedback_question.id): "None"},
+        )
+        missing_feedback_resp = SurveyResponse(
+            survey_id=survey.id,
+            answers={str(year_question.id): "2024", str(feedback_question.id): None},
         )
         substantive_resp = SurveyResponse(
             survey_id=survey.id,
@@ -410,17 +414,19 @@ async def test_peii_qualitative_feedback_identifies_and_excludes_placeholders(cl
                 str(feedback_question.id): "Please install better laboratory equipment",
             },
         )
-        session.add_all([placeholder_resp, substantive_resp])
+        session.add_all([placeholder_resp, missing_feedback_resp, substantive_resp])
         await session.commit()
 
         result = await survey_analytics_service.compute_peii_scores(session, survey_ids=[survey.id])
-        assert result.qualitative_feedback_total == 2
-        assert result.qualitative_feedback_placeholder_count == 1
+        assert result.qualitative_feedback_total == 3
+        assert result.qualitative_feedback_placeholder_count == 2
         feedbacks = result.qualitative_feedback
-        assert len(feedbacks) == 2
+        assert len(feedbacks) == 3
         placeholder_entry = next(f for f in feedbacks if f.response_text == "None")
-        substantive_entry = next(f for f in feedbacks if f.response_text != "None")
+        missing_entry = next(f for f in feedbacks if f.response_text == "")
+        substantive_entry = next(f for f in feedbacks if f.response_text not in {"", "None"})
         assert placeholder_entry.is_placeholder is True
+        assert missing_entry.is_placeholder is True
         assert substantive_entry.is_placeholder is False
         # Verify placeholder is excluded from classification counts
         if result.feedback_classification:
@@ -428,7 +434,7 @@ async def test_peii_qualitative_feedback_identifies_and_excludes_placeholders(cl
                 c.positive + c.neutral + c.negative
                 for c in result.feedback_classification.classifications
             )
-            # Only substantive response should be in classification counts
+            # Only substantive response should be in classification counts.
             assert total_classified == 1
     finally:
         await session.close()

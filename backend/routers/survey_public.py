@@ -34,7 +34,11 @@ router = APIRouter()
 async def get_cta_survey(session: AsyncDBSession) -> APIResponse[dict]:
     result = await session.exec(
         select(Survey)
-        .where(col(Survey.is_cta).is_(True), col(Survey.is_deleted).is_(False), col(Survey.status) == "Active")
+        .where(
+            col(Survey.is_cta).is_(True),
+            col(Survey.is_deleted).is_(False),
+            col(Survey.status) == "Active",
+        )
         .limit(1)
     )
     survey = result.first()

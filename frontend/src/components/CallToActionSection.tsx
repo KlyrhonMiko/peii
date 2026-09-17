@@ -56,7 +56,7 @@ export function CallToActionSection() {
           </div>
 
           <div className="shrink-0 w-full md:w-auto">
-            <Link href={`/s/${ctaSurvey.survey_id}`} className="w-full md:w-auto block">
+            <Link href={`/survey/${ctaSurvey.survey_id}`} className="w-full md:w-auto block">
               <Button
                 className="w-full md:w-auto h-12 px-8 bg-slate-900 hover:bg-slate-800 text-white rounded-lg font-medium transition-colors shadow-none"
               >
