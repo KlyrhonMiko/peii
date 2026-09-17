@@ -6,7 +6,8 @@ and survey management/detail/settings routes.
 
 ## Current Responsibilities
 - `layout.tsx` owns the researcher shell, sticky top bar, and `SidebarProvider`.
-- `dashboard/page.tsx` lists active surveys for explicit selection, owns department/batch
+- `dashboard/page.tsx` lists active surveys, defaults to the first title containing
+  both "PEII" and "Survey" as words, and lets users choose another. It owns department/batch
   filter state for the selected survey, derives summary values, and renders the unified analytics
   dashboard including cohort trends, PEII dimensions, and sentiment divergence chart wrappers.
 - `survey/page.tsx` authenticates with `surveys.read` and composes the live

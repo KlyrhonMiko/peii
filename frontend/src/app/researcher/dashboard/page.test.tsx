@@ -33,6 +33,39 @@ beforeEach(() => {
   })
 })
 
+it("defaults to the first active PEII Survey across all pages and keeps the picker usable", async () => {
+  surveyMocks.fetchSurveys.mockReset()
+  surveyMocks.fetchSurveys
+    .mockResolvedValueOnce({
+      surveys: [{ id: "survey-a", surveyId: "SURV-A", title: "Tracer study A" }],
+      pagination: { has_next: true },
+    })
+    .mockResolvedValueOnce({
+      surveys: [
+        { id: "survey-b", surveyId: "SURV-B", title: "Annual pEiI Graduate SuRvEy 2026" },
+        { id: "survey-c", surveyId: "SURV-C", title: "PEII Survey 2025" },
+      ],
+      pagination: { has_next: false },
+    })
+
+  render(<DashboardPage />)
+
+  const picker = await screen.findByLabelText("Survey")
+  await waitFor(() => expect(picker).toHaveValue("survey-b"))
+  await waitFor(() => expect(surveyMocks.fetchPEII).toHaveBeenCalledWith(
+    "survey-b",
+    { batch: "All Batches", department: "All Departments", degree: "All Degrees" },
+    expect.any(AbortSignal),
+  ))
+
+  fireEvent.change(picker, { target: { value: "survey-a" } })
+  await waitFor(() => expect(surveyMocks.fetchPEII).toHaveBeenLastCalledWith(
+    "survey-a",
+    { batch: "All Batches", department: "All Departments", degree: "All Degrees" },
+    expect.any(AbortSignal),
+  ))
+})
+
 it("waits for a survey choice and loads analytics for each selected active survey", async () => {
   render(<DashboardPage />)
 

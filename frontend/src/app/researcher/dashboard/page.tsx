@@ -27,6 +27,9 @@ import { getDimensionColor } from "@/lib/dimension-colors"
 import type { PEIIDomainScore } from "@/components/ClientDomainGainChart"
 import type { PEIIAnalyticsResponse, PEIIDemographics, PEIIHistoricalTrend, FeedbackClassification, QualitativeFeedback, Survey } from "@/lib/surveys"
 
+const peiiTitleWord = /\bpeii\b/i
+const surveyTitleWord = /\bsurvey\b/i
+
 function AnalyticsSkeleton({ filters }: { filters?: { batch: string } }) {
   const showTrends = !filters || filters.batch === "All Batches"
 
@@ -451,7 +454,13 @@ export default function DashboardPage() {
           if (!page.pagination?.has_next || page.surveys.length === 0) break
           offset += 100
         }
-        if (!cancelled) setSurveys(activeSurveys)
+        if (!cancelled) {
+          setSurveys(activeSurveys)
+          const defaultSurvey = activeSurveys.find((survey) =>
+            peiiTitleWord.test(survey.title) && surveyTitleWord.test(survey.title),
+          )
+          if (defaultSurvey) setSelectedSurveyId((current) => current || defaultSurvey.id)
+        }
       } catch (error) {
         if (cancelled || controller.signal.aborted) return
         console.error("Failed to load active surveys", error)
