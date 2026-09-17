@@ -427,7 +427,7 @@ export async function fetchSurveys(
 
 export async function fetchCtaSurvey(): Promise<{ survey_id: string; title: string } | null> {
   try {
-    const res = await api.get<{ survey_id: string; title: string }>("/public/surveys/cta")
+    const res = await api.get<{ survey_id: string; title: string }>("/survey/cta")
     return res.data ?? null
   } catch (error) {
     if (error instanceof ApiError && error.status === 404) return null

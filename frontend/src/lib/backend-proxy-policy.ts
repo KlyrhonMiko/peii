@@ -113,6 +113,7 @@ export function isAllowedBackendRequest(method: string, path: string[]): boolean
         (path.length === 2 && path[0] === "rbac" && path[1] === "roles") ||
         (path.length === 2 && path[0] === "rbac" && path[1] === "permissions") ||
         (path.length === 1 && path[0] === "surveys") ||
+        (path.length === 2 && path[0] === "survey" && path[1] === "cta") ||
         matchesSurveyResource(path) ||
         matchesSurveyChild(path, "responses") ||
         matchesSurveyResponseAction(path, "aggregates") ||
