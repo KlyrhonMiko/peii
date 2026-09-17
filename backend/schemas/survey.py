@@ -26,6 +26,7 @@ class SurveyBase(SurveyBaseSchema):
     retention_enabled: bool = True
     retention_days: int = Field(default=1825, ge=1)
     is_template: bool = False
+    is_cta: bool = False
 
 
 class SurveyCreate(SurveyBase):
@@ -70,6 +71,7 @@ class SurveyUpdate(SurveyBaseSchema):
     target_cohort: str | None = None
     retention_enabled: bool | None = None
     retention_days: int | None = Field(default=None, ge=1)
+    is_cta: bool | None = None
 
 
 class SurveyRead(SurveyBase):

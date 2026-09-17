@@ -693,6 +693,7 @@ export default function DashboardPage() {
               <PopoverTrigger
                 render={
                   <Button
+                    aria-label="Survey"
                     disabled={isSurveyLoading || isExporting}
                     variant="outline"
                     className="h-8 text-[12px] font-medium border border-slate-200 rounded-lg text-slate-600 bg-white hover:bg-slate-50 hover:border-slate-300 shadow-sm px-3 flex items-center gap-1.5 focus-visible:ring-slate-400/20 focus-visible:border-slate-400 select-none cursor-pointer transition-all"

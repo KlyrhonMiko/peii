@@ -30,24 +30,27 @@ export function SurveyConsentCard({
           Consent & Data Notice
         </h2>
       </div>
-      <dl className="grid gap-x-8 gap-y-6 text-[14px] text-zinc-600 sm:grid-cols-2">
-        <div>
-          <dt className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-zinc-500">Notice</dt>
-          <dd className="leading-relaxed text-zinc-800">{consent.notice}</dd>
+      <div className="flex flex-col gap-8">
+        <div className="text-[14px]">
+          <h3 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-zinc-500">Notice</h3>
+          <p className="leading-relaxed text-zinc-800">{consent.notice}</p>
         </div>
-        <div>
-          <dt className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-zinc-500">Purpose</dt>
-          <dd className="leading-relaxed text-zinc-800">{consent.purpose}</dd>
-        </div>
-        <div>
-          <dt className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-zinc-500">Retention</dt>
-          <dd className="leading-relaxed text-zinc-800">{consent.retention}</dd>
-        </div>
-        <div>
-          <dt className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-zinc-500">Contact</dt>
-          <dd className="leading-relaxed text-zinc-800">{consent.contact}</dd>
-        </div>
-      </dl>
+        
+        <dl className="grid gap-x-8 gap-y-6 sm:grid-cols-3 pt-6 border-t border-zinc-100">
+          <div>
+            <dt className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-zinc-500">Purpose</dt>
+            <dd className="text-[14px] leading-relaxed text-zinc-800">{consent.purpose}</dd>
+          </div>
+          <div>
+            <dt className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-zinc-500">Retention</dt>
+            <dd className="text-[14px] leading-relaxed text-zinc-800">{consent.retention}</dd>
+          </div>
+          <div>
+            <dt className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-zinc-500">Contact</dt>
+            <dd className="text-[14px] leading-relaxed text-zinc-800">{consent.contact}</dd>
+          </div>
+        </dl>
+      </div>
       <div className="mt-8 border-t border-zinc-100 pt-6">
         <label
           htmlFor="survey-consent"

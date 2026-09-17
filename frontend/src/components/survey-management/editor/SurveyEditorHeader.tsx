@@ -7,6 +7,7 @@ interface SurveyEditorHeaderProps {
   modalState: ReturnType<typeof useSurveyManagement>["state"]["modalState"]
   contentLocked?: boolean
   statusChanged?: boolean
+  ctaChanged?: boolean
   interactionLocked: boolean
   saving: boolean
   surveyTitle: string
@@ -18,6 +19,7 @@ export function SurveyEditorHeader({
   modalState,
   contentLocked = false,
   statusChanged = false,
+  ctaChanged = false,
   interactionLocked,
   saving,
   surveyTitle,
@@ -51,7 +53,7 @@ export function SurveyEditorHeader({
         </Button>
         <Button
           onClick={handleSaveSurvey}
-          disabled={!surveyTitle.trim() || interactionLocked || (contentLocked && !statusChanged)}
+          disabled={!surveyTitle.trim() || interactionLocked || (contentLocked && !statusChanged && !ctaChanged)}
           className="gap-2 bg-indigo-600 hover:bg-indigo-700 text-white h-9"
         >
           {saving ? (

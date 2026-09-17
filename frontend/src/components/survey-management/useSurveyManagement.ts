@@ -272,6 +272,7 @@ export function useSurveyManagement({ permissions, csvExportEnabled }: UseSurvey
   const [retentionDays, setRetentionDays] = useState(
     () => getSurveyRetentionState().retentionDays,
   )
+  const [isCta, setIsCta] = useState(false)
   const [showGeneratePreview, setShowGeneratePreview] = useState(false)
   const [previewSurvey, setPreviewSurvey] = useState<Survey | null>(null)
   const [shareLinkSurveyId, setShareLinkSurveyId] = useState<string | null>(null)
@@ -457,6 +458,7 @@ export function useSurveyManagement({ permissions, csvExportEnabled }: UseSurvey
     const retention = getSurveyRetentionState()
     setRetentionEnabled(retention.retentionEnabled)
     setRetentionDays(retention.retentionDays)
+    setIsCta(false)
     setTargetCohort("Class of 2024")
     setSurveyStatus("Inactive")
     setViewTab("questions")
@@ -745,6 +747,7 @@ export function useSurveyManagement({ permissions, csvExportEnabled }: UseSurvey
         const retention = getSurveyRetentionState(full)
         setRetentionEnabled(retention.retentionEnabled)
         setRetentionDays(retention.retentionDays)
+        setIsCta(full.isCta ?? false)
         setTargetCohort(full.targetCohort ?? "Class of 2024")
         setSurveyStatus(full.status)
         const loaded = toEditorSections(full.sections ?? [])
@@ -815,11 +818,21 @@ export function useSurveyManagement({ permissions, csvExportEnabled }: UseSurvey
     try {
       const editing = modalState?.type === "edit" ? editingSurvey : null
       if (editing?.hasResponseHistory === true) {
-        if (surveyStatus !== editing.status) {
-          await updateSurvey(editing.surveyId, { status: surveyStatus })
+        const hasStatusChange = surveyStatus !== editing.status
+        const hasCtaChange = isCta !== (editing.isCta ?? false)
+        if (hasStatusChange || hasCtaChange) {
+          await updateSurvey(editing.surveyId, {
+            ...(hasStatusChange ? { status: surveyStatus } : {}),
+            ...(hasCtaChange ? { is_cta: isCta } : {}),
+          })
           const refreshed = await fetchSurvey(editing.surveyId)
-          setSurveys((prev) => prev.map((item) => item.id === refreshed.id ? refreshed : item))
+          setSurveys((prev) => prev.map((item) => {
+            if (item.id === refreshed.id) return refreshed
+            if (hasCtaChange && isCta) return { ...item, isCta: false, is_cta: false }
+            return item
+          }))
         }
+        toast.success("Survey saved successfully.")
         handleCloseModal()
         return
       }
@@ -896,6 +909,7 @@ export function useSurveyManagement({ permissions, csvExportEnabled }: UseSurvey
           ...(surveyStatus !== target.status ? { status: surveyStatus } : {}),
           ...(retentionEnabled !== target.retentionEnabled ? { retention_enabled: retentionEnabled } : {}),
           ...(retentionDays !== target.retentionDays ? { retention_days: retentionDays } : {}),
+          ...(isCta !== (target.isCta ?? false) ? { is_cta: isCta } : {}),
         })
         
         if (modalState.isTemplate && cachedTemplateRef.current) {
@@ -904,7 +918,11 @@ export function useSurveyManagement({ permissions, csvExportEnabled }: UseSurvey
         
         if (!modalState.isTemplate) {
           const refreshed = await fetchSurvey(target.surveyId)
-          setSurveys((prev) => prev.map((s) => (s.id === refreshed.id ? refreshed : s)))
+          setSurveys((prev) => prev.map((s) => {
+            if (s.id === refreshed.id) return refreshed
+            if (isCta && (isCta !== (target.isCta ?? false))) return { ...s, isCta: false, is_cta: false }
+            return s
+          }))
         }
       }
       toast.success(modalState?.type === "create" ? "Survey created successfully." : "Survey saved successfully.")
@@ -1403,6 +1421,7 @@ export function useSurveyManagement({ permissions, csvExportEnabled }: UseSurvey
       openQuestionSelectId,
       statusOpen,
       surveyStatus,
+      isCta,
       deleteConfirmId,
       surveyTitle,
       surveyDescription,
@@ -1488,6 +1507,7 @@ export function useSurveyManagement({ permissions, csvExportEnabled }: UseSurvey
       setSurveyDescription,
       setRetentionEnabled,
       setRetentionDays,
+      setIsCta,
       setTargetCohort,
       setCohortOpen,
       setSurveyStatus,

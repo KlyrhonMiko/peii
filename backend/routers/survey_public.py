@@ -8,6 +8,7 @@ from core.deps import AsyncDBSession, CurrentGoogleSurveyRespondent
 from core.exceptions import AppError
 from core.rate_limit import enforce_authenticated_survey_rate_limit
 from core.responses import success_response
+from models.survey import Survey
 from models.survey_question import SurveyQuestion
 from models.survey_section import SurveySection
 from schemas.common import APIResponse
@@ -22,6 +23,25 @@ from services import response_service, survey_consent
 from services.ml_service import analyze_response_background
 
 router = APIRouter()
+
+
+@router.get(
+    "/cta",
+    response_model=APIResponse[dict],
+    summary="Get CTA Survey",
+    description="Retrieve the active survey designated as the Call-To-Action.",
+)
+async def get_cta_survey(session: AsyncDBSession) -> APIResponse[dict]:
+    result = await session.exec(
+        select(Survey)
+        .where(col(Survey.is_cta).is_(True), col(Survey.is_deleted).is_(False), col(Survey.status) == "Active")
+        .limit(1)
+    )
+    survey = result.first()
+    if not survey:
+        raise AppError("No active CTA survey found.", status_code=status.HTTP_404_NOT_FOUND)
+    
+    return success_response({"survey_id": survey.survey_id, "title": survey.title})
 
 
 @router.get(

@@ -27,3 +27,4 @@ class Survey(BaseModel, table=True):
     retention_enabled: bool = Field(default=True, nullable=False)
     retention_days: int = Field(default=1825, ge=1, nullable=False)
     is_template: bool = Field(default=False, nullable=False, index=True)
+    is_cta: bool = Field(default=False, nullable=False, index=True)

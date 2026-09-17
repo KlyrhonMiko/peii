@@ -19,6 +19,8 @@ function renderSidebar(retentionEnabled = true, contentLocked = false) {
       setRetentionEnabled={vi.fn()}
       retentionDays={1825}
       setRetentionDays={vi.fn()}
+      isCta={false}
+      setIsCta={vi.fn()}
     />,
   )
 }
@@ -59,6 +61,8 @@ describe("SurveyEditorSidebar retention controls", () => {
         setRetentionEnabled={setRetentionEnabled}
         retentionDays={1825}
         setRetentionDays={setRetentionDays}
+        isCta={false}
+        setIsCta={vi.fn()}
       />,
     )
 

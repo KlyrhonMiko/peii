@@ -116,11 +116,7 @@ export default async function SurveyPage({
 
   return (
     <div>
-      <p className="bg-background px-4 pt-6 text-center text-xs leading-relaxed text-muted-foreground">
-        {userEmail ? `Signed in as ${userEmail}. ` : ""}
-        Revisit this same link with the same Google account to continue where you left off.
-        If you submitted with a different account, switch account.
-      </p>
+
       <ClientSurveyForm
         key={surveyId}
         title={result.survey.title}

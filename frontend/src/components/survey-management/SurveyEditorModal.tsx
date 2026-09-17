@@ -29,6 +29,7 @@ export function SurveyEditorModal({ store }: SurveyEditorModalProps) {
     contentLocked,
     editedSurvey,
     openQuestionSelectId,
+    isCta,
   } = state
 
   const {
@@ -40,6 +41,7 @@ export function SurveyEditorModal({ store }: SurveyEditorModalProps) {
     setSurveyDescription,
     setRetentionEnabled,
     setRetentionDays,
+    setIsCta,
     addSection,
   } = actions
 
@@ -57,6 +59,7 @@ export function SurveyEditorModal({ store }: SurveyEditorModalProps) {
         <SurveyEditorHeader
           contentLocked={contentLocked}
           statusChanged={surveyStatus !== editedSurvey?.status}
+          ctaChanged={isCta !== (editedSurvey?.is_cta ?? false)}
           modalState={modalState}
           interactionLocked={interactionLocked}
           saving={saving}
@@ -91,6 +94,8 @@ export function SurveyEditorModal({ store }: SurveyEditorModalProps) {
             setRetentionEnabled={setRetentionEnabled}
             retentionDays={retentionDays}
             setRetentionDays={setRetentionDays}
+            isCta={isCta}
+            setIsCta={setIsCta}
           />
 
           {/* Right Main Area: Sections & Questions */}

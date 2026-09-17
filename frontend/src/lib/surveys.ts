@@ -39,6 +39,7 @@ export interface Survey {
   targetCohort?: string
   isTemplate?: boolean
   description?: string
+  isCta?: boolean
   questions?: SurveyQuestion[]
   sections?: SurveySection[]
 }
@@ -112,6 +113,7 @@ export interface ApiSurvey {
   retention_enabled: boolean
   retention_days: number
   is_template?: boolean
+  is_cta?: boolean
   questions?: ApiQuestion[]
   sections?: ApiSection[]
 }
@@ -346,6 +348,7 @@ export function mapSurvey(api: ApiSurvey): Survey {
     retentionEnabled: api.retention_enabled ?? DEFAULT_RETENTION_ENABLED,
     retentionDays: api.retention_days ?? DEFAULT_RETENTION_DAYS,
     ...(api.is_template !== undefined ? { isTemplate: api.is_template } : {}),
+    ...(api.is_cta !== undefined ? { isCta: api.is_cta } : {}),
     ...(api.target_cohort ? { targetCohort: api.target_cohort } : {}),
     ...(api.description ? { description: api.description } : {}),
     ...(api.questions ? { questions: api.questions.map(mapQuestion) } : {}),
@@ -422,6 +425,16 @@ export async function fetchSurveys(
   }
 }
 
+export async function fetchCtaSurvey(): Promise<{ survey_id: string; title: string } | null> {
+  try {
+    const res = await api.get<{ survey_id: string; title: string }>("/public/surveys/cta")
+    return res.data ?? null
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 404) return null
+    throw error
+  }
+}
+
 export async function fetchSurvey(surveyId: string): Promise<Survey> {
   const res = await api.get<ApiSurvey>(`/surveys/${surveyId}`)
   return mapSurvey(res.data!)
@@ -489,6 +502,7 @@ export async function updateSurvey(
     target_cohort: string | null
     retention_enabled: boolean
     retention_days: number
+    is_cta: boolean
   }>,
 ): Promise<Survey> {
   const res = await api.patch<ApiSurvey>(`/surveys/${surveyId}`, payload)

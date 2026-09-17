@@ -21,6 +21,8 @@ interface SurveyEditorSidebarProps {
   setRetentionEnabled: (val: boolean) => void
   retentionDays: number
   setRetentionDays: (val: number) => void
+  isCta: boolean
+  setIsCta: (val: boolean) => void
 }
 
 export function SurveyEditorSidebar({
@@ -37,6 +39,8 @@ export function SurveyEditorSidebar({
   setRetentionEnabled,
   retentionDays,
   setRetentionDays,
+  isCta,
+  setIsCta,
 }: SurveyEditorSidebarProps) {
   return (
     <div className="w-[340px] shrink-0 border-r border-slate-100 bg-white p-8 overflow-y-auto">
@@ -162,6 +166,29 @@ export function SurveyEditorSidebar({
               onChange={(event) => setRetentionDays(Number(event.target.value))}
               aria-describedby="retention-policy-help"
             />
+          </div>
+        </div>
+
+        <div className="space-y-3 rounded-lg border border-slate-200 bg-slate-50/50 p-3.5 mt-5">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-[13px] font-medium text-slate-700">Set as Landing Page CTA</p>
+              <p id="cta-help" className="mt-1 text-[11px] leading-relaxed text-slate-500">
+                Show this survey on the main landing page. Only one survey can be the CTA at a time.
+              </p>
+            </div>
+            <div className="flex shrink-0 items-center pt-0.5">
+              <label htmlFor="is-cta-enabled" className="sr-only">
+                Set as Landing Page CTA
+              </label>
+              <Switch
+                id="is-cta-enabled"
+                aria-label="Set as Landing Page CTA"
+                aria-describedby="cta-help"
+                checked={isCta}
+                onCheckedChange={(checked) => setIsCta(checked)}
+              />
+            </div>
           </div>
         </div>
       </fieldset>

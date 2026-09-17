@@ -1,7 +1,7 @@
 from uuid import UUID
 
 from fastapi import status
-from sqlalchemy import exists, func, or_
+from sqlalchemy import exists, func, or_, update
 from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -506,6 +506,9 @@ async def update_survey(
         old_val = getattr(survey, key)
         if old_val != val:
             changes[key] = {"before": old_val, "after": val}
+
+    if updates.get("is_cta") is True:
+        await session.exec(update(Survey).where(col(Survey.id) != survey.id).values(is_cta=False))
 
     apply_updates(survey, updates)
     survey.performed_by = actor_id

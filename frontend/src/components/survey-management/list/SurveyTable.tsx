@@ -11,6 +11,7 @@ import {
   Share2,
   Trash,
   Users,
+  Star,
 } from "lucide-react"
 import { cn, formatDate } from "@/lib/utils"
 import type { useSurveyManagement } from "../useSurveyManagement"
@@ -132,7 +133,16 @@ export function SurveyTable({ store }: SurveyTableProps) {
                     <div className="size-9 rounded-xl border border-zinc-200/60 bg-transparent flex items-center justify-center shrink-0 shadow-none group-hover:border-zinc-300 transition-colors">
                       <FileText className="size-4 text-zinc-400 group-hover:text-zinc-600 transition-colors" />
                     </div>
-                    <span className="font-semibold text-[14px] text-zinc-900">{survey.title}</span>
+                    <div className="flex flex-col gap-1">
+                      <span className="font-semibold text-[14px] text-zinc-900 flex items-center gap-2">
+                        {survey.title}
+                        {survey.isCta && (
+                          <div title="Landing Page CTA" className="flex items-center justify-center p-1 rounded-md bg-amber-50">
+                            <Star className="size-4 text-amber-500 fill-amber-500" />
+                          </div>
+                        )}
+                      </span>
+                    </div>
                   </div>
                 </td>
                 <td className="px-2 py-4">

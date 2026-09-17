@@ -5,7 +5,6 @@ import {
   ArrowRight,
   BarChart3,
   GraduationCap,
-  ClipboardCheck,
   TrendingUp,
   Shield,
 } from "lucide-react";
@@ -13,6 +12,7 @@ import { Button } from "@/components/ui/button";
 import { LoginModal } from "@/components/LoginModal";
 import { MfaModal } from "@/components/MfaModal";
 import { ForgotPasswordModal } from "@/components/ForgotPasswordModal";
+import { CallToActionSection } from "@/components/CallToActionSection";
 import { motion, useReducedMotion } from "motion/react";
 
 export default function Home() {
@@ -45,36 +45,36 @@ export default function Home() {
 
       <main className="relative z-10 w-full">
         {/* Typography Hero Section */}
-        <section className="relative px-6 lg:px-12 pt-24 md:pt-36 pb-24 md:pb-40 max-w-[1400px] mx-auto w-full flex flex-col items-center text-center">
+        <section className="relative px-6 lg:px-12 pt-24 md:pt-36 pb-24 md:pb-32 max-w-[1400px] mx-auto w-full flex flex-col items-center text-center">
           <div className="flex flex-col items-center max-w-4xl">
             <motion.h1 
               initial={reduce ? false : { opacity: 0, y: 16 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.5, ease: "easeOut" }}
-              className="text-[clamp(3rem,8vw,5.5rem)] leading-[1.05] tracking-tight font-extrabold text-slate-900"
+              transition={{ duration: 0.5, delay: 0.1, ease: "easeOut" }}
+              className="text-[clamp(3rem,7vw,5.5rem)] leading-[1.05] tracking-tight font-extrabold text-slate-900"
             >
-              Measure Educational Impact with Clarity.
+              Pasig Education<br />Impact Index.
             </motion.h1>
             
             <motion.p 
               initial={reduce ? false : { opacity: 0, y: 16 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.5, delay: 0.1, ease: "easeOut" }}
-              className="mt-8 text-[18px] sm:text-[20px] text-slate-600 leading-relaxed font-normal max-w-2xl"
+              transition={{ duration: 0.5, delay: 0.2, ease: "easeOut" }}
+              className="mt-8 text-[18px] sm:text-[20px] text-slate-600 leading-relaxed font-medium max-w-2xl"
             >
-              The unified platform for tracking alumni outcomes, analyzing institutional effectiveness, and driving data-informed educational policy.
+              The authoritative research platform for tracking alumni employability, gathering qualitative feedback, and measuring outcomes across five core educational impact domains.
             </motion.p>
             
             <motion.div 
               initial={reduce ? false : { opacity: 0, y: 16 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.5, delay: 0.2, ease: "easeOut" }}
+              transition={{ duration: 0.5, delay: 0.3, ease: "easeOut" }}
               className="flex flex-col sm:flex-row gap-4 mt-12 w-full sm:w-auto"
             >
               <Suspense fallback={
                 <Button
                   size="lg"
-                  className="w-full sm:w-auto h-14 px-8 text-[15px] bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm transition-all rounded-xl font-semibold group"
+                  className="w-full sm:w-auto h-14 px-8 text-[15px] bg-slate-900 hover:bg-slate-800 text-white shadow-sm transition-all rounded-xl font-semibold group"
                 >
                   Researcher Portal
                   <ArrowRight className="ml-2 h-5 w-5 transition-transform group-hover:translate-x-1" />
@@ -83,7 +83,7 @@ export default function Home() {
                 <LoginModal>
                   <Button
                     size="lg"
-                    className="w-full sm:w-auto h-14 px-8 text-[15px] bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm transition-all rounded-xl font-semibold group"
+                    className="w-full sm:w-auto h-14 px-8 text-[15px] bg-slate-900 hover:bg-slate-800 text-white shadow-sm transition-all rounded-xl font-semibold group"
                   >
                     Researcher Portal
                     <ArrowRight className="ml-2 h-5 w-5 transition-transform group-hover:translate-x-1" />
@@ -94,23 +94,25 @@ export default function Home() {
           </div>
         </section>
 
+        <CallToActionSection />
+
         {/* Bento Features Section */}
-        <section className="w-full bg-slate-50/50 border-t border-slate-200">
+        <section className="w-full bg-slate-50 border-t border-slate-200">
           <div className="max-w-[1400px] mx-auto px-6 lg:px-12 py-24 lg:py-32">
             
-            <div className="max-w-3xl mb-20 flex flex-col items-start">
-              <h2 className="text-[clamp(2.5rem,4vw,3.5rem)] font-extrabold tracking-tighter text-slate-900 leading-[1.05]">
-                Actionable intelligence for educational policy.
+            <div className="max-w-3xl mb-16 flex flex-col items-start">
+              <h2 className="text-[clamp(2.5rem,4vw,3.5rem)] font-extrabold tracking-tight text-slate-900 leading-[1.05]">
+                System capabilities
               </h2>
-              <p className="text-[18px] sm:text-[20px] text-slate-600 mt-6 leading-relaxed font-medium max-w-2xl">
-                Purpose-built tools to measure, track, and improve outcomes across the entire alumni lifecycle. Stop guessing and start knowing.
+              <p className="text-[18px] sm:text-[20px] text-slate-600 mt-5 leading-relaxed font-medium max-w-2xl">
+                Purpose-built tools to administer surveys, ensure data privacy, and generate actionable intelligence for educational policy.
               </p>
             </div>
 
             {/* Gapless Bento Grid */}
             <div className="grid grid-cols-1 md:grid-cols-12 gap-[1px] bg-slate-200 border border-slate-200 rounded-[2rem] overflow-hidden shadow-sm">
               
-              {/* Analytics - Large Cell */}
+              {/* 5 Impact Domains - Large Cell */}
               <motion.div 
                 initial={reduce ? false : { opacity: 0, y: 16 }}
                 whileInView={{ opacity: 1, y: 0 }}
@@ -119,62 +121,61 @@ export default function Home() {
                 className="md:col-span-8 bg-white p-8 lg:p-14 relative group flex flex-col justify-between overflow-hidden min-h-[400px]"
               >
                 <div className="relative z-10 max-w-lg mb-24 lg:mb-32">
-                  <div className="w-14 h-14 rounded-2xl bg-slate-900 flex items-center justify-center mb-8 shadow-md">
+                  <div className="w-14 h-14 rounded-2xl bg-slate-900 flex items-center justify-center mb-8 shadow-sm">
                     <BarChart3 className="h-7 w-7 text-white" />
                   </div>
-                  <h3 className="text-[28px] lg:text-[36px] font-extrabold text-slate-900 mb-4 tracking-tight leading-tight">
-                    Comprehensive Analytics
+                  <h3 className="text-[28px] lg:text-[32px] font-extrabold text-slate-900 mb-4 tracking-tight leading-tight">
+                    The 5 Impact Domains
                   </h3>
                   <p className="text-[16px] lg:text-[18px] text-slate-500 leading-relaxed font-medium">
-                    Deep dive into the factors driving alumni success with comprehensive dashboards and real-time visualization of cohort trajectories.
+                    Measure pre- and post-graduation indices across Employability, Family Upliftment, Personal Development, Civic Engagement, and Government Trust.
                   </p>
                 </div>
                 
-                {/* Abstract UI element */}
-                <div className="absolute right-0 bottom-0 w-[85%] sm:w-2/3 h-[55%] bg-slate-50 rounded-tl-3xl border-t border-l border-slate-200 transform translate-x-12 translate-y-12 group-hover:translate-x-6 group-hover:translate-y-6 transition-transform duration-700 ease-out flex items-start p-6 sm:p-8 shadow-2xl">
-                   <div className="w-full flex items-end gap-2 sm:gap-4 h-full pb-2">
-                      {[40, 70, 45, 90, 60, 85].map((h, i) => (
-                        <div key={i} className="w-full bg-slate-200 rounded-t-md relative overflow-hidden" style={{ height: `${h}%` }}>
-                          <div 
-                            className="absolute bottom-0 w-full bg-slate-800 rounded-t-md transition-all duration-700 ease-out group-hover:bg-indigo-600" 
-                            style={{ height: `${(i % 3 + 1) * 20 + 20}%` }}
-                          />
-                        </div>
-                      ))}
-                   </div>
+                {/* Abstract UI element (5 bars) */}
+                <div className="absolute right-0 bottom-0 w-[85%] sm:w-2/3 h-[55%] bg-slate-50 rounded-tl-3xl border-t border-l border-slate-200 transform translate-x-12 translate-y-12 group-hover:translate-x-6 group-hover:translate-y-6 transition-transform duration-700 ease-out flex items-end p-6 sm:p-8 shadow-xl gap-3">
+                    {[
+                      {h: 40, c: "bg-slate-200"}, 
+                      {h: 65, c: "bg-slate-300"}, 
+                      {h: 45, c: "bg-slate-200"}, 
+                      {h: 85, c: "bg-indigo-600"}, 
+                      {h: 55, c: "bg-slate-300"}
+                    ].map((bar, i) => (
+                      <div key={i} className={`w-full rounded-t-md relative overflow-hidden transition-all duration-500 hover:opacity-80 ${bar.c}`} style={{ height: `${bar.h}%` }} />
+                    ))}
                 </div>
               </motion.div>
 
-              {/* Cohort Tracking - Tall Cell */}
+              {/* Policy & Feedback - Tall Cell */}
               <motion.div 
                 initial={reduce ? false : { opacity: 0, y: 16 }}
                 whileInView={{ opacity: 1, y: 0 }}
                 viewport={{ once: true, amount: 0.1 }}
                 transition={{ duration: 0.7, delay: 0.1, ease: "easeOut" }}
-                className="md:col-span-4 bg-indigo-600 p-8 lg:p-14 relative group flex flex-col justify-between overflow-hidden min-h-[400px]"
+                className="md:col-span-4 bg-slate-900 p-8 lg:p-14 relative group flex flex-col justify-between overflow-hidden min-h-[400px]"
               >
                 <div className="relative z-10">
-                  <div className="w-14 h-14 rounded-2xl bg-white/10 flex items-center justify-center mb-8 backdrop-blur-md border border-white/20">
+                  <div className="w-14 h-14 rounded-2xl bg-white/10 flex items-center justify-center mb-8 backdrop-blur-sm border border-white/10 group-hover:scale-105 transition-transform">
                     <TrendingUp className="h-7 w-7 text-white" />
                   </div>
                   <h3 className="text-[28px] lg:text-[32px] font-extrabold text-white mb-4 tracking-tight leading-tight">
-                    Cohort Tracking
+                    Policy & Feedback
                   </h3>
-                  <p className="text-[16px] lg:text-[18px] text-indigo-100/90 leading-relaxed font-medium">
-                    Monitor multi-year trends and accurately assess educational impact with rigorous longitudinal analysis.
+                  <p className="text-[16px] lg:text-[18px] text-slate-400 leading-relaxed font-medium">
+                    Automated sentiment classification and dimension detection for qualitative alumni feedback, enabling data-informed interventions.
                   </p>
                 </div>
 
                 {/* Abstract decorative element */}
-                <div className="mt-16 w-full h-40 relative transform group-hover:scale-105 transition-transform duration-700 ease-out origin-bottom">
-                   <div className="absolute inset-0 bg-gradient-to-t from-indigo-600 to-transparent z-10" />
-                   <svg className="w-full h-full text-indigo-400/50" viewBox="0 0 100 40" preserveAspectRatio="none">
-                     <path d="M0,40 L0,20 Q10,10 20,20 T40,15 T60,25 T80,10 T100,20 L100,40 Z" fill="currentColor" />
-                   </svg>
+                <div className="mt-16 w-full h-32 relative transform group-hover:-translate-y-2 transition-transform duration-700 ease-out origin-bottom flex flex-col gap-3">
+                   <div className="h-3 w-3/4 bg-white/10 rounded-full" />
+                   <div className="h-3 w-full bg-white/10 rounded-full" />
+                   <div className="h-3 w-5/6 bg-white/10 rounded-full" />
+                   <div className="h-3 w-2/3 bg-white/20 rounded-full mt-2" />
                 </div>
               </motion.div>
 
-              {/* Surveys - Wide Cell */}
+              {/* Employability - Wide Cell */}
               <motion.div 
                 initial={reduce ? false : { opacity: 0, y: 16 }}
                 whileInView={{ opacity: 1, y: 0 }}
@@ -184,13 +185,13 @@ export default function Home() {
               >
                 <div className="relative z-10">
                   <div className="w-14 h-14 rounded-2xl bg-slate-50 border border-slate-200 flex items-center justify-center mb-8 group-hover:-translate-y-1 transition-transform duration-500 shadow-sm">
-                    <ClipboardCheck className="h-7 w-7 text-slate-900" />
+                    <GraduationCap className="h-7 w-7 text-indigo-600" />
                   </div>
                   <h3 className="text-[28px] lg:text-[32px] font-extrabold text-slate-900 mb-4 tracking-tight leading-tight">
-                    Seamless Surveys
+                    Alumni Employability
                   </h3>
                   <p className="text-[16px] lg:text-[18px] text-slate-500 leading-relaxed font-medium">
-                    Mobile-first, high-conversion interfaces designed for gathering essential alumni data efficiently and securely.
+                    Track hiring velocity, income distribution, degree alignment, and employment stability across graduating batches.
                   </p>
                 </div>
               </motion.div>
@@ -201,22 +202,22 @@ export default function Home() {
                 whileInView={{ opacity: 1, y: 0 }}
                 viewport={{ once: true, amount: 0.1 }}
                 transition={{ duration: 0.7, delay: 0.3, ease: "easeOut" }}
-                className="md:col-span-7 bg-slate-900 p-8 lg:p-14 relative group flex flex-col justify-between overflow-hidden min-h-[350px]"
+                className="md:col-span-7 bg-indigo-600 p-8 lg:p-14 relative group flex flex-col justify-between overflow-hidden min-h-[350px]"
               >
                 <div className="relative z-10 max-w-md">
-                  <div className="w-14 h-14 rounded-2xl bg-white/5 flex items-center justify-center mb-8 backdrop-blur-md border border-white/10 group-hover:rotate-[15deg] transition-transform duration-500">
+                  <div className="w-14 h-14 rounded-2xl bg-white/10 flex items-center justify-center mb-8 backdrop-blur-md border border-white/20 group-hover:rotate-[15deg] transition-transform duration-500">
                     <Shield className="h-7 w-7 text-white" />
                   </div>
                   <h3 className="text-[28px] lg:text-[32px] font-extrabold text-white mb-4 tracking-tight leading-tight">
-                    Data Privacy Compliant
+                    Secure Survey Management
                   </h3>
-                  <p className="text-[16px] lg:text-[18px] text-slate-400 leading-relaxed font-medium">
-                    Endorsed by DepEd Pasig. Built from the ground up to handle sensitive educational and employment records securely.
+                  <p className="text-[16px] lg:text-[18px] text-indigo-100/90 leading-relaxed font-medium">
+                    Distribute authenticated questionnaires, manage response retention, and maintain strict data privacy for educational records.
                   </p>
                 </div>
 
                 {/* Abstract Shield */}
-                <div className="absolute right-0 bottom-0 opacity-[0.03] group-hover:opacity-[0.06] transition-opacity duration-700 transform translate-x-8 translate-y-8">
+                <div className="absolute right-0 bottom-0 opacity-[0.05] group-hover:opacity-[0.1] transition-opacity duration-700 transform translate-x-8 translate-y-8">
                    <Shield className="w-72 h-72 text-white" />
                 </div>
               </motion.div>
@@ -224,7 +225,6 @@ export default function Home() {
             </div>
           </div>
         </section>
-
       </main>
       <Suspense fallback={null}>
         <ForgotPasswordModal />
