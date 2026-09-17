@@ -59,7 +59,7 @@ export function SurveyEditorModal({ store }: SurveyEditorModalProps) {
         <SurveyEditorHeader
           contentLocked={contentLocked}
           statusChanged={surveyStatus !== editedSurvey?.status}
-          ctaChanged={isCta !== (editedSurvey?.is_cta ?? false)}
+          ctaChanged={isCta !== (editedSurvey?.isCta ?? false)}
           modalState={modalState}
           interactionLocked={interactionLocked}
           saving={saving}

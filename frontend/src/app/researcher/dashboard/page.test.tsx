@@ -51,14 +51,15 @@ it("defaults to the first active PEII Survey across all pages and keeps the pick
   render(<DashboardPage />)
 
   const picker = await screen.findByLabelText("Survey")
-  await waitFor(() => expect(picker).toHaveValue("survey-b"))
+  await waitFor(() => expect(picker).toHaveTextContent("Annual pEiI Graduate SuRvEy 2026"))
   await waitFor(() => expect(surveyMocks.fetchPEII).toHaveBeenCalledWith(
     "survey-b",
     { batch: "All Batches", department: "All Departments", degree: "All Degrees" },
     expect.any(AbortSignal),
   ))
 
-  fireEvent.change(picker, { target: { value: "survey-a" } })
+  fireEvent.click(picker)
+  fireEvent.click(await screen.findByRole("button", { name: /Tracer study A/ }))
   await waitFor(() => expect(surveyMocks.fetchPEII).toHaveBeenLastCalledWith(
     "survey-a",
     { batch: "All Batches", department: "All Departments", degree: "All Degrees" },
@@ -81,14 +82,16 @@ it("waits for a survey choice and loads analytics for each selected active surve
     expect.any(AbortSignal),
   )
 
-  fireEvent.change(picker, { target: { value: "survey-a" } })
+  fireEvent.click(picker)
+  fireEvent.click(await screen.findByRole("button", { name: /Tracer study A/ }))
   await waitFor(() => expect(surveyMocks.fetchPEII).toHaveBeenCalledWith(
     "survey-a",
     { batch: "All Batches", department: "All Departments", degree: "All Degrees" },
     expect.any(AbortSignal),
   ))
 
-  fireEvent.change(picker, { target: { value: "survey-b" } })
+  fireEvent.click(picker)
+  fireEvent.click(await screen.findByRole("button", { name: /Graduate outcomes B/ }))
   await waitFor(() => expect(surveyMocks.fetchPEII).toHaveBeenLastCalledWith(
     "survey-b",
     { batch: "All Batches", department: "All Departments", degree: "All Degrees" },

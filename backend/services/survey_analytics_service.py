@@ -1027,7 +1027,7 @@ async def compute_peii_scores(
 
                     for qid, qtext in smap["feedback_qs"]:
                         text_ans = ans.get(qid)
-                        text_ans_clean = text_ans.strip()
+                        text_ans_clean = text_ans.strip() if isinstance(text_ans, str) else ""
                         qualitative_feedback_total += 1
                         is_placeholder = _is_placeholder(text_ans_clean)
                         if is_placeholder:
