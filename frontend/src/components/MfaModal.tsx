@@ -41,8 +41,9 @@ export function MfaModal() {
         const res = await getMfaChallengeAction()
         if (!active) return
         setFactors(res.factors)
-        if (res.factors.length > 0) {
-          setFactorId(res.factors[0].id)
+        const firstFactor = res.factors[0]
+        if (firstFactor) {
+          setFactorId(firstFactor.id)
         }
         setLoading(false)
       } catch (err) {
