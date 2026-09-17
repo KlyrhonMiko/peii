@@ -443,7 +443,7 @@ class FeedbackAnalyzer:
             "Family Upliftment and Financial Stability",
             "Personal Development and Life Quality",
             "Civic Engagement and Community Contribution",
-            "Government Trust and LGU Support Valuation",
+            "Governance Trust and LGU Support Valuation",
         ]
 
         result = self.classifier(

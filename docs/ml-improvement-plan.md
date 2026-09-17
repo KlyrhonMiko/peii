@@ -11,7 +11,7 @@ The PEII platform analyzes open-ended student survey responses written in Englis
 2. **Family Upliftment and Financial Stability**
 3. **Personal Development and Life Quality**
 4. **Civic Engagement and Community Contribution**
-5. **Government Trust and LGU Support Valuation**
+5. **Governance Trust and LGU Support Valuation**
 
 ### Current Architecture Limitations
 * **Zero-Shot Mismatch:** The current inference engine in [`backend/services/ml_service.py`](file:///d:/projects/peii/backend/services/ml_service.py) utilizes zero-shot models (`MoritzLaurer/mDeBERTa-v3-base-mnli-xnli` and `distilbert-base-uncased-finetuned-sst-2-english`). These general-purpose models lack contextual knowledge of Philippine higher education, LGU scholarships, and localized linguistic nuances.

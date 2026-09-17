@@ -215,7 +215,7 @@ export function ClientCurriculumFeedback({
                   {dimensions.map(dim => {
                     const isSelected = activeTab !== "placeholders" && selectedDimension === dim
                     const dimColor = getDimensionColor(dim)
-                    const shortName = (dim.split(" and ")[0] ?? dim).replace(/Government.*/, "Govt Trust")
+                    const shortName = dimColor.shortName || (dim.split(" and ")[0] ?? dim).replace(/(?:Government|Governance).*/, "Governance Trust")
                     const countInDim = substantiveFeedbacks.filter(f => f.dimension === dim).length
                     
                     return (

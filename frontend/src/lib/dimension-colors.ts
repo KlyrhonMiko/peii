@@ -36,14 +36,14 @@ export const DIMENSION_COLORS: Record<string, DimensionColorMeta> = {
     border: "border-rose-200",
     shortName: "Family Upliftment",
   },
-  "Government Trust and LGU Support Valuation": {
+  "Governance Trust and LGU Support Valuation": {
     hex: "#f59e0b", // amber-500
     tailwindPost: "bg-amber-500",
     tailwindPre: "bg-amber-200",
     text: "text-amber-600",
     bgLight: "bg-amber-50",
     border: "border-amber-200",
-    shortName: "Govt Trust",
+    shortName: "Governance Trust",
   },
   "Personal Development and Life Quality": {
     hex: "#10b981", // emerald-500
@@ -86,8 +86,8 @@ export function getDimensionColor(dimensionName?: string | null): DimensionColor
   if (lower.includes("family") || lower.includes("financial")) {
     return DIMENSION_COLORS["Family Upliftment and Financial Stability"] ?? FALLBACK_COLOR
   }
-  if (lower.includes("government") || lower.includes("lgu") || lower.includes("govt")) {
-    return DIMENSION_COLORS["Government Trust and LGU Support Valuation"] ?? FALLBACK_COLOR
+  if (lower.includes("governance") || lower.includes("government") || lower.includes("lgu") || lower.includes("govt")) {
+    return DIMENSION_COLORS["Governance Trust and LGU Support Valuation"] ?? FALLBACK_COLOR
   }
   if (lower.includes("personal") || lower.includes("life quality")) {
     return DIMENSION_COLORS["Personal Development and Life Quality"] ?? FALLBACK_COLOR

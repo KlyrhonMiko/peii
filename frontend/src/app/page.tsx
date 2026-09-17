@@ -128,7 +128,7 @@ export default function Home() {
                     The 5 Impact Domains
                   </h3>
                   <p className="text-[16px] lg:text-[18px] text-slate-500 leading-relaxed font-medium">
-                    Measure pre- and post-graduation indices across Employability, Family Upliftment, Personal Development, Civic Engagement, and Government Trust.
+                    Measure pre- and post-graduation indices across Employability, Family Upliftment, Personal Development, Civic Engagement, and Governance Trust.
                   </p>
                 </div>
                 

@@ -94,7 +94,7 @@ describe("Graduate Tracer Study survey definition", () => {
       "SECTION II-A - PEII Core Impact Measurement: B. Family Upliftment and Financial Stability",
       "SECTION II-A - PEII Core Impact Measurement: C. Personal Development and Life Quality",
       "SECTION II-A - PEII Core Impact Measurement: D. Civic Engagement and Community Contribution",
-      "SECTION II-A - PEII Core Impact Measurement: E. Government Trust and LGU Support Valuation",
+      "SECTION II-A - PEII Core Impact Measurement: E. Governance Trust and LGU Support Valuation",
     ])
     const expectedPeiiDescription =
       "Instruction: Rate each statement using the scale below based on your condition during two specific timeframes:\nYour situation specifically during your final year of residency as a student at PLP. This serves as your baseline for transformation\nNote: These responses are essential to compute your Individual-Level Improvement and the overall Pasig Education Impact Index (PEII).\nScale: 1 = Strongly Disagree | 2 = Disagree | 3 = Neutral | 4 = Agree | 5 = Strongly Agree"
@@ -166,7 +166,7 @@ describe("Graduate Tracer Study survey definition", () => {
       "SECTION II-B - PEII Core Impact Measurement: B. Family Upliftment and Financial Stability",
       "SECTION II-B - PEII Core Impact Measurement: C. Personal Development and Life Quality",
       "SECTION II-B - PEII Core Impact Measurement: D. Civic Engagement and Community Contribution",
-      "SECTION II-B - PEII Core Impact Measurement: E. Government Trust and LGU Support Valuation",
+      "SECTION II-B - PEII Core Impact Measurement: E. Governance Trust and LGU Support Valuation",
     ])
     expect(phaseTwoSections.map(({ questions }) => questions.map(({ question_text }) => question_text))).toEqual(
       peiiSections.map(({ questions }) => questions.map(({ question_text }) => question_text)),

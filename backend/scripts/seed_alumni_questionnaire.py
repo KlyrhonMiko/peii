@@ -720,7 +720,7 @@ PEII_SECTIONS_PHASE_1: list[dict] = [
         ],
     },
     {
-        "title": "SECTION II-A - PEII Core Impact Measurement: E. Government Trust and LGU Support "
+        "title": "SECTION II-A - PEII Core Impact Measurement: E. Governance Trust and LGU Support "
         "Valuation",
         "description": PEII_COMMON_DESCRIPTION,
         "questions": [

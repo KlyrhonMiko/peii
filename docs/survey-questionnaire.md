@@ -313,7 +313,7 @@ The five II-A sections below share the same instruction. Each statement is answe
 * Agree
 * Strongly Agree
 
-### SECTION II-A - PEII Core Impact Measurement: E. Government Trust and LGU Support Valuation
+### SECTION II-A - PEII Core Impact Measurement: E. Governance Trust and LGU Support Valuation
 
 32. I am/was aware of education programs provided by the Pasig LGU.
 
@@ -774,7 +774,7 @@ Offer **Other job title (specify)** in this same dropdown and show a short-answe
 * Agree
 * Strongly Agree
 
-### SECTION II-B - PEII Core Impact Measurement: E. Government Trust and LGU Support Valuation
+### SECTION II-B - PEII Core Impact Measurement: E. Governance Trust and LGU Support Valuation
 
 60. I am/was aware of education programs provided by the Pasig LGU.
 

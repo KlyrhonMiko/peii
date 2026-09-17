@@ -4,7 +4,7 @@ EMPLOYABILITY = "Employability and Economic Mobility"
 FAMILY_UPLIFTMENT = "Family Upliftment and Financial Stability"
 PERSONAL_DEV = "Personal Development and Life Quality"
 CIVIC_ENGAGEMENT = "Civic Engagement and Community Contribution"
-GOVT_TRUST = "Government Trust and LGU Support Valuation"
+GOVT_TRUST = "Governance Trust and LGU Support Valuation"
 GENERAL_FEEDBACK = "General Feedback"
 
 

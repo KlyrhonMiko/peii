@@ -605,7 +605,7 @@ DOMAIN_WEIGHTS = {
     "B. Family Upliftment and Financial Stability": 0.25,
     "C. Personal Development and Life Quality": 0.20,
     "D. Civic Engagement and Community Contribution": 0.15,
-    "E. Government Trust and LGU Support Valuation": 0.10,
+    "E. Governance Trust and LGU Support Valuation": 0.10,
 }
 
 DEPARTMENT_MAPPING = {
@@ -841,7 +841,8 @@ async def compute_peii_scores(
                     
         # Domains
         for domain_name in DOMAIN_WEIGHTS.keys():
-            if domain_name in sec.title:
+            legacy_domain = domain_name.replace("Governance", "Government")
+            if domain_name in sec.title or legacy_domain in sec.title:
                 if "II-A" in sec.title:
                     smap["domains"][domain_name]["pre"] = [str(q.id) for q in sec_qs]
                 elif "II-B" in sec.title:

@@ -176,7 +176,7 @@ function createPeiiSections(
       ],
     ),
     peiiSection(
-      `SECTION ${sectionLabel} - PEII Core Impact Measurement: E. Government Trust and LGU Support Valuation`,
+      `SECTION ${sectionLabel} - PEII Core Impact Measurement: E. Governance Trust and LGU Support Valuation`,
       survey_phase,
       [
         "I am/was aware of education programs provided by the Pasig LGU.",

@@ -64,9 +64,9 @@ DIMENSION_REGEXES: dict[str, re.Pattern[str]] = {
         r")\b",
         re.IGNORECASE,
     ),
-    "Government Trust and LGU Support Valuation": re.compile(
+    "Governance Trust and LGU Support Valuation": re.compile(
         r"\b("
-        r"mayor|vico|sotto|lgu\b|local\s+government|pamahalaan|gobyerno|"
+        r"governance|mayor|vico|sotto|lgu\b|local\s+government|pamahalaan|gobyerno|"
         r"pasig(?:\s+city)?|city\s+hall|lungsod\s+ng\s+pasig|pasigue[ñn]o\w*|"
         r"city\s+leaders?|lgu\s+leaders?|officials?|public\s+servant\w*|"
         r"scholarship\w*|iskolar\w*|stipend\w*|allowance\w*|subsid\w+|"
@@ -92,8 +92,8 @@ QUESTION_DIM_HINTS: list[tuple[str, str]] = [
     ("technical", "Employability and Economic Mobility"),
     ("career", "Employability and Economic Mobility"),
     ("job", "Employability and Economic Mobility"),
-    ("leaders", "Government Trust and LGU Support Valuation"),
-    ("pasig", "Government Trust and LGU Support Valuation"),
+    ("leaders", "Governance Trust and LGU Support Valuation"),
+    ("pasig", "Governance Trust and LGU Support Valuation"),
     ("community", "Civic Engagement and Community Contribution"),
     ("society", "Civic Engagement and Community Contribution"),
     ("family", "Family Upliftment and Financial Stability"),
@@ -116,7 +116,7 @@ def heuristic_dimension(answer_lower: str, question_lower: str) -> str:
         "Family Upliftment and Financial Stability": 0.0,
         "Personal Development and Life Quality": 0.0,
         "Civic Engagement and Community Contribution": 0.0,
-        "Government Trust and LGU Support Valuation": 0.0,
+        "Governance Trust and LGU Support Valuation": 0.0,
         "General Feedback": 0.3,  # small baseline prior for empty/unmatched text
     }
 
@@ -131,7 +131,7 @@ def heuristic_dimension(answer_lower: str, question_lower: str) -> str:
     cleaned_for_emp = answer_lower
     if has_praise_idiom:
         if "leaders" in question_lower or "pasig" in question_lower:
-            dim_scores["Government Trust and LGU Support Valuation"] += 3.0
+            dim_scores["Governance Trust and LGU Support Valuation"] += 3.0
         cleaned_for_emp = PRAISE_IDIOM_REGEX.sub(" ", answer_lower)
 
     # Keyword regex scan of answer body with match frequency weighting
@@ -148,7 +148,7 @@ def heuristic_dimension(answer_lower: str, question_lower: str) -> str:
                 "Family Upliftment and Financial Stability",
             ):
                 dim_scores[dim] += 4.5 + (matches * 1.5)
-            elif dim == "Government Trust and LGU Support Valuation":
+            elif dim == "Governance Trust and LGU Support Valuation":
                 dim_scores[dim] += 2.0 + (matches * 1.2)
             else:
                 dim_scores[dim] += 2.0 + (matches * 1.0)

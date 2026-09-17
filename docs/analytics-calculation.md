@@ -22,7 +22,7 @@ Five domains are scored and weighted using AHP-derived weights that sum to `1.0`
 | B. Family Upliftment and Financial Stability | 0.25 |
 | C. Personal Development and Life Quality | 0.20 |
 | D. Civic Engagement and Community Contribution | 0.15 |
-| E. Government Trust and LGU Support Valuation | 0.10 |
+| E. Governance Trust and LGU Support Valuation | 0.10 |
 
 These weights are hard-coded in `DOMAIN_WEIGHTS` and are not stored in the database.
 
@@ -188,7 +188,7 @@ When no ML results are stored for a question, a keyword-based fallback runs:
 | Family Upliftment and Financial Stability | `family`, `pamilya`, `financial`, `children`, `parents`, `anak`, `magulang`, `bahay`, `house`, `budget`, `gastos`, `kapatid`, `tulong sa pamilya`, `provide` |
 | Personal Development and Life Quality | `skill`, `learn`, `grow`, `develop`, `confidence`, `happy`, `health`, `buhay`, `sarili`, `improve`, `training`, `aral`, `knowledge`, `natutunan`, `experience`, `mindset` |
 | Civic Engagement and Community Contribution | `community`, `help`, `others`, `society`, `volunteer`, `tulong`, `kapwa`, `barangay`, `lipunan`, `tao`, `serve`, `serbisyo`, `contribute` |
-| Government Trust and LGU Support Valuation | `gov`, `mayor`, `lgu`, `support`, `trust`, `gobyerno`, `program`, `scholar`, `city`, `pasig`, `officials`, `leader`, `public` |
+| Governance Trust and LGU Support Valuation | `gov`, `mayor`, `lgu`, `support`, `trust`, `gobyerno`, `program`, `scholar`, `city`, `pasig`, `officials`, `leader`, `public` |
 | General Feedback *(default)* | *(no match)* |
 
 ### False Positive Overrides

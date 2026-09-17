@@ -30,7 +30,7 @@ Q3 = "What specific technical or soft skills do you wish were given more focus a
 
 DIM_EMPLOYABILITY = "Employability and Economic Mobility"
 DIM_PERSONAL = "Personal Development and Life Quality"
-DIM_GOV_TRUST = "Government Trust and LGU Support Valuation"
+DIM_GOV_TRUST = "Governance Trust and LGU Support Valuation"
 DIM_FAMILY = "Family Upliftment and Financial Stability"
 DIM_CIVIC = "Civic Engagement and Community Contribution"
 

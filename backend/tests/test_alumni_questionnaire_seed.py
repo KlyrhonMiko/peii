@@ -45,7 +45,7 @@ def test_alumni_questionnaire_matches_canonical_graduate_tracer_definition() -> 
             "Contribution"
         ),
         (
-            "SECTION II-A - PEII Core Impact Measurement: E. Government Trust and LGU Support "
+            "SECTION II-A - PEII Core Impact Measurement: E. Governance Trust and LGU Support "
             "Valuation"
         ),
         "IV. Feedback and Reflection",
@@ -58,7 +58,7 @@ def test_alumni_questionnaire_matches_canonical_graduate_tracer_definition() -> 
             "Contribution"
         ),
         (
-            "SECTION II-B - PEII Core Impact Measurement: E. Government Trust and LGU Support "
+            "SECTION II-B - PEII Core Impact Measurement: E. Governance Trust and LGU Support "
             "Valuation"
         ),
     ]
