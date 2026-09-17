@@ -801,7 +801,7 @@ export default function DashboardPage() {
           </div>
 
           {/* Main Analytics Content */}
-          <div id="analytics-dashboard" className="flex flex-col gap-24 pb-16">
+          <div id="analytics-dashboard" className="flex flex-col gap-12 pb-16">
 
             {/* SECTION 1: OVERVIEW */}
             <section id="section-overview" className="scroll-mt-32">
@@ -866,7 +866,7 @@ export default function DashboardPage() {
               </div>
               <div className="flex flex-col gap-16">
                 {filters.batch === "All Batches" && (
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 lg:gap-16 pb-16 border-b border-slate-200">
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 lg:gap-12 pb-12 border-b border-slate-200">
                     <ExportableSection id="chart-historical-trend" name="Historical Trend" filters={filters} hideButton={isExporting}>
                       <ClientPEIIHistoricalTrendChart data={historicalTrend} isLoading={isLoading} />
                     </ExportableSection>
@@ -877,7 +877,7 @@ export default function DashboardPage() {
                   </div>
                 )}
 
-                <div className="pb-8">
+                <div className="pb-4">
                   <ExportableSection id="chart-domain-gain" name="Domain Gain" filters={filters} hideButton={isExporting}>
                     <ClientDomainGainChart data={chartData} isLoading={isLoading} />
                   </ExportableSection>
@@ -895,7 +895,7 @@ export default function DashboardPage() {
 
               <div className="flex flex-col gap-16">
                 {/* Row 1: The Wide Charts (Income Distribution & Job Search Channels) */}
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-16 pb-16 border-b border-slate-200">
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 pb-12 border-b border-slate-200">
                   <div className="min-w-0 h-full flex flex-col">
                     <ExportableSection id="chart-income-distribution" name="Income Distribution" filters={filters} hideButton={isExporting}>
                       <ClientIncomeDistribution distribution={outcomes?.monthly_income ?? null} isLoading={isLoading} />
@@ -909,7 +909,7 @@ export default function DashboardPage() {
                 </div>
 
                 {/* Row 2: The Doughnut Charts (Velocity, Stability, Outcomes, Alignment) */}
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-12 lg:gap-10 pb-8">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-12 lg:gap-10 pb-4">
                   <div className="min-w-0 h-full flex flex-col">
                     <ExportableSection id="chart-hiring-velocity" name="Hiring Velocity" filters={filters} hideButton={isExporting}>
                       <ClientHiringVelocity distribution={outcomes?.time_to_first_job ?? null} isLoading={isLoading} />
@@ -951,7 +951,7 @@ export default function DashboardPage() {
                     <ClientFeedbackClassificationChart data={classificationData} />
                   </ExportableSection>
                 </div>
-                <div className="pb-8">
+                <div className="pb-4">
                   <ExportableSection id="chart-curriculum-feedback" name="Curriculum Feedback" filters={filters} hideButton={isExporting}>
                     <ClientCurriculumFeedback
                       surveyId={selectedSurveyId}

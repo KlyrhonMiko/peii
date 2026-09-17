@@ -109,37 +109,15 @@ export function PEIIDimensionsTrendChart({ data, isLoading, isExport }: PEIIDime
 
   return (
     <div className="h-full flex flex-col">
-      <div className={isExport ? "mb-10" : "mb-8"}>
-        <h3 className={isExport ? "text-3xl font-bold tracking-tight text-slate-900" : "text-2xl font-bold tracking-tight text-slate-900"}>
-          Dimension Trend Comparison
-        </h3>
-        <p className={isExport ? "text-base text-slate-500 mt-2 mb-8 max-w-4xl" : "text-sm text-slate-500 mt-1 mb-5 max-w-3xl"}>
-          Cohort net competency gain per dimension (1–5 scale): Measures graduate skill growth from college baseline to workplace outcome (Post-Grad − Pre-Grad) across cohorts.
-        </p>
-
-        {/* Custom Editorial Legend */}
-        <div className="flex flex-wrap items-center gap-x-8 gap-y-4">
-          {dimensions.map((dim) => {
-            const isFaded = hoveredLine !== null && hoveredLine !== dim
-            const color = getDimensionColor(dim).hex
-            return (
-              <div 
-                key={dim}
-                className="flex items-center gap-2.5 cursor-pointer transition-all duration-300 select-none group"
-                style={{ opacity: isFaded ? 0.35 : 1 }}
-                onMouseEnter={() => setHoveredLine(dim)}
-                onMouseLeave={() => setHoveredLine(null)}
-              >
-                <div 
-                  className={`rounded-full transition-transform duration-300 group-hover:scale-y-150 ${isExport ? 'w-6 h-[6px]' : 'w-3.5 h-[3px]'}`} 
-                  style={{ backgroundColor: color }} 
-                />
-                <span className={`font-medium tracking-wide ${isExport ? 'text-lg text-slate-700 font-semibold' : 'text-[13px] text-slate-600'}`}>
-                  {dim}
-                </span>
-              </div>
-            )
-          })}
+      {/* Editorial Header */}
+      <div className={isExport ? "mb-10 flex items-start justify-between min-h-[110px]" : "mb-8 flex items-start justify-between min-h-[110px]"}>
+        <div className="pr-14">
+          <h3 className={isExport ? "text-3xl font-bold tracking-tight text-slate-900" : "text-2xl font-bold tracking-tight text-slate-900"}>
+            Dimension Trend Comparison
+          </h3>
+          <p className={isExport ? "text-base text-slate-500 mt-2 max-w-4xl" : "text-sm text-slate-500 mt-1 max-w-3xl"}>
+            Cohort net competency gain per dimension (1–5 scale): Measures graduate skill growth from college baseline to workplace outcome (Post-Grad − Pre-Grad) across cohorts.
+          </p>
         </div>
       </div>
 
@@ -163,7 +141,7 @@ export function PEIIDimensionsTrendChart({ data, isLoading, isExport }: PEIIDime
               margin={{ top: 10, right: 20, left: -10, bottom: 25 }}
               onMouseLeave={() => setHoveredLine(null)}
             >
-              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#cbd5e1" />
               <XAxis 
                 dataKey="batch_year" 
                 axisLine={false}
@@ -222,7 +200,33 @@ export function PEIIDimensionsTrendChart({ data, isLoading, isExport }: PEIIDime
       </div>
 
       {/* Editorial Legend */}
-      <div className={`flex items-center gap-6 mt-6 pt-4 border-t border-slate-100 ${isExport ? 'text-base text-slate-500' : 'text-xs text-slate-500'}`}>
+      <div className={`flex flex-col gap-5 mt-6 pt-4 border-t border-slate-100 ${isExport ? 'text-base text-slate-500' : 'text-xs text-slate-500'}`}>
+        {/* Dimensions Legend */}
+        <div className="flex flex-wrap items-center gap-x-8 gap-y-4">
+          {dimensions.map((dim) => {
+            const isFaded = hoveredLine !== null && hoveredLine !== dim
+            const color = getDimensionColor(dim).hex
+            return (
+              <div 
+                key={dim}
+                className="flex items-center gap-2.5 cursor-pointer transition-all duration-300 select-none group"
+                style={{ opacity: isFaded ? 0.35 : 1 }}
+                onMouseEnter={() => setHoveredLine(dim)}
+                onMouseLeave={() => setHoveredLine(null)}
+              >
+                <div 
+                  className={`rounded-full transition-transform duration-300 group-hover:scale-y-150 ${isExport ? 'w-6 h-[6px]' : 'w-3.5 h-[3px]'}`} 
+                  style={{ backgroundColor: color }} 
+                />
+                <span className={`font-medium tracking-wide ${isExport ? 'text-lg text-slate-700 font-semibold' : 'text-[13px] text-slate-600'}`}>
+                  {dim}
+                </span>
+              </div>
+            )
+          })}
+        </div>
+
+        {/* Baseline Legend */}
         <div className="flex items-center gap-2.5">
           <div className="w-5 h-0.5 border-b-2 border-dashed border-slate-400" />
           <span className="font-medium text-slate-500">0.00 Baseline (No Change)</span>

@@ -72,15 +72,15 @@ export function ClientDegreeAlignment({ distribution, isLoading, isExport }: Cli
         ) : (
           <div className="flex flex-col items-center mt-8">
             {/* Donut Chart */}
-            <div className="relative w-48 h-48 shrink-0">
+            <div className="relative h-56 w-56 shrink-0">
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
                   <Pie
                     data={chartData.data}
                     cx="50%"
                     cy="50%"
-                    innerRadius={68}
-                    outerRadius={92}
+                    innerRadius={80}
+                    outerRadius={105}
                     paddingAngle={3}
                     dataKey="value"
                     stroke="none"

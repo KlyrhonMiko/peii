@@ -91,8 +91,8 @@ export function PEIIHistoricalTrendChart({ data, isLoading, isExport }: PEIIHist
   return (
     <div className="h-full flex flex-col">
       {/* Editorial Header */}
-      <div className={isExport ? "mb-10 flex items-start justify-between" : "mb-8 flex items-start justify-between"}>
-        <div>
+      <div className={isExport ? "mb-10 flex items-start justify-between min-h-[110px]" : "mb-8 flex items-start justify-between min-h-[110px]"}>
+        <div className="pr-14">
           <h3 className={isExport ? "text-3xl font-bold tracking-tight text-slate-900" : "text-2xl font-bold tracking-tight text-slate-900"}>
             Historical PEII Trend
           </h3>
@@ -127,7 +127,7 @@ export function PEIIHistoricalTrendChart({ data, isLoading, isExport }: PEIIHist
                   <stop offset="100%" stopColor="#10b981" />
                 </linearGradient>
               </defs>
-              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#cbd5e1" />
               <XAxis 
                 dataKey="batch_year" 
                 axisLine={false}
