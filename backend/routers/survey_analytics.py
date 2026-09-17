@@ -12,6 +12,7 @@ from core.responses import APIResponse, success_response
 from schemas.peii import PEIIAnalyticsResponse
 from schemas.survey_analytics import SurveyResponseAggregate
 from services import false_positive_service, survey_analytics_service
+from services.survey_service import resolve_survey
 
 router = APIRouter()
 
@@ -32,18 +33,22 @@ class FalsePositiveRequest(BaseModel):
 )
 async def aggregate_survey_responses(
     survey_id: UUID,
-    session: AnalyticsAsyncDBSession,
+    session: AsyncDBSession,
     http_response: Response,
     principal: CurrentPrincipal,
 ) -> APIResponse[list[SurveyResponseAggregate]]:
     http_response.headers["Cache-Control"] = "private, no-store, max-age=0"
     http_response.headers["Pragma"] = "no-cache"
-    l1_key = ("aggregates", str(survey_id))
+    # Import commits update the survey on the primary. Including that committed
+    # version in both cache keys prevents an old zero result from surviving import.
+    survey = await resolve_survey(session, survey_id, include_deleted=True)
+    version = f"{survey.updated_at.isoformat()}:{survey.responses_count}"
+    l1_key = ("aggregates", str(survey_id), version)
     cached = get_analytics_cached(l1_key)
     if cached is not None:
         http_response.headers["X-Cache"] = "HIT"
         return success_response(cast(list[SurveyResponseAggregate], cached))
-    redis_key = build_cache_key(survey_id)
+    redis_key = build_cache_key(survey_id, version)
     redis_cached = await cache_get("aggregates", redis_key)
     if isinstance(redis_cached, list):
         try:
@@ -53,6 +58,8 @@ async def aggregate_survey_responses(
             return success_response(aggregates)
         except Exception:
             pass
+    # Read the primary on a cache miss so a lagging replica cannot populate
+    # the new version with pre-import answers.
     aggregates = await survey_analytics_service.aggregate_responses(session, survey_id)
     set_analytics_cached(l1_key, aggregates)
     await cache_set(
