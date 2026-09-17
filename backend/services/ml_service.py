@@ -218,7 +218,7 @@ async def analyze_sentiment(
 CACHE_FILE = "ml_cache.json"
 # Bump this version whenever the scoring/calibration logic changes.
 # The loader will auto-migrate older caches to the new version.
-CACHE_VERSION = 5
+CACHE_VERSION = 6
 
 # ---------------------------------------------------------------------------
 # Intent detection — Tagalog + English regex patterns
@@ -334,7 +334,9 @@ def _migrate_cache(data: dict) -> dict:
     Migrate older caches to the current version.
     """
     migrated: dict = {"__version__": CACHE_VERSION}
-    logger.info("Cache migration to v4: Purging all cached ML results to force heuristic re-evaluation.")
+    logger.info(
+        "Cache migration: Purging all cached ML results to force heuristic re-evaluation."
+    )
     return migrated
 
 

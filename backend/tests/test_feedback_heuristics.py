@@ -106,3 +106,42 @@ def test_government_trust_matches_lgu_and_leadership():
     )
     q = "What message would you like to share with Pasig City leaders regarding PLP?"
     assert heuristic_dimension(ans.lower(), q.lower()) == GOVT_TRUST
+
+
+def test_praise_idioms_to_leaders_are_government_trust_not_employability():
+    q = "What message would you like to share with Pasig City leaders regarding PLP?"
+    assert heuristic_dimension("keep up the good work", q.lower()) == GOVT_TRUST
+    assert heuristic_dimension("Good job!", q.lower()) == GOVT_TRUST
+    assert (
+        heuristic_dimension(
+            "Hello, thank you for your hard work. Wish you all the best.", q.lower()
+        )
+        == GOVT_TRUST
+    )
+
+
+def test_technical_software_tools_classified_as_employability():
+    q = "What improvements should PLP implement to better support students?"
+    ans = "Basic knowledge on how to use and navigate data sheets such as Excel, WPS and etc"
+    assert heuristic_dimension(ans.lower(), q.lower()) == EMPLOYABILITY
+
+    ans2 = "Learning Softwares like the use of excels in different forms"
+    q2 = "What specific technical or soft skills do you wish were given more focus at PLP?"
+    assert heuristic_dimension(ans2.lower(), q2.lower()) == EMPLOYABILITY
+
+    ans3 = "Ability to perform ICT related skills even not on the umbrella course"
+    assert heuristic_dimension(ans3.lower(), q2.lower()) == EMPLOYABILITY
+
+
+def test_character_and_values_classified_as_personal_development():
+    q = "What improvements should PLP implement to better support students?"
+    ans = (
+        "Programs that focus on building students' resilience, discipline, and sense of "
+        "responsibility as they prepare for life after graduation... promoting true respect "
+        "and good values"
+    )
+    assert heuristic_dimension(ans.lower(), q.lower()) == PERSONAL_DEV
+
+    q2 = "What specific technical or soft skills do you wish were given more focus at PLP?"
+    assert heuristic_dimension("Decision making", q2.lower()) == PERSONAL_DEV
+
