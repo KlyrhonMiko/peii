@@ -49,7 +49,7 @@ export function ClientCurriculumFeedback({
   surveyId,
   feedbacks,
   qualitativeFeedbackTotal,
-  qualitativeFeedbackTruncated,
+  _qualitativeFeedbackTruncated,
   qualitativeFeedbackPlaceholderCount,
   isLoading,
   onRefresh,

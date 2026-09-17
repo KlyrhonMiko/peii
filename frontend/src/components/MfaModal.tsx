@@ -25,7 +25,6 @@ export function MfaModal() {
   const returnTo = searchParams.get("returnTo") ?? "/researcher/dashboard"
   const showMfa = searchParams.get("mfa") === "true"
 
-  const [open, setOpen] = useState(false)
   const [factors, setFactors] = useState<PortalMfaFactor[]>([])
   const [loading, setLoading] = useState(true)
   const [factorId, setFactorId] = useState("")
@@ -34,26 +33,33 @@ export function MfaModal() {
   const [state, formAction, isPending] = useActionState(verifyMfaChallengeAction, { status: "idle", message: "" })
 
   useEffect(() => {
-    if (showMfa) {
-      setOpen(true)
-      setLoading(true)
-      setError(null)
-      
-      getMfaChallengeAction().then(res => {
+    let active = true
+
+    async function fetchChallenge() {
+      if (!showMfa) return
+      try {
+        const res = await getMfaChallengeAction()
+        if (!active) return
         setFactors(res.factors)
         if (res.factors.length > 0) {
           setFactorId(res.factors[0].id)
         }
         setLoading(false)
-      }).catch(err => {
+      } catch (err: any) {
+        if (!active) return
         setError(err.message || "Failed to load authenticator settings.")
         setLoading(false)
-      })
+      }
+    }
+
+    fetchChallenge()
+
+    return () => {
+      active = false
     }
   }, [showMfa])
 
   const handleOpenChange = (newOpen: boolean) => {
-    setOpen(newOpen)
     if (!newOpen && showMfa) {
       const params = new URLSearchParams(searchParams.toString())
       params.delete("mfa")
@@ -63,7 +69,7 @@ export function MfaModal() {
   }
 
   return (
-    <Dialog open={open} onOpenChange={handleOpenChange}>
+    <Dialog open={showMfa} onOpenChange={handleOpenChange}>
       <DialogContent className="sm:max-w-[400px] p-0 rounded-[24px] border-0 shadow-[0_24px_60px_-12px_rgba(0,0,0,0.15)] overflow-hidden bg-white">
         <div className="p-8 pb-8">
           <div className="flex justify-center mb-6">

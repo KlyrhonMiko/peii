@@ -18,7 +18,8 @@ import { DashboardFilters, departmentDegrees } from "@/components/DashboardFilte
 import { Skeleton } from "@/components/ui/skeleton"
 import { Button } from "@/components/ui/button"
 import { toast } from "sonner"
-import { Target, AlertTriangle, Database, Users, TrendingUp, Download, Loader2 } from "lucide-react"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { Target, AlertTriangle, Database, Users, TrendingUp, Download, Loader2, ChevronDown, Check } from "lucide-react"
 import {
   fetchSurveys,
   fetchPEII,
@@ -372,6 +373,7 @@ export default function DashboardPage() {
   const [availableDegrees, setAvailableDegrees] = useState<string[]>([])
   const isInitialDataLoaded = useRef(false)
   const [isExporting, setIsExporting] = useState(false)
+  const [surveyOpen, setSurveyOpen] = useState(false)
 
   const handleExportDashboard = async () => {
     if (isLoading || isExporting || !demographics?.total_responses) return
@@ -657,65 +659,101 @@ export default function DashboardPage() {
   return (
     <div className="space-y-6 animate-in fade-in duration-500 w-full pb-12">
       {/* Page Header */}
-      <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-6 pb-6 border-b border-slate-200">
+      <div className="flex flex-col gap-6 pb-6 border-b border-slate-200">
         <div className="space-y-2">
           <h2 className="text-3xl font-bold tracking-tight text-slate-900">Dashboard</h2>
           <p className="text-base text-slate-500 max-w-xl">
             Real-time analytics and deep dive into the institutional factors driving the Pasig Education Impact Index.
           </p>
         </div>
-        <div className="flex flex-col items-start gap-3 sm:items-end">
-          <div className="flex flex-col gap-1">
-            <label htmlFor="dashboard-survey" className="text-xs font-medium text-muted-foreground">Survey</label>
-            <select
-              id="dashboard-survey"
-              value={selectedSurveyId}
-              disabled={isSurveyLoading || isExporting}
-              onChange={(event) => {
-                setSelectedSurveyId(event.target.value)
-                setFilters({ department: "All Departments", degree: "All Degrees", batch: "All Batches" })
-                setAvailableBatches([])
-                setAvailableDepartments([])
-                setAvailableDegrees([])
-                isInitialDataLoaded.current = false
-                setFetchError(null)
-                setIsLoading(Boolean(event.target.value))
-              }}
-              className="h-9 w-full max-w-80 rounded-md border border-input bg-background px-3 text-sm text-foreground shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 sm:min-w-64"
-            >
-              <option value="">{isSurveyLoading ? "Loading surveys…" : "Select a survey"}</option>
-              {surveys.map((survey) => (
-                <option key={survey.id} value={survey.id}>{survey.title} ({survey.surveyId})</option>
-              ))}
-            </select>
+        <div className="flex flex-col sm:flex-row flex-wrap items-start sm:items-center gap-2 sm:gap-4 lg:gap-6">
+          <div className="flex items-center gap-2">
+            <span className="text-[13px] font-medium text-slate-500 hidden lg:inline-block">Survey</span>
+            <Popover open={surveyOpen} onOpenChange={setSurveyOpen}>
+              <PopoverTrigger
+                render={
+                  <Button
+                    disabled={isSurveyLoading || isExporting}
+                    variant="outline"
+                    className="h-8 text-[12px] font-medium border border-slate-200 rounded-lg text-slate-600 bg-white hover:bg-slate-50 hover:border-slate-300 shadow-sm px-3 flex items-center gap-1.5 focus-visible:ring-slate-400/20 focus-visible:border-slate-400 select-none cursor-pointer transition-all"
+                  >
+                    <span className="max-w-[150px] sm:max-w-[200px] truncate">
+                      {selectedSurveyId ? surveys.find(s => s.id === selectedSurveyId)?.title || "Select a survey" : (isSurveyLoading ? "Loading surveys…" : "Select a survey")}
+                    </span>
+                    <ChevronDown className="w-3.5 h-3.5 opacity-60 flex-shrink-0" />
+                  </Button>
+                }
+              />
+              <PopoverContent
+                align="start"
+                className="w-72 p-1.5 flex flex-col gap-0.5 bg-white border border-slate-200 rounded-xl shadow-[0_8px_30px_rgb(0,0,0,0.08)] animate-in fade-in-0 zoom-in-95 duration-100 max-h-[300px]"
+              >
+                {surveys.map((survey) => {
+                  const isSelected = survey.id === selectedSurveyId
+                  return (
+                    <button
+                      key={survey.id}
+                      onClick={() => {
+                        setSelectedSurveyId(survey.id)
+                        setFilters({ department: "All Departments", degree: "All Degrees", batch: "All Batches" })
+                        setAvailableBatches([])
+                        setAvailableDepartments([])
+                        setAvailableDegrees([])
+                        isInitialDataLoaded.current = false
+                        setFetchError(null)
+                        setIsLoading(true)
+                        setSurveyOpen(false)
+                      }}
+                      className={`
+                        flex items-center justify-between w-full px-2.5 py-2 text-[12px] rounded-lg text-left transition-colors cursor-pointer outline-none
+                        ${isSelected
+                          ? "bg-slate-100 text-slate-900 font-medium"
+                          : "text-slate-600 hover:bg-slate-50 hover:text-slate-900 font-medium"
+                        }
+                      `}
+                    >
+                      <span className="truncate pr-2" title={`${survey.title} (${survey.surveyId})`}>{survey.title} <span className="text-[10px] opacity-60 font-normal">({survey.surveyId})</span></span>
+                      {isSelected && <Check className="w-3.5 h-3.5 text-slate-700 flex-shrink-0" />}
+                    </button>
+                  )
+                })}
+                {surveys.length === 0 && (
+                  <div className="px-2.5 py-2 text-[12px] text-slate-500 text-center">
+                    No surveys available
+                  </div>
+                )}
+              </PopoverContent>
+            </Popover>
           </div>
-          {selectedSurveyId && (isLoading || fetchError || demographics?.total_responses || filters.department !== "All Departments" || filters.batch !== "All Batches") && (
-          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 sm:gap-6">
-            <DashboardFilters
-              key={selectedSurveyId}
-              disabled={isExporting}
-              onFilterChange={(nextFilters) => {
-                if (isExporting) return
-                setIsLoading(true)
-                setFilters(nextFilters)
-                setRefreshKey(k => k + 1)
-              }}
-              availableBatches={availableBatches}
-              availableDepartments={availableDepartments}
-              availableDegrees={availableDegrees}
-            />
-            <div className="hidden sm:block w-px h-6 bg-slate-200" />
-            <Button
-              variant="ghost"
-              onClick={handleExportDashboard}
-              disabled={isExporting || isLoading || !demographics || demographics.total_responses === 0}
-              className="hidden md:flex h-8 text-[13px] font-medium text-slate-500 hover:text-slate-900 hover:bg-slate-100 px-3 items-center gap-2 transition-colors disabled:opacity-50"
-            >
-              {isExporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4 opacity-70" />}
-              <span>{isExporting ? "Exporting..." : "Export"}</span>
-            </Button>
-          </div>
-          )}
+
+          {selectedSurveyId && (isLoading || fetchError || demographics?.total_responses || filters.department !== "All Departments" || filters.batch !== "All Batches") ? (
+            <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2 sm:gap-4 lg:gap-6">
+              <div className="hidden sm:block w-px h-6 bg-slate-200" />
+              <DashboardFilters
+                key={selectedSurveyId}
+                disabled={isExporting}
+                onFilterChange={(nextFilters) => {
+                  if (isExporting) return
+                  setIsLoading(true)
+                  setFilters(nextFilters)
+                  setRefreshKey(k => k + 1)
+                }}
+                availableBatches={availableBatches}
+                availableDepartments={availableDepartments}
+                availableDegrees={availableDegrees}
+              />
+              <div className="hidden sm:block w-px h-6 bg-slate-200" />
+              <Button
+                variant="ghost"
+                onClick={handleExportDashboard}
+                disabled={isExporting || isLoading || !demographics || demographics.total_responses === 0}
+                className="hidden md:flex h-8 text-[13px] font-medium text-slate-500 hover:text-slate-900 hover:bg-slate-100 px-3 items-center gap-2 transition-colors disabled:opacity-50"
+              >
+                {isExporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4 opacity-70" />}
+                <span>{isExporting ? "Exporting..." : "Export"}</span>
+              </Button>
+            </div>
+          ) : null}
         </div>
       </div>
 
