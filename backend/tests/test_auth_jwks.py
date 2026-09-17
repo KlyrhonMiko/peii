@@ -59,6 +59,7 @@ async def test_verify_bearer_token_moves_jwks_lookup_off_the_event_loop(monkeypa
     claims = await auth.verify_bearer_token("Bearer token")
 
     assert claims.subject == UUID("00000000-0000-0000-0000-000000000123")
+    assert claims.aal == "aal1"
     assert client.tokens == ["token"]
     assert calls == [client.get_signing_key_from_jwt]
 
@@ -100,6 +101,7 @@ async def test_verify_bearer_token_parses_optional_session_and_auth_claims(monke
         lambda *_args, **_kwargs: {
             "sub": "00000000-0000-0000-0000-000000000123",
             "session_id": "00000000-0000-0000-0000-000000000124",
+            "aal": "aal2",
             "amr": [{"method": "oauth"}, "password"],
             "email": "respondent@example.com",
             "is_anonymous": False,
@@ -110,6 +112,7 @@ async def test_verify_bearer_token_parses_optional_session_and_auth_claims(monke
     claims = await auth.verify_bearer_token("Bearer token")
 
     assert claims.session_id == UUID("00000000-0000-0000-0000-000000000124")
+    assert claims.aal == "aal2"
     assert claims.amr == ("oauth", "password")
     assert claims.email == "respondent@example.com"
     assert claims.is_anonymous is False
@@ -126,6 +129,25 @@ async def test_verify_bearer_token_rejects_malformed_optional_claims(monkeypatch
         lambda *_args, **_kwargs: {
             "sub": "00000000-0000-0000-0000-000000000123",
             "session_id": "not-a-uuid",
+        },
+    )
+
+    with pytest.raises(AppError) as error:
+        await auth.verify_bearer_token("Bearer token")
+
+    assert error.value.status_code == 401
+
+
+@pytest.mark.parametrize("malformed_aal", [None, "AAL1", "", "aal3", 2, [], {}])
+@pytest.mark.anyio
+async def test_verify_bearer_token_rejects_malformed_aal_claim(monkeypatch, malformed_aal):
+    monkeypatch.setattr(auth, "_jwks_client", lambda: JwksClient())
+    monkeypatch.setattr(
+        auth.jwt,
+        "decode",
+        lambda *_args, **_kwargs: {
+            "sub": "00000000-0000-0000-0000-000000000123",
+            "aal": malformed_aal,
         },
     )
 

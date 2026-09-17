@@ -2,7 +2,7 @@
 
 import { redirect } from "next/navigation"
 
-import { safeInternalPath } from "@/lib/safe-redirect"
+import { safeMfaReturnTo } from "@/lib/safe-redirect"
 import { createSupabaseServerClient } from "@/lib/supabase/server"
 
 export type LoginState = {
@@ -48,8 +48,19 @@ export async function loginAction(state: LoginState, formData: FormData): Promis
   if (error) {
     return { error: "invalid" }
   }
-  
-  redirect(safeInternalPath(formData.get("returnTo")))
+
+  const { data: assurance, error: assuranceError } =
+    await supabase.auth.mfa.getAuthenticatorAssuranceLevel(body.data.access_token)
+  if (assuranceError || !assurance) {
+    await supabase.auth.signOut({ scope: "local" })
+    return { error: "unavailable", retryAfter: null }
+  }
+
+  const destination = safeMfaReturnTo(formData.get("returnTo"))
+  if (assurance.currentLevel !== "aal2" && assurance.nextLevel === "aal2") {
+    redirect(`/mfa/verify?returnTo=${encodeURIComponent(destination)}`)
+  }
+  redirect(destination)
 }
 
 export async function logoutAction() {

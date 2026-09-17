@@ -37,14 +37,17 @@ const managementItems = [
   { title: "Users", url: "/admin/users", icon: UsersRound, permission: "users.read" },
   { title: "Roles & permissions", url: "/admin/roles", icon: ShieldCheck, permission: "roles.read" },
   { title: "Audit logs", url: "/admin/audit-logs", icon: History, permission: "audit_logs.read" },
-  { title: "Settings", url: "#", icon: Settings },
+]
+
+const accountItems = [
+  { title: "Settings", url: "/settings", icon: Settings },
 ]
 
 export function AppSidebar({ user }: { user: PortalUser }) {
   const pathname = usePathname()
   const [showLogoutModal, setShowLogoutModal] = useState(false)
 
-  const renderMenuItems = (items: Array<(typeof mainItems)[number] | (typeof managementItems)[number]>) =>
+  const renderMenuItems = (items: Array<(typeof mainItems)[number] | (typeof managementItems)[number] | (typeof accountItems)[number]>) =>
     items.filter((item) => !("permission" in item) || user.permissions.includes(item.permission)).map((item) => {
       const isActive = pathname === item.url || pathname.startsWith(`${item.url}/`)
       return (
@@ -89,13 +92,26 @@ export function AppSidebar({ user }: { user: PortalUser }) {
           </SidebarGroupContent>
         </SidebarGroup>
 
+        {managementItems.some((item) => user.permissions.includes(item.permission)) && (
+          <SidebarGroup>
+            <SidebarGroupLabel className="text-xs font-semibold text-sidebar-foreground/40 mb-1 px-3 uppercase tracking-wider">
+              Management
+            </SidebarGroupLabel>
+            <SidebarGroupContent>
+              <SidebarMenu className="gap-0.5">
+                {renderMenuItems(managementItems)}
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        )}
+
         <SidebarGroup>
           <SidebarGroupLabel className="text-xs font-semibold text-sidebar-foreground/40 mb-1 px-3 uppercase tracking-wider">
-            Management
+            Account
           </SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu className="gap-0.5">
-              {renderMenuItems(managementItems)}
+              {renderMenuItems(accountItems)}
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>

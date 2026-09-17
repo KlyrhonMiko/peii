@@ -14,7 +14,8 @@ This guide covers `src/lib/`.
   prepared export (returns a signed download URL that the browser opens), and erasure operations;
   survey response idempotency is survey-scoped and
   there is no distribution feature.
-- `auth.ts` owns server-side current-user and permission guards.
+- `auth.ts` owns server-side current-user and permission guards, including the account profile
+  fields consumed by the shared Settings page.
 - `supabase/` owns the server client and cookie policy.
 - `safe-redirect.ts` and `backend-proxy-policy.ts` own navigation and backend endpoint
   security policy. Focused Vitest tests are colocated with these modules.
