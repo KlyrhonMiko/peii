@@ -20,8 +20,7 @@ import {
   fetchResponsesWithIdentity,
   mapSurvey,
   updateSurvey,
-  downloadSurveyResponseImportTemplate,
-  validateSurveyResponseImport,
+  previewSurveyResponseImport,
   importSurveyResponses,
 } from "./surveys"
 
@@ -252,63 +251,67 @@ describe("response privacy API operations", () => {
     expect(mockApi.raw.get).not.toHaveBeenCalled()
   })
 
-  it("downloads the selected survey's CSV import template as text/csv", async () => {
-    const blob = new Blob(["submitted_at,q-1\n"])
-    mockApi.raw.get.mockResolvedValue({
-      blob: async () => blob,
-      headers: new Headers({ "Content-Disposition": 'attachment; filename="survey.csv"' }),
-    })
+  it("sends the spreadsheet as multipart form data to the preview endpoint", async () => {
+    const file = new File(["Timestamp,Name\n"], "responses.xlsx")
+    const preview = { survey_id: "survey-id", can_import: true, structure_version: "v1" }
+    mockApi.raw.post.mockResolvedValueOnce({ json: async () => ({ data: preview }) })
 
-    const result = await downloadSurveyResponseImportTemplate("survey-id")
+    await expect(previewSurveyResponseImport("survey-id", file)).resolves.toEqual(preview)
 
-    expect(mockApi.raw.get).toHaveBeenCalledWith(
-      "/surveys/survey-id/responses/import-template",
-      { headers: { Accept: "text/csv" }, timeout: 60_000 },
+    expect(mockApi.raw.post).toHaveBeenCalledWith(
+      "/surveys/survey-id/responses/import/validate",
+      expect.any(FormData),
+      { headers: { Accept: "application/json" }, timeout: 60_000 },
     )
-    expect(result.blob).toBe(blob)
-    expect(result.filename).toBe("survey.csv")
+    const body = mockApi.raw.post.mock.calls[0]?.[1] as FormData
+    expect((body.get("file") as File).name).toBe("responses.xlsx")
+    expect(body.get("utc_offset_minutes")).toBe("480")
+    expect(body.has("overrides")).toBe(false)
+    expect(body.has("sheet")).toBe(false)
+    expect(body.has("structure_version")).toBe(false)
   })
 
-  it("sends raw CSV bytes to validation and commit endpoints", async () => {
-    const csv = "submitted_at,q-1\n2026-01-01T00:00:00+08:00,Good\n"
-    mockApi.raw.post
-      .mockResolvedValueOnce({
-        json: async () => ({
-          data: { survey_id: "survey-id", valid: true, row_count: 1, error_count: 0, errors: [] },
-        }),
-      })
-      .mockResolvedValueOnce({
-        json: async () => ({ data: { survey_id: "survey-id", imported_count: 1 } }),
-      })
-
-    await expect(validateSurveyResponseImport("survey-id", csv)).resolves.toMatchObject({
+  it("forwards overrides, offset, sheet, and structure version on commit", async () => {
+    const file = new File(["Timestamp,Name\n"], "responses.csv")
+    const overrides = {
+      columns: { "2": "ignore", "3": "q-1" },
+      values: { "q-1": { "Yes!": "Yes", "N/A": null } },
+    }
+    const result = {
       survey_id: "survey-id",
-      valid: true,
-      row_count: 1,
-    })
-    await expect(importSurveyResponses("survey-id", csv)).resolves.toEqual({
-      survey_id: "survey-id",
-      imported_count: 1,
-    })
+      imported_count: 2,
+      updated_count: 1,
+      unchanged_count: 0,
+      merged_in_file_count: 0,
+      filled_answer_count: 3,
+    }
+    mockApi.raw.post.mockResolvedValueOnce({ json: async () => ({ data: result }) })
 
-    expect(mockApi.raw.post).toHaveBeenNthCalledWith(
-      1,
-      "/surveys/survey-id/responses/import/validate",
-      csv,
-      {
-        headers: { Accept: "application/json", "Content-Type": "text/csv; charset=utf-8" },
-        timeout: 60_000,
-      },
-    )
-    expect(mockApi.raw.post).toHaveBeenNthCalledWith(
-      2,
+    await expect(importSurveyResponses("survey-id", file, {
+      overrides,
+      utcOffsetMinutes: -300,
+      sheet: "Form Responses 1",
+      structureVersion: "v1",
+    })).resolves.toEqual(result)
+
+    expect(mockApi.raw.post).toHaveBeenCalledWith(
       "/surveys/survey-id/responses/import",
-      csv,
-      {
-        headers: { Accept: "application/json", "Content-Type": "text/csv; charset=utf-8" },
-        timeout: 60_000,
-      },
+      expect.any(FormData),
+      { headers: { Accept: "application/json" }, timeout: 60_000 },
     )
+    const body = mockApi.raw.post.mock.calls[0]?.[1] as FormData
+    expect(body.get("file")).toBeInstanceOf(File)
+    expect(JSON.parse(String(body.get("overrides")))).toEqual(overrides)
+    expect(body.get("utc_offset_minutes")).toBe("-300")
+    expect(body.get("sheet")).toBe("Form Responses 1")
+    expect(body.get("structure_version")).toBe("v1")
+  })
+
+  it("rejects an import envelope without data", async () => {
+    mockApi.raw.post.mockResolvedValueOnce({ json: async () => ({ data: null }) })
+
+    await expect(previewSurveyResponseImport("survey-id", new File(["x"], "r.csv")))
+      .rejects.toThrow("Backend did not return import details.")
   })
 
   it("uses the exact erase endpoint and forwards the idempotency key", async () => {

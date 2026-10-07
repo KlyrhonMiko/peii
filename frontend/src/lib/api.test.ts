@@ -57,4 +57,30 @@ describe("api requests", () => {
     expect(init.body).toBe("submitted_at,q-1\n")
     expect(init.headers).toEqual({ "Content-Type": "text/csv; charset=utf-8" })
   })
+
+  it("passes FormData bodies through raw requests without a Content-Type header", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200 })
+    vi.stubGlobal("fetch", fetchMock)
+    const body = new FormData()
+    body.append("file", new File(["Timestamp,Name\n"], "responses.csv", { type: "text/csv" }))
+
+    await api.raw.post("/surveys/survey-id/responses/import/validate", body, {
+      headers: { Accept: "application/json" },
+    })
+
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit]
+    expect(init.body).toBe(body)
+    expect(init.headers).toEqual({ Accept: "application/json" })
+  })
+
+  it("still JSON-encodes object bodies in raw requests", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200 })
+    vi.stubGlobal("fetch", fetchMock)
+
+    await api.raw.post("/surveys/survey-id/responses/erase", { scope: "all" })
+
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit]
+    expect(init.body).toBe('{"scope":"all"}')
+    expect(init.headers).toEqual({ "Content-Type": "application/json" })
+  })
 })

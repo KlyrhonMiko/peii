@@ -120,7 +120,6 @@ export function isAllowedBackendRequest(method: string, path: string[]): boolean
         matchesSurveyResponseAction(path, "export") ||
         matchesSurveyResponseAction(path, "identity") ||
         matchesSurveyResponseAction(path, "peii") ||
-        matchesSurveyResponseAction(path, "import-template") ||
         (path.length === 1 && path[0] === "audit-logs") ||
         (path.length === 2 && path[0] === "audit-logs" && hasValue(path[1]))
       )

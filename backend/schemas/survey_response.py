@@ -212,7 +212,7 @@ class ExportPreparationResponse(BaseModel):
 
 
 class SurveyResponseImportError(BaseModel):
-    """A safe, location-aware error found while validating an import CSV."""
+    """A safe, location-aware issue found while checking an import file."""
 
     row: int | None = None
     column: str | None = None
@@ -220,18 +220,131 @@ class SurveyResponseImportError(BaseModel):
     message: str
 
 
-class SurveyResponseImportValidation(BaseModel):
-    """Validation summary returned before a CSV is committed."""
+ImportColumnTarget = Literal["submitted_at", "question", "match_only", "ignore"]
+ImportColumnStatus = Literal["matched", "check", "unmatched", "ignored"]
+ImportColumnMatch = Literal[
+    "timestamp",
+    "header",
+    "values",
+    "merged",
+    "fuzzy",
+    "manual",
+    "none",
+]
+
+
+class SurveyResponseImportColumn(BaseModel):
+    """How one spreadsheet column maps onto the survey."""
+
+    index: int
+    header: str
+    target: ImportColumnTarget
+    question_id: UUID | None = None
+    status: ImportColumnStatus
+    match: ImportColumnMatch
+    reason: str | None = None
+    samples: list[str] = Field(default_factory=list)
+
+
+class SurveyResponseImportQuestion(BaseModel):
+    """A survey question that a column can be mapped to."""
+
+    question_id: UUID
+    section_title: str
+    question_text: str
+    question_type: str
+    survey_phase: int | None = None
+    mapped: bool
+    importable: bool
+
+
+class SurveyResponseImportValueIssue(BaseModel):
+    """A distinct cell value that does not match the mapped question's options."""
+
+    question_id: UUID
+    column: str
+    raw_value: str
+    count: int
+    suggestion: str | None = None
+    options: list[str]
+
+
+class SurveyResponseImportRowSummary(BaseModel):
+    """Row outcomes; every non-blank data row is counted in exactly one bucket."""
+
+    total: int
+    new: int
+    will_update: int
+    unchanged: int
+    merged_in_file: int
+    needs_review: int
+    invalid: int
+
+
+ImportMatchRule = Literal["email", "contact_number", "name", "answers"]
+
+
+class SurveyResponseImportMatch(BaseModel):
+    """A row recognized as a duplicate of an existing response or an earlier row.
+
+    Matches never carry the identifying values themselves.
+    """
+
+    row: int
+    matched_by: ImportMatchRule
+    target: Literal["existing", "file"]
+    target_row: int | None = None
+    action: Literal["update", "unchanged"]
+    filled_answer_count: int
+    conflict_count: int
+
+
+class SurveyResponseImportOverrides(BaseModel):
+    """User corrections applied on top of the automatic mapping.
+
+    ``columns`` maps a zero-based column index to ``"submitted_at"``,
+    ``"match_only"``, ``"ignore"``, or a question UUID. ``values`` maps a question
+    UUID to ``{raw value: option}``; a ``None`` option imports the cell as blank.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    columns: dict[int, str] = Field(default_factory=dict, max_length=1000)
+    values: dict[UUID, dict[str, str | None]] = Field(default_factory=dict, max_length=1000)
+
+
+class SurveyResponseImportPreview(BaseModel):
+    """Dry-run result for a Google Forms export or other response spreadsheet."""
 
     survey_id: UUID
-    valid: bool
-    row_count: int
+    file_format: Literal["xlsx", "csv"]
+    sheet_names: list[str]
+    sheet: str | None = None
+    utc_offset_minutes: int
+    columns: list[SurveyResponseImportColumn]
+    questions: list[SurveyResponseImportQuestion]
+    value_issues: list[SurveyResponseImportValueIssue]
+    rows: SurveyResponseImportRowSummary
     error_count: int
     errors: list[SurveyResponseImportError]
+    conflict_count: int
+    conflicts: list[SurveyResponseImportError]
+    match_count: int
+    matches: list[SurveyResponseImportMatch]
+    personal_data_question_ids: list[UUID]
+    consent_question_id: UUID | None = None
+    includes_personal_data: bool
+    warnings: list[str]
+    structure_version: str
+    can_import: bool
 
 
 class SurveyResponseImportResult(BaseModel):
-    """Result of an atomic response CSV import."""
+    """Result of an atomic response import."""
 
     survey_id: UUID
     imported_count: int
+    updated_count: int
+    unchanged_count: int
+    merged_in_file_count: int
+    filled_answer_count: int

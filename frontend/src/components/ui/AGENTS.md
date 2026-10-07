@@ -5,7 +5,8 @@ This guide covers `src/components/ui/`, the generic component primitive layer.
 
 ## Current Responsibilities
 - This directory holds shadcn-style primitives: `button`, `card`, `dialog`, `input`,
-  `popover`, `separator`, `sheet`, `sidebar`, `skeleton`, and `tooltip`.
+  `native-select`, `popover`, `separator`, `sheet`, `sidebar`, `skeleton`, `switch`,
+  `toggle`, and `tooltip`.
 - The project uses `components.json` with `style: "base-nova"`, Base UI primitives,
   Tailwind v4 CSS variables, and lucide icons.
 
@@ -54,5 +55,6 @@ This guide covers `src/components/ui/`, the generic component primitive layer.
 - When adding or updating shadcn components, use the shadcn CLI workflow rather than
   copying raw registry files manually.
 - Review generated files after adding them; registry output can still need alias,
-  composition, or icon-library fixes.
+  composition, or icon-library fixes. Registry output can import `cn` from a bare `cn`
+  package and add it as a dependency; import `cn` from `@/lib/utils` and drop that dependency.
 - Do not overwrite locally customized primitives without explicit approval.

@@ -2,7 +2,18 @@ from datetime import UTC, datetime
 from typing import Annotated, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Header, Query, Request, Response, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Form,
+    Header,
+    Query,
+    Request,
+    Response,
+    UploadFile,
+    status,
+)
 
 from core.client_ip import resolve_client_ip
 from core.config import settings
@@ -19,8 +30,8 @@ from schemas.survey_response import (
     ExportPreparationResponse,
     ResponseErasureResult,
     SurveyResponseIdentityRead,
+    SurveyResponseImportPreview,
     SurveyResponseImportResult,
-    SurveyResponseImportValidation,
     SurveyResponseListQueryParams,
     SurveyResponseRead,
 )
@@ -78,72 +89,66 @@ def require_csv_export_enabled() -> None:
         )
 
 
-@router.get(
-    "/import-template",
-    response_class=Response,
-    dependencies=[Depends(require_permissions("survey_responses.import"))],
-    summary="Download a survey-specific response import template",
-    description=(
-        "Download a UTF-8 CSV template whose ordered headers identify only the "
-        "active questions in this survey."
+ImportFile = Annotated[UploadFile, File(description="Google Forms export as .xlsx or .csv.")]
+ImportOverrides = Annotated[
+    str | None,
+    Form(description="Optional JSON mapping changes (SurveyResponseImportOverrides)."),
+]
+ImportUtcOffset = Annotated[
+    int,
+    Form(
+        ge=response_import_service.MIN_UTC_OFFSET_MINUTES,
+        le=response_import_service.MAX_UTC_OFFSET_MINUTES,
+        description="UTC offset in minutes for timestamps without a timezone.",
     ),
-)
-async def download_response_import_template(
-    survey_id: UUID,
-    session: AsyncDBSession,
-    http_response: Response,
-    principal: CurrentPrincipal,
-) -> Response:
-    del principal
-    csv_bytes = await response_import_service.get_import_template(session, survey_id)
-    http_response.headers["Cache-Control"] = "private, no-store, max-age=0"
-    http_response.headers["Pragma"] = "no-cache"
-    return Response(
-        content=csv_bytes,
-        media_type="text/csv",
-        headers={
-            "Content-Disposition": (
-                f'attachment; filename="{response_import_service.IMPORT_TEMPLATE_FILENAME}"'
-            ),
-            "Cache-Control": "private, no-store, max-age=0",
-            "Pragma": "no-cache",
-        },
-    )
+]
+ImportSheet = Annotated[str | None, Form(max_length=255)]
 
 
-async def _read_import_csv(request: Request) -> bytes:
-    raw = await request.body()
+async def _read_import_file(file: UploadFile) -> bytes:
+    raw = await file.read(response_import_service.MAX_IMPORT_BYTES + 1)
     if len(raw) > response_import_service.MAX_IMPORT_BYTES:
         raise AppError(
-            "Import CSV exceeds the 2 MiB limit.",
-            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            "The import file exceeds the 5 MiB limit.",
+            status_code=status.HTTP_413_CONTENT_TOO_LARGE,
         )
     return raw
 
 
 @router.post(
     "/import/validate",
-    response_model=APIResponse[SurveyResponseImportValidation],
+    response_model=APIResponse[SurveyResponseImportPreview],
     dependencies=[Depends(require_permissions("survey_responses.import"))],
-    summary="Validate survey response CSV",
+    summary="Check a survey response import file",
     description=(
-        "Validate a survey-specific wide CSV without writing responses. The request body "
-        "must be the raw CSV bytes."
+        "Map a Google Forms export (.xlsx or .csv) onto this survey's questions and "
+        "report what an import would do, without writing responses."
     ),
 )
-async def validate_response_import(
+async def preview_response_import(
     survey_id: UUID,
     session: AsyncDBSession,
-    request: Request,
     http_response: Response,
     principal: CurrentPrincipal,
-) -> APIResponse[SurveyResponseImportValidation]:
+    file: ImportFile,
+    overrides: ImportOverrides = None,
+    utc_offset_minutes: ImportUtcOffset = response_import_service.DEFAULT_UTC_OFFSET_MINUTES,
+    sheet: ImportSheet = None,
+) -> APIResponse[SurveyResponseImportPreview]:
     del principal
-    raw = await _read_import_csv(request)
-    result = await response_import_service.validate_response_import(session, survey_id, raw)
+    raw = await _read_import_file(file)
+    result = await response_import_service.preview_response_import(
+        session,
+        survey_id,
+        raw,
+        filename=file.filename,
+        overrides=overrides,
+        utc_offset_minutes=utc_offset_minutes,
+        sheet=sheet,
+    )
     http_response.headers["Cache-Control"] = "private, no-store, max-age=0"
     http_response.headers["Pragma"] = "no-cache"
-    return success_response(result, message="Import CSV validated.")
+    return success_response(result, message="Import file checked.")
 
 
 @router.post(
@@ -151,25 +156,35 @@ async def validate_response_import(
     response_model=APIResponse[SurveyResponseImportResult],
     status_code=status.HTTP_201_CREATED,
     dependencies=[Depends(require_permissions("survey_responses.import"))],
-    summary="Import survey responses from CSV",
+    summary="Import survey responses",
     description=(
-        "Validate and append all rows from a survey-specific wide CSV in one atomic "
-        "transaction. The request body must be the raw CSV bytes."
+        "Import a checked Google Forms export in one transaction. New respondents are "
+        "added; rows that match an existing respondent only fill blank answers."
     ),
 )
-async def import_response_csv(
+async def import_responses(
     survey_id: UUID,
     session: AsyncDBSession,
     request: Request,
     http_response: Response,
     principal: CurrentPrincipal,
+    file: ImportFile,
+    structure_version: Annotated[str, Form(min_length=64, max_length=64)],
+    overrides: ImportOverrides = None,
+    utc_offset_minutes: ImportUtcOffset = response_import_service.DEFAULT_UTC_OFFSET_MINUTES,
+    sheet: ImportSheet = None,
 ) -> APIResponse[SurveyResponseImportResult]:
-    raw = await _read_import_csv(request)
-    result = await response_import_service.import_response_csv(
+    raw = await _read_import_file(file)
+    result = await response_import_service.import_responses(
         session,
         survey_id,
         raw,
         actor_id=principal.user.id,
+        structure_version=structure_version,
+        filename=file.filename,
+        overrides=overrides,
+        utc_offset_minutes=utc_offset_minutes,
+        sheet=sheet,
         ip_address=resolve_client_ip(request),
     )
     http_response.headers["Cache-Control"] = "private, no-store, max-age=0"

@@ -140,9 +140,8 @@ not. The identity endpoint additionally requires `survey_responses.read_raw`.
 | Identity page | identity response endpoint | both `survey_responses.read_raw` and `survey_responses.read_identity` |
 | Aggregate | `GET /api/v1/surveys/{survey_id}/responses/aggregates` | `survey_responses.read_aggregates` |
 | CSV export | `GET /api/v1/surveys/{survey_id}/responses/export` | `CSV_EXPORT_ENABLED=true` and `survey_responses.export` |
-| CSV import template | `GET /api/v1/surveys/{survey_id}/responses/import-template` | `survey_responses.import` |
-| Validate CSV import | `POST /api/v1/surveys/{survey_id}/responses/import/validate` | `survey_responses.import` |
-| Commit CSV import | `POST /api/v1/surveys/{survey_id}/responses/import` | `survey_responses.import` |
+| Check import file | `POST /api/v1/surveys/{survey_id}/responses/import/validate` | `survey_responses.import` |
+| Commit import | `POST /api/v1/surveys/{survey_id}/responses/import` | `survey_responses.import` |
 | Erasure | `POST /api/v1/surveys/{survey_id}/responses/erase` | `survey_responses.erase` plus request confirmation and UUID `Idempotency-Key` |
 
 The respondent routes are deliberately separate from these protected operations:
@@ -231,32 +230,78 @@ test must confirm that the CSV is not cached, stored, indexed, or buffered unexp
 provider access logs redact the route, authorization/cookie headers, and response content as
 appropriate.
 
-### Survey-specific CSV import
+### Survey response import (Google Forms export)
 
-The researcher View Details → Responses panel offers a CSV template and a separate import action
-only to principals with `survey_responses.import`. This is a wide format (one respondent per row),
-unlike the long-format export above; an exported CSV cannot be imported directly. The template
-is generated from the selected survey's persisted question order. Its required `submitted_at`
-column takes an ISO-8601 timestamp with a timezone offset; each other header shows a numbered
-question with its section title. UUIDs stay internal. Uploads must match that survey's complete
-header exactly. This feature does not accept XLSX or remap historical source-form columns
-automatically.
+The researcher View Details → Responses panel offers an import action only to principals with
+`survey_responses.import`. The user uploads the file that Google Forms gives (Responses → View
+in Sheets → File → Download as `.xlsx` or `.csv`) without changes. The format comes from the
+file bytes. An `.xlsx` file must expand to 50 MiB or less. Each file is limited to 5 MiB and
+5,000 data rows.
 
-Blank question cells are omitted from the stored answer object, including for required
-questions; a row without any answers is invalid. Nonblank cells must match the question type,
-configured choices, and conditional visibility. The import validates the whole UTF-8 CSV before
-writing any row, limits each file to 2 MiB and 1,000 data rows, and commits all valid rows
-atomically. The first response permanently locks structure and retention-policy edits for that
-survey. Repeated uploads **append again**, including identical files, and can double-count data;
-the confirmation dialog warns about this explicitly.
+The import has two steps. Both steps send the file as `multipart/form-data`.
 
-Each imported response is scoped to the selected survey and stores answers by that survey's
-question UUIDs in the existing JSONB field. `created_at` preserves `submitted_at` in UTC and,
-when retention is enabled, the expiry is calculated from that original timestamp. Expired or
-future-dated rows are rejected. Imported rows do not fabricate Google-verified identity or
-server-recorded consent evidence: those fields remain null even if a questionnaire consent
-answer is present. Import audits record counts and actor, not raw answer values. Only Admin and
-Researcher receive the default import capability; Staff does not.
+1. `import/validate` maps the file and reports the result. It writes nothing.
+2. `import` repeats the same checks and commits in one transaction. It requires the
+   `structure_version` from step 1. If the survey questions changed after step 1, the server
+   returns 409 `survey_changed`.
+
+Column mapping:
+
+- In a workbook, the import uses the sheet whose headers map to the most questions. Side
+  sheets such as an Apps Script "Logs" tab are skipped.
+- `Timestamp` becomes `created_at`. A timestamp without a timezone uses the selected UTC offset
+  (default UTC+08:00) and is rounded to the second.
+- Headers match question text, or the `[row]` part of a Google grid header. The words BEFORE
+  and AFTER in a grid title select the phase 1 or phase 2 question.
+- Columns with other wording match by their values. Mutually exclusive sibling columns, such
+  as Google's `Categories for <industry>`, merge into one question.
+- Google's collected `Email Address` column is used only to find duplicate respondents. It is
+  not saved.
+- The user can override every column and every unmatched choice value. Matrix, ranking, and
+  file questions are not imported.
+
+Value conversion:
+
+- `3 = Neutral` and scale labels become numbers. Checkbox answers split on commas.
+- Abbreviations such as `Sta.` and `Sto.` and hidden characters are normalized before
+  options are compared.
+- A value that matches no option needs review. If the question has an "Other (specify)"
+  option with a follow-up text question, the import suggests that option and stores the
+  original text in the follow-up question.
+
+Row checks:
+
+- Blank cells are allowed, also for required questions. Personal details are often removed
+  from a shared export.
+- Nonblank answers must match the question type, the options, and the conditional
+  visibility.
+- A row with a "No" answer to the consent question is not imported.
+- Rows with errors are reported and skipped. File-level errors and unresolved values block
+  the import.
+
+Duplicate respondents:
+
+No respondent gets a second response from an import. A row is the same respondent as an
+existing response, or as an earlier row in the file, when one of these rules applies (checked
+in this order):
+
+1. Personal details match: an email address, a contact number, or the full name. A name
+   match is not used when the two rows have different email addresses or contact numbers.
+2. Every survey answer matches. A personal-detail answer can be blank on one side.
+
+A matched row only fills answers that are blank in the matched response. It never overwrites
+an answer; a different value is reported as a conflict without the value. An anonymized export
+followed by a full export therefore fills in the personal details of the same responses. Erased
+responses are not kept for matching, so importing the same file again can add an erased row
+back.
+
+Each imported response is scoped to the selected survey and stores answers by question UUID.
+When retention is enabled, the expiry is calculated from the original timestamp. Expired or
+future-dated rows are rejected. Imported rows leave the Google identity and server-recorded
+consent-evidence fields null, so an imported respondent who later answers online gets a separate
+response. Personal details in answers are visible to anyone with raw-response access. Audit
+events `responses_imported` and `responses_import_updated` record counts and the actor, not
+answer values. Only Admin and Researcher receive the default import capability; Staff does not.
 
 ## Logical erasure and scheduled retention purge
 

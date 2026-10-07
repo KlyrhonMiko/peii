@@ -271,6 +271,7 @@ export interface ResponseErasureResult {
   erased_count: number
 }
 
+/** A location-aware issue from a response import check (`SurveyResponseImportError`). */
 export interface SurveyResponseImportIssue {
   row: number | null
   column: string | null
@@ -278,17 +279,131 @@ export interface SurveyResponseImportIssue {
   message: string
 }
 
-export interface SurveyResponseImportValidation {
-  survey_id: string
-  valid: boolean
-  row_count: number
-  error_count: number
-  errors: SurveyResponseImportIssue[]
+export type SurveyResponseImportColumnTarget = "submitted_at" | "question" | "match_only" | "ignore"
+export type SurveyResponseImportColumnStatus = "matched" | "check" | "unmatched" | "ignored"
+export type SurveyResponseImportColumnMatch =
+  | "timestamp"
+  | "header"
+  | "values"
+  | "merged"
+  | "fuzzy"
+  | "manual"
+  | "none"
+
+/** How one spreadsheet column maps onto the survey. */
+export interface SurveyResponseImportColumn {
+  index: number
+  header: string
+  target: SurveyResponseImportColumnTarget
+  question_id: string | null
+  status: SurveyResponseImportColumnStatus
+  match: SurveyResponseImportColumnMatch
+  reason: string | null
+  samples: string[]
 }
 
+/** A survey question that a spreadsheet column can be mapped to. */
+export interface SurveyResponseImportQuestion {
+  question_id: string
+  section_title: string
+  question_text: string
+  question_type: string
+  survey_phase: number | null
+  mapped: boolean
+  importable: boolean
+}
+
+/** A distinct cell value that does not match the mapped question's options. */
+export interface SurveyResponseImportValueIssue {
+  question_id: string
+  column: string
+  raw_value: string
+  count: number
+  suggestion: string | null
+  options: string[]
+}
+
+/** Row outcomes; every non-blank data row is counted in exactly one bucket. */
+export interface SurveyResponseImportRowSummary {
+  total: number
+  new: number
+  will_update: number
+  unchanged: number
+  merged_in_file: number
+  needs_review: number
+  invalid: number
+}
+
+export type SurveyResponseImportMatchRule = "email" | "contact_number" | "name" | "answers"
+
+/** A row recognized as the same respondent as an existing response or an earlier row. */
+export interface SurveyResponseImportMatch {
+  row: number
+  matched_by: SurveyResponseImportMatchRule
+  target: "existing" | "file"
+  target_row: number | null
+  action: "update" | "unchanged"
+  filled_answer_count: number
+  conflict_count: number
+}
+
+/** Column override value: `"submitted_at"`, `"match_only"`, `"ignore"`, or a question UUID. */
+export type SurveyResponseImportColumnOverride = string
+
+/**
+ * User corrections on top of the automatic mapping. `columns` keys are zero-based column
+ * indexes as strings; `values` maps question UUID to `{ raw value: option | null }`, where
+ * `null` imports the cell as blank.
+ */
+export interface SurveyResponseImportOverrides {
+  columns: Record<string, SurveyResponseImportColumnOverride>
+  values: Record<string, Record<string, string | null>>
+}
+
+/** Dry-run result for a Google Forms export or other response spreadsheet. */
+export interface SurveyResponseImportPreview {
+  survey_id: string
+  file_format: "xlsx" | "csv"
+  sheet_names: string[]
+  sheet: string | null
+  utc_offset_minutes: number
+  columns: SurveyResponseImportColumn[]
+  questions: SurveyResponseImportQuestion[]
+  value_issues: SurveyResponseImportValueIssue[]
+  rows: SurveyResponseImportRowSummary
+  error_count: number
+  errors: SurveyResponseImportIssue[]
+  conflict_count: number
+  conflicts: SurveyResponseImportIssue[]
+  match_count: number
+  matches: SurveyResponseImportMatch[]
+  personal_data_question_ids: string[]
+  consent_question_id: string | null
+  includes_personal_data: boolean
+  warnings: string[]
+  structure_version: string
+  can_import: boolean
+}
+
+/** Result of an atomic response import. */
 export interface SurveyResponseImportResult {
   survey_id: string
   imported_count: number
+  updated_count: number
+  unchanged_count: number
+  merged_in_file_count: number
+  filled_answer_count: number
+}
+
+export interface SurveyResponseImportOptions {
+  overrides?: SurveyResponseImportOverrides
+  /** Offset applied to spreadsheet timestamps without a zone. Defaults to UTC+08:00. */
+  utcOffsetMinutes?: number
+  sheet?: string
+}
+
+export interface SurveyResponseImportCommitOptions extends SurveyResponseImportOptions {
+  structureVersion: string
 }
 
 export interface ApiPagination {
@@ -734,7 +849,8 @@ export async function eraseResponses(
   return res.data
 }
 
-const CSV_IMPORT_TIMEOUT_MS = 60_000
+const RESPONSE_IMPORT_TIMEOUT_MS = 60_000
+export const DEFAULT_IMPORT_UTC_OFFSET_MINUTES = 480
 
 interface ApiEnvelope<T> {
   data: T | null
@@ -743,11 +859,11 @@ interface ApiEnvelope<T> {
 
 function importData<T>(envelope: unknown): T {
   if (typeof envelope !== "object" || envelope === null || !("data" in envelope)) {
-    throw new Error("Backend returned an invalid CSV import response.")
+    throw new Error("Backend returned an invalid import response.")
   }
   const data = (envelope as ApiEnvelope<T>).data
   if (data === null || data === undefined) {
-    throw new Error("Backend did not return CSV import details.")
+    throw new Error("Backend did not return import details.")
   }
   return data
 }
@@ -757,69 +873,50 @@ async function parseImportResponse<T>(response: Response): Promise<T> {
   try {
     envelope = await response.json()
   } catch {
-    throw new Error("Backend returned an invalid CSV import response.")
+    throw new Error("Backend returned an invalid import response.")
   }
   return importData<T>(envelope)
 }
 
-function filenameFromContentDisposition(value: string | null): string | undefined {
-  if (!value) return undefined
-  const match = value.match(/filename\*?=(?:UTF-8''|\")?([^;\"]+)/i)
-  const filename = match?.[1]?.trim()
-  if (!filename) return undefined
-  try {
-    return decodeURIComponent(filename)
-  } catch {
-    return filename
-  }
-}
-
-export async function downloadSurveyResponseImportTemplate(
-  surveyUuid: string,
-): Promise<{ blob: Blob; filename?: string }> {
-  const response = await api.raw.get(
-    `/surveys/${surveyUuid}/responses/import-template`,
-    { headers: { Accept: "text/csv" }, timeout: CSV_IMPORT_TIMEOUT_MS },
+function importFormData(file: File, options: SurveyResponseImportOptions): FormData {
+  const body = new FormData()
+  body.append("file", file, file.name)
+  if (options.overrides) body.append("overrides", JSON.stringify(options.overrides))
+  body.append(
+    "utc_offset_minutes",
+    String(options.utcOffsetMinutes ?? DEFAULT_IMPORT_UTC_OFFSET_MINUTES),
   )
-  const filename = filenameFromContentDisposition(response.headers.get("Content-Disposition"))
-  return {
-    blob: await response.blob(),
-    ...(filename ? { filename } : {}),
-  }
+  if (options.sheet) body.append("sheet", options.sheet)
+  return body
 }
 
-export async function validateSurveyResponseImport(
+/** Dry-runs a response spreadsheet (Google Forms .xlsx or .csv) against the survey. */
+export async function previewSurveyResponseImport(
   surveyUuid: string,
-  csvText: string,
-): Promise<SurveyResponseImportValidation> {
+  file: File,
+  options: SurveyResponseImportOptions = {},
+): Promise<SurveyResponseImportPreview> {
   const response = await api.raw.post(
     `/surveys/${surveyUuid}/responses/import/validate`,
-    csvText,
-    {
-      headers: {
-        Accept: "application/json",
-        "Content-Type": "text/csv; charset=utf-8",
-      },
-      timeout: CSV_IMPORT_TIMEOUT_MS,
-    },
+    importFormData(file, options),
+    { headers: { Accept: "application/json" }, timeout: RESPONSE_IMPORT_TIMEOUT_MS },
   )
-  return parseImportResponse<SurveyResponseImportValidation>(response)
+  return parseImportResponse<SurveyResponseImportPreview>(response)
 }
 
+/** Commits a checked response spreadsheet. `structureVersion` comes from the preview. */
 export async function importSurveyResponses(
   surveyUuid: string,
-  csvText: string,
+  file: File,
+  options: SurveyResponseImportCommitOptions,
 ): Promise<SurveyResponseImportResult> {
+  const { structureVersion, ...previewOptions } = options
+  const body = importFormData(file, previewOptions)
+  body.append("structure_version", structureVersion)
   const response = await api.raw.post(
     `/surveys/${surveyUuid}/responses/import`,
-    csvText,
-    {
-      headers: {
-        Accept: "application/json",
-        "Content-Type": "text/csv; charset=utf-8",
-      },
-      timeout: CSV_IMPORT_TIMEOUT_MS,
-    },
+    body,
+    { headers: { Accept: "application/json" }, timeout: RESPONSE_IMPORT_TIMEOUT_MS },
   )
   return parseImportResponse<SurveyResponseImportResult>(response)
 }

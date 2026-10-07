@@ -70,7 +70,7 @@ class RequestSizeLimitMiddleware:
     def _max_body_bytes_for_scope(self, scope: Scope) -> int:
         """Return the cap for one request without broadening route matching.
 
-        CSV imports are the only currently supported large browser uploads.  Keep the
+        Response imports are the only currently supported large browser uploads. Keep the
         exception tied to the two exact response-import actions under one survey UUID;
         every other route continues using the normal request cap.
         """
@@ -163,7 +163,9 @@ class RequestSizeLimitMiddleware:
         await send({"type": "http.response.body", "body": body})
 
 
-IMPORT_REQUEST_BODY_BYTES = 2 * 1024 * 1024
+# The file itself is capped at 5 MiB by the import service; the extra MiB covers
+# multipart framing and the optional mapping JSON.
+IMPORT_REQUEST_BODY_BYTES = 6 * 1024 * 1024
 
 
 class SecurityHeadersMiddleware:

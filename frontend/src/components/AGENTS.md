@@ -22,6 +22,14 @@ Follow `ui/AGENTS.md` when editing primitive building blocks under `src/componen
   gates CRUD, retention settings, structure editing, aggregates, raw responses, CSV export, and
   erasure by the capabilities passed by the route. Response operations preserve separate global
   RBAC capabilities and archived-survey access rules.
+- `SurveyResponsesPanel.tsx` shows aggregates, raw records, export, erasure, and the
+  capability-gated "Import responses" action. The import flow lives in
+  `survey-response-import/`: `ResponseImportDialog.tsx` (upload → review → import state
+  machine), `ResponseImportMappingTable.tsx` (column-to-question mapping),
+  `ResponseImportValueIssues.tsx` (unmatched choice values), `ResponseImportSummary.tsx` (row
+  outcomes, errors, duplicates), and `import-helpers.ts`. The server maps columns and dry-runs;
+  user edits are sent as overrides only on "Check again", and commit sends the preview's
+  `structure_version`.
 - `SurveyShareLinkDialog.tsx` (formerly `SurveyDistributionManager.tsx`) shows the public
   shareable survey link (`/survey/{surveyId}`); the distribution feature was removed.
 - `CohortTrendChart.tsx` contains a filter-aware Recharts bar chart;

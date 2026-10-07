@@ -23,6 +23,9 @@ or shared FastAPI infrastructure.
   resource ids.
 - `sorting.py` owns `stable_order_by()`, which applies the primary order plus `id` as a
   deterministic tiebreaker.
+- `spreadsheet.py` owns `read_spreadsheet()`, which reads an `.xlsx` (openpyxl, read-only,
+  defusedxml, uncompressed-size guard) or UTF-8 `.csv` upload into plain cell rows. It detects
+  the format from the bytes and knows nothing about surveys.
 
 ## Identifier Helper Rules
 - Keep human-readable id generation centralized in `identifiers.py`.

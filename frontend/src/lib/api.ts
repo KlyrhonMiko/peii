@@ -63,6 +63,12 @@ async function request<T>(
   }
 }
 
+function rawPassthroughBody(body: unknown): FormData | string | undefined {
+  if (typeof body === "string") return body
+  if (typeof FormData !== "undefined" && body instanceof FormData) return body
+  return undefined
+}
+
 async function requestRaw(
   method: string,
   path: string,
@@ -70,8 +76,10 @@ async function requestRaw(
   options?: ApiRequestOptions,
 ): Promise<Response> {
   const headers: Record<string, string> = { ...options?.headers }
-  const isTextBody = typeof body === "string"
-  if (body !== undefined && !isTextBody) headers["Content-Type"] = "application/json"
+  // FormData and string bodies pass through unchanged. For FormData the browser sets the
+  // multipart Content-Type with its boundary, so no Content-Type header is added here.
+  const passthroughBody = rawPassthroughBody(body)
+  if (body !== undefined && passthroughBody === undefined) headers["Content-Type"] = "application/json"
   
   const controller = new AbortController()
   const timeoutId = setTimeout(() => controller.abort(), options?.timeout ?? 15000)
@@ -83,7 +91,7 @@ async function requestRaw(
     const response = await fetch(`${API_BASE}${path}`, {
       method,
       headers,
-      body: body === undefined ? null : isTextBody ? body : JSON.stringify(body),
+      body: body === undefined ? null : passthroughBody ?? JSON.stringify(body),
       signal,
     })
     if (!response.ok) {

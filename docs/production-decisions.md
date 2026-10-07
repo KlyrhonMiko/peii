@@ -89,8 +89,8 @@ removed with it.
   `/api/backend/[...path]` owns Supabase claims and session lookup before forwarding an
   allowlisted browser request to the backend.
 - The BFF accepts ordinary request bodies up to 65,536 bytes and gives body reads a 15-second deadline.
-  Only the allowlisted survey-response CSV import validation and commit POST paths permit a
-  bounded 2 MiB body, a 30-second body-read deadline, and a 60-second upstream-header deadline;
+  Only the allowlisted survey-response import validation and commit POST paths permit a
+  bounded 6 MiB body (a 5 MiB file plus multipart overhead), a 30-second body-read deadline, and a 60-second upstream-header deadline;
   authentication and same-origin checks remain unchanged. Ordinary requests keep the 15-second
   upstream-header timeout. An upstream body
   may continue streaming after headers arrive. Client cancellation is propagated, upstream
@@ -330,7 +330,7 @@ Login and recovery use normalized identifier buckets and their separate higher g
 they intentionally do not use the shared Next.js BFF peer or browser forwarding headers as an
 end-user identity. The global breakers are availability safeguards, not per-user budgets.
 Ordinary requests larger than 64 KiB are rejected before application parsing. Only the exact
-survey-response CSV import validation and commit POST paths permit up to 2 MiB.
+survey-response import validation and commit POST paths permit up to 6 MiB.
 
 Local Compose uses `DATABASE_TLS_MODE=disable`; Supabase production requires
 `DATABASE_TLS_MODE=verify-full`. Psycopg2/Alembic use `sslmode=verify-full`, and asyncpg uses a

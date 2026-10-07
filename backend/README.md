@@ -257,16 +257,14 @@ capability requirement.
   responses and expired short-lived Google proof rows and prints `proofs` alongside its response
   counts:
   `./.venv/bin/python scripts/purge_expired_responses.py [--dry-run]`.
-- Survey-specific CSV import is available through the protected View Details → Responses panel
+- Survey response import is available through the protected View Details → Responses panel
   to `survey_responses.import` principals; it is independent of the export flag. Admin and
-  Researcher receive the default capability, while Staff does not. The downloaded wide-format
-  template has one row per respondent and is not the long-format export. Import accepts only
-  exact headers for the selected survey, stores nonblank typed answers under that survey's
-  question UUIDs, and commits a valid file atomically. Individual answers may be blank, but
-  invalid nonblank answers reject the file. Original timezone-qualified submission timestamps
-  determine `created_at` and retention expiry; rows already expired are rejected. Identical
-  uploads append again and can double-count. The upload limit is 2 MiB/1,000 rows, and neither
-  XLSX nor source-form column mapping is supported.
+  Researcher receive the default capability, while Staff does not. Users upload an unchanged
+  Google Forms export (`.xlsx` or `.csv`, 5 MiB / 5,000 rows). The server maps columns to
+  questions automatically, the user reviews and overrides the mapping, and a commit applies it
+  in one transaction. A row never creates a second response for the same respondent (matched
+  by email, contact number, or name, then by identical answers); it only fills blank answers.
+  Rows with errors are skipped and reported. See `docs/privacy-and-retention.md`.
 
 See [production decisions](../docs/production-decisions.md),
 [privacy and retention](../docs/privacy-and-retention.md), and the

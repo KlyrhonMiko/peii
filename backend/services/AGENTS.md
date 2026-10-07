@@ -19,6 +19,13 @@ Phase 3 response behavior is kept in `response_service.py`,
 `response_retention_service.py`, `response_export_service.py`, and
 `survey_analytics_service.py`. The retention service is invoked by the external
 `scripts/purge_expired_responses.py` job; it is not run by an application timer.
+Response import is split between `response_import_mapping.py` (pure: header/value matching,
+value conversion, timestamp parsing, duplicate keys) and `response_import_service.py` (sheet
+choice, row checks, duplicate detection, preview, and the audited commit). Import never creates
+a second response for one respondent: rows match existing responses or earlier rows by email,
+contact number, or name (personal-detail text questions), then by identical non-personal
+answers. A match only fills blank answers and never overwrites; preview and commit share one
+code path, and commit requires the preview's `structure_version`.
 PEII analytics accept an explicitly selected active, undeleted survey; the survey title is
 not an eligibility condition. Surveys without the expected profile/outcome questions may
 produce empty PEII data.

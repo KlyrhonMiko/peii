@@ -436,7 +436,7 @@ describe("backend BFF", () => {
     mocks.getSession.mockResolvedValue({ data: { session: null } })
     const fetchMock = vi.fn<typeof fetch>(async () => new Response('{"data":null}'))
     vi.stubGlobal("fetch", fetchMock)
-    const body = new Uint8Array(2 * 1024 * 1024).fill(65)
+    const body = new Uint8Array(6 * 1024 * 1024).fill(65)
 
     const response = await POST(
       new NextRequest("http://localhost:3000/api/backend/surveys/019c6e27-e55b-73d1-87d8-4e01f1f75043/responses/import", {
@@ -444,7 +444,7 @@ describe("backend BFF", () => {
         headers: {
           origin: "http://localhost:3000",
           "content-length": String(body.byteLength),
-          "content-type": "text/csv",
+          "content-type": "multipart/form-data; boundary=peii-import",
         },
         body: new ReadableStream({
           start(controller) {
@@ -469,7 +469,7 @@ describe("backend BFF", () => {
     vi.stubEnv("APP_ORIGIN", "http://localhost:3000")
     const fetchMock = vi.fn()
     vi.stubGlobal("fetch", fetchMock)
-    const body = new Uint8Array(2 * 1024 * 1024 + 1)
+    const body = new Uint8Array(6 * 1024 * 1024 + 1)
 
     const response = await POST(
       new NextRequest("http://localhost:3000/api/backend/surveys/00000000-0000-4000-8000-000000000401/responses/import", {
@@ -477,7 +477,7 @@ describe("backend BFF", () => {
         headers: {
           origin: "http://localhost:3000",
           "content-length": String(body.byteLength),
-          "content-type": "text/csv",
+          "content-type": "multipart/form-data; boundary=peii-import",
         },
         body,
       }),
@@ -503,7 +503,7 @@ describe("backend BFF", () => {
         headers: {
           origin: "http://localhost:3000",
           "content-length": String(body.byteLength),
-          "content-type": "text/csv",
+          "content-type": "multipart/form-data; boundary=peii-import",
         },
         body,
       }),

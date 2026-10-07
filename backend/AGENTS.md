@@ -69,10 +69,12 @@ Read this file first, then the guide closest to the files you are changing.
   local placeholder; reset grants are short-lived and one-time through the configured Redis.
 - `CSV_EXPORT_ENABLED` is a server-side release flag. Keep it false for the initial online
   deployment; enabling export also requires the existing `survey_responses.export` capability.
-- Survey-specific CSV import is independently gated by `survey_responses.import`. Only its exact
-  validation and commit POST routes may accept up to 2 MiB; the ordinary request cap remains
-  65,536 bytes. Imported rows retain source timestamps and leave Google identity and live
-  consent-evidence fields null.
+- Survey response import (Google Forms `.xlsx`/`.csv` exports, multipart) is independently gated
+  by `survey_responses.import`. Only its exact validation and commit POST routes may accept up
+  to 6 MiB (a 5 MiB file plus multipart overhead); the ordinary request cap remains 65,536
+  bytes. Imported rows retain source timestamps and leave Google identity and live
+  consent-evidence fields null. Duplicate-respondent rules and the fill-blanks-only merge are
+  documented in `services/AGENTS.md`.
 - `BACKEND_CORS_ORIGINS` is parsed as a list by settings. Keep examples valid for Pydantic.
 
 ## Architecture

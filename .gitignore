@@ -93,7 +93,7 @@ yarn-error.log*
 
 # agents / skills
 .agents/
-
+.claude/
 .opencode/
 
 .playwright-mcp/

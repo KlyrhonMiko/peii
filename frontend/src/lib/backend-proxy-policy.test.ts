@@ -56,7 +56,7 @@ describe("isAllowedBackendRequest", () => {
   })
 
   it("allows only the exact survey response import actions", () => {
-    expect(isAllowedBackendRequest("GET", ["surveys", "survey-id", "responses", "import-template"])).toBe(true)
+    expect(isAllowedBackendRequest("GET", ["surveys", "survey-id", "responses", "import-template"])).toBe(false)
     expect(isAllowedBackendRequest("POST", ["surveys", "survey-id", "responses", "import", "validate"])).toBe(true)
     expect(isAllowedBackendRequest("POST", ["surveys", "survey-id", "responses", "import"])).toBe(true)
 
