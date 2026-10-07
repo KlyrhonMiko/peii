@@ -260,7 +260,7 @@ capability requirement.
 - Survey response import is available through the protected View Details → Responses panel
   to `survey_responses.import` principals; it is independent of the export flag. Admin and
   Researcher receive the default capability, while Staff does not. Users upload an unchanged
-  Google Forms export (`.xlsx` or `.csv`, 5 MiB / 5,000 rows). The server maps columns to
+  Google Forms export (`.xlsx` or `.csv`, 4 MiB / 5,000 rows). The server maps columns to
   questions automatically, the user reviews and overrides the mapping, and a commit applies it
   in one transaction. A row never creates a second response for the same respondent (matched
   by email, contact number, or name, then by identical answers); it only fills blank answers.

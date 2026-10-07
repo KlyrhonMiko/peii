@@ -7,6 +7,7 @@ import {
   isUuidSurveyResponseImportPath,
 } from "@/lib/backend-proxy-policy"
 import { applicationOrigin } from "@/lib/safe-redirect"
+import { MAX_IMPORT_REQUEST_BYTES } from "@/lib/response-import-limits"
 
 const FORWARDED_HEADERS = ["content-type", "idempotency-key", "x-request-id"]
 const RESPONSE_HEADERS = [
@@ -28,8 +29,6 @@ const UNSAFE_METHODS = new Set(["DELETE", "PATCH", "POST", "PUT"])
 const MAX_PROXY_BODY_BYTES = 65536
 const PROXY_BODY_TIMEOUT_MS = 15000
 const BACKEND_HEADERS_TIMEOUT_MS = 15000
-// Files are capped at 5 MiB; the extra MiB covers multipart framing and mapping JSON.
-const MAX_IMPORT_PROXY_BODY_BYTES = 6 * 1024 * 1024
 const IMPORT_PROXY_BODY_TIMEOUT_MS = 30000
 const IMPORT_BACKEND_HEADERS_TIMEOUT_MS = 60000
 
@@ -136,7 +135,7 @@ function contentLengthError(
 function proxyLimits(method: string, path: string[]) {
   if (method === "POST" && isUuidSurveyResponseImportPath(path)) {
     return {
-      bodyBytes: MAX_IMPORT_PROXY_BODY_BYTES,
+      bodyBytes: MAX_IMPORT_REQUEST_BYTES,
       bodyTimeoutMs: IMPORT_PROXY_BODY_TIMEOUT_MS,
       headersTimeoutMs: IMPORT_BACKEND_HEADERS_TIMEOUT_MS,
     }

@@ -143,8 +143,8 @@ are still deployment responsibilities.
 - The global Next.js proxy excludes `/api`; the allowlisted `/api/backend/[...path]` BFF owns
   Supabase claims/session lookup for browser backend calls.
 - Ordinary BFF request bodies are capped at 65,536 bytes and must be read within 15 seconds.
-  Only survey-response import validation and commit POST paths permit a bounded 6 MiB body
-  (a 5 MiB file plus multipart overhead),
+  Only survey-response import validation and commit POST paths permit a bounded 4 MiB + 128 KiB body
+  (4,325,376 bytes including the file, mapping, fields, and multipart framing),
   a 30-second body-read deadline, and a 60-second upstream-header deadline. Ordinary requests
   retain the 15-second header timeout; a response stream may continue afterward.
   Client cancellation is propagated and no retries are performed.
@@ -221,7 +221,7 @@ breakers rather than the shared Next.js egress IP. Survey read and submit authen
 respondent before consuming respondent/session/token buckets and their higher global breakers.
 Withdrawal checks the strict client bucket before its separate global circuit breaker. Requests
 over 64 KiB are rejected before parsing except for the exact response import validation and
-commit POST paths, which permit up to 6 MiB. Survey routes send no-store,
+commit POST paths, which permit up to 4 MiB + 128 KiB (4,325,376 bytes). Survey routes send no-store,
 no-referrer, noindex, nosniff, frame-deny, and `frame-ancestors 'none'` headers; CSV exports
 also send private/no-store and no-cache headers.
 

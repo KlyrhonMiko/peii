@@ -163,9 +163,9 @@ class RequestSizeLimitMiddleware:
         await send({"type": "http.response.body", "body": body})
 
 
-# The file itself is capped at 5 MiB by the import service; the extra MiB covers
-# multipart framing and the optional mapping JSON.
-IMPORT_REQUEST_BODY_BYTES = 6 * 1024 * 1024
+# The file is capped at 4 MiB and mapping JSON at 64 KiB. The 128 KiB allowance
+# includes that JSON, other fields, filenames, and multipart framing.
+IMPORT_REQUEST_BODY_BYTES = 4 * 1024 * 1024 + 128 * 1024
 
 
 class SecurityHeadersMiddleware:

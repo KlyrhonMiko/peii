@@ -148,9 +148,10 @@ before assuming it is not active.
   forwards the Supabase bearer token and checks unsafe request origins.
 - The BFF caps ordinary request bodies at 65,536 bytes with a 15-second body-read deadline.
   Only the exact survey-response import validation and commit POST routes (multipart/form-data
-  carrying an unchanged Google Forms `.xlsx` or `.csv` export) permit a bounded 6 MiB body (a
-  5 MiB file plus multipart overhead), a 30-second body-read deadline, and a 60-second
-  upstream-header deadline; they retain the same
+  carrying an unchanged Google Forms `.xlsx` or `.csv` export) permit a bounded 4 MiB + 128 KiB body
+  (4,325,376 bytes including the file, mapping, fields, and multipart framing), a 30-second
+  body-read deadline, and a 60-second upstream-header deadline. Browser uploads cap files
+  at 4 MiB and serialized UTF-8 mapping JSON at 64 KiB before sending. They retain the same
   authentication, origin, and allowlist checks. There is no import-template route. Ordinary
   requests retain the 15-second upstream-header deadline. Client cancellation propagates,
   requests are not retried, and locally generated errors use `no-store`. See the canonical

@@ -235,8 +235,12 @@ appropriate.
 The researcher View Details → Responses panel offers an import action only to principals with
 `survey_responses.import`. The user uploads the file that Google Forms gives (Responses → View
 in Sheets → File → Download as `.xlsx` or `.csv`) without changes. The format comes from the
-file bytes. An `.xlsx` file must expand to 50 MiB or less. Each file is limited to 5 MiB and
-5,000 data rows.
+file bytes. An `.xlsx` file must expand to 50 MiB or less. Each file is limited to 4 MiB and
+5,000 data rows. Mapping overrides are limited to 64 KiB of serialized UTF-8 JSON, checked
+before JSON parsing on both preview and commit. The browser checks file and mapping sizes
+before sending. Browser-built uploads also limit filenames and MIME types to 255 UTF-8 bytes,
+sheet names to 255 characters, and structure versions to 64 characters so metadata and multipart
+framing fit within the total 4 MiB + 128 KiB (4,325,376-byte) BFF/backend request cap.
 
 The import has two steps. Both steps send the file as `multipart/form-data`.
 

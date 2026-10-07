@@ -109,7 +109,7 @@ async def _read_import_file(file: UploadFile) -> bytes:
     raw = await file.read(response_import_service.MAX_IMPORT_BYTES + 1)
     if len(raw) > response_import_service.MAX_IMPORT_BYTES:
         raise AppError(
-            "The import file exceeds the 5 MiB limit.",
+            "The import file exceeds the 4 MiB limit.",
             status_code=status.HTTP_413_CONTENT_TOO_LARGE,
         )
     return raw

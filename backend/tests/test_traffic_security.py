@@ -125,7 +125,9 @@ async def test_request_size_middleware_rejects_streamed_body() -> None:
 
 
 @pytest.mark.anyio
-async def test_response_import_routes_use_the_dedicated_body_cap() -> None:
+@pytest.mark.parametrize("suffix", ["import", "import/validate"])
+@pytest.mark.parametrize("declared", [True, False])
+async def test_response_import_routes_use_the_dedicated_body_cap(suffix, declared) -> None:
     observed_bodies: list[int] = []
 
     async def app(scope, receive, send):
@@ -142,18 +144,23 @@ async def test_response_import_routes_use_the_dedicated_body_cap() -> None:
     )
     messages = await _run_asgi(
         wrapped,
-        headers=[(b"content-length", str(IMPORT_REQUEST_BODY_BYTES).encode("ascii"))],
-        body=b"x" * IMPORT_REQUEST_BODY_BYTES,
-        path="/api/v1/surveys/00000000-0000-0000-0000-000000000401/responses/import",
+        headers=[(b"content-length", b"4325376")] if declared else [],
+        body=b"x" * 4_325_376,
+        path=f"/api/v1/surveys/00000000-0000-0000-0000-000000000401/responses/{suffix}",
     )
 
     assert messages[0]["status"] == 200
-    assert observed_bodies == [IMPORT_REQUEST_BODY_BYTES]
+    assert observed_bodies == [4_325_376]
 
 
 @pytest.mark.anyio
-async def test_response_import_routes_reject_bodies_above_the_dedicated_cap() -> None:
+@pytest.mark.parametrize("suffix", ["import", "import/validate"])
+@pytest.mark.parametrize("declared", [True, False])
+async def test_response_import_routes_reject_bodies_above_the_dedicated_cap(
+    suffix, declared
+) -> None:
     async def app(scope, receive, send):
+        await receive()
         raise AssertionError("oversized request reached the application")
 
     wrapped = RequestSizeLimitMiddleware(
@@ -164,11 +171,9 @@ async def test_response_import_routes_reject_bodies_above_the_dedicated_cap() ->
     )
     messages = await _run_asgi(
         wrapped,
-        headers=[
-            (b"content-length", str(IMPORT_REQUEST_BODY_BYTES + 1).encode("ascii"))
-        ],
-        body=b"x" * (IMPORT_REQUEST_BODY_BYTES + 1),
-        path="/api/v1/surveys/00000000-0000-0000-0000-000000000401/responses/import/validate",
+        headers=[(b"content-length", b"4325377")] if declared else [],
+        body=b"x" * 4_325_377,
+        path=f"/api/v1/surveys/00000000-0000-0000-0000-000000000401/responses/{suffix}",
     )
 
     assert messages[0]["status"] == 413

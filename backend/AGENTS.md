@@ -71,9 +71,10 @@ Read this file first, then the guide closest to the files you are changing.
   deployment; enabling export also requires the existing `survey_responses.export` capability.
 - Survey response import (Google Forms `.xlsx`/`.csv` exports, multipart) is independently gated
   by `survey_responses.import`. Only its exact validation and commit POST routes may accept up
-  to 6 MiB (a 5 MiB file plus multipart overhead); the ordinary request cap remains 65,536
-  bytes. Imported rows retain source timestamps and leave Google identity and live
-  consent-evidence fields null. Duplicate-respondent rules and the fill-blanks-only merge are
+  to 4 MiB + 128 KiB (4,325,376 bytes including the file, mapping, fields, and multipart
+  framing). Files are limited to 4 MiB; mapping JSON is limited to 64 KiB of UTF-8 bytes
+  before JSON parsing. The ordinary request cap remains 65,536 bytes. Imported rows retain
+  source timestamps and leave Google identity and live consent-evidence fields null. Duplicate-respondent rules and the fill-blanks-only merge are
   documented in `services/AGENTS.md`.
 - `BACKEND_CORS_ORIGINS` is parsed as a list by settings. Keep examples valid for Pydantic.
 

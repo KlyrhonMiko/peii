@@ -1,4 +1,5 @@
 import { api, ApiError } from "@/lib/api"
+import { MAX_IMPORT_FILE_BYTES, MAX_IMPORT_OVERRIDES_BYTES } from "@/lib/response-import-limits"
 
 export type SurveyStatus = "Inactive" | "Active" | "Closed"
 
@@ -879,9 +880,27 @@ async function parseImportResponse<T>(response: Response): Promise<T> {
 }
 
 function importFormData(file: File, options: SurveyResponseImportOptions): FormData {
+  if (file.size > MAX_IMPORT_FILE_BYTES) {
+    throw new Error("This file is larger than the 4 MiB limit.")
+  }
+  const encoder = new TextEncoder()
+  // Keep client metadata small so a maximum-size file and mapping fit the body cap.
+  if (encoder.encode(file.name).byteLength > 255) {
+    throw new Error("The file name exceeds the 255-byte limit. Rename the file and try again.")
+  }
+  if (encoder.encode(file.type).byteLength > 255) {
+    throw new Error("The file type exceeds the 255-byte limit. Select an .xlsx or .csv export.")
+  }
+  if (options.sheet && Array.from(options.sheet).length > 255) {
+    throw new Error("The sheet name exceeds the 255-character limit.")
+  }
+  const overrides = options.overrides ? JSON.stringify(options.overrides) : undefined
+  if (overrides && encoder.encode(overrides).byteLength > MAX_IMPORT_OVERRIDES_BYTES) {
+    throw new Error("The mapping changes exceed the 64 KiB limit. Use fewer mapping changes.")
+  }
   const body = new FormData()
   body.append("file", file, file.name)
-  if (options.overrides) body.append("overrides", JSON.stringify(options.overrides))
+  if (overrides) body.append("overrides", overrides)
   body.append(
     "utc_offset_minutes",
     String(options.utcOffsetMinutes ?? DEFAULT_IMPORT_UTC_OFFSET_MINUTES),
@@ -911,6 +930,9 @@ export async function importSurveyResponses(
   options: SurveyResponseImportCommitOptions,
 ): Promise<SurveyResponseImportResult> {
   const { structureVersion, ...previewOptions } = options
+  if (structureVersion.length > 64) {
+    throw new Error("The structure version is invalid. Check the file again.")
+  }
   const body = importFormData(file, previewOptions)
   body.append("structure_version", structureVersion)
   const response = await api.raw.post(

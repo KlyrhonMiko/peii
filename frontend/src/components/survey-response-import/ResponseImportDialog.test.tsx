@@ -181,8 +181,8 @@ describe("ResponseImportDialog", () => {
     chooseFile(new File([], "responses.csv"))
     expect(screen.getByRole("alert")).toHaveTextContent(/empty/i)
 
-    chooseFile(new File([new Uint8Array(5 * 1024 * 1024 + 1)], "responses.xlsx"))
-    expect(screen.getByRole("alert")).toHaveTextContent(/5 mib/i)
+    chooseFile(new File([new Uint8Array(4 * 1024 * 1024 + 1)], "responses.xlsx"))
+    expect(screen.getByRole("alert")).toHaveTextContent(/4 mib/i)
     expect(checkButton).toBeDisabled()
 
     chooseFile(new File(["Timestamp\n"], "RESPONSES.CSV"))
@@ -351,5 +351,14 @@ describe("ResponseImportDialog", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("The file has problems.")
     expect(screen.getByText(/column timestamp:/i)).toBeInTheDocument()
     expect(screen.getByRole("button", { name: /close import dialog/i })).toBeEnabled()
+  })
+
+  it("preserves a mapping-size rejection instead of displaying a file-size error", async () => {
+    importMocks.preview.mockRejectedValue(new ApiError("The mapping changes exceed the 64 KiB limit.", 413, {}))
+    renderDialog()
+    chooseFile(xlsxFile())
+    fireEvent.click(screen.getByRole("button", { name: /check file/i }))
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("The mapping changes exceed the 64 KiB limit.")
   })
 })

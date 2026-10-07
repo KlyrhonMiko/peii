@@ -314,6 +314,67 @@ describe("response privacy API operations", () => {
       .rejects.toThrow("Backend did not return import details.")
   })
 
+  it.each(["preview", "commit"] as const)("rejects an oversized file before the %s network call", async (operation) => {
+    mockApi.raw.post.mockResolvedValue({ json: async () => ({ data: { survey_id: "survey-id" } }) })
+    const file = new File([new Uint8Array(4 * 1024 * 1024 + 1)], "responses.csv")
+    const request = operation === "preview"
+      ? previewSurveyResponseImport("survey-id", file)
+      : importSurveyResponses("survey-id", file, { structureVersion: "0".repeat(64) })
+
+    await expect(request).rejects.toThrow(/4 MiB/)
+    expect(mockApi.raw.post).not.toHaveBeenCalled()
+  })
+
+  it.each(["preview", "commit"] as const)("bounds serialized mapping UTF-8 bytes before the %s network call", async (operation) => {
+    mockApi.raw.post.mockResolvedValue({ json: async () => ({ data: { survey_id: "survey-id" } }) })
+    const file = new File(["Timestamp\n"], "responses.csv")
+    const overrides = { columns: {}, values: { "q-1": { ["界".repeat(22_000)]: null } } }
+    expect(JSON.stringify(overrides).length).toBeLessThan(64 * 1024)
+    const request = operation === "preview"
+      ? previewSurveyResponseImport("survey-id", file, { overrides })
+      : importSurveyResponses("survey-id", file, { overrides, structureVersion: "0".repeat(64) })
+
+    await expect(request).rejects.toThrow(/mapping changes.*64 KiB/i)
+    expect(mockApi.raw.post).not.toHaveBeenCalled()
+  })
+
+  it.each(["preview", "commit"] as const)("accepts exact file and mapping byte limits for %s", async (operation) => {
+    const file = new File([new Uint8Array(4 * 1024 * 1024)], "responses.csv")
+    const emptyMapping = { columns: {}, values: { "q-1": { "": null } } }
+    const mappingOverhead = JSON.stringify(emptyMapping).length
+    const overrides = { columns: {}, values: { "q-1": { ["x".repeat(64 * 1024 - mappingOverhead)]: null } } }
+    mockApi.raw.post.mockResolvedValueOnce({ json: async () => ({ data: { survey_id: "survey-id" } }) })
+    const options = { overrides, sheet: "界".repeat(255) }
+
+    if (operation === "preview") await previewSurveyResponseImport("survey-id", file, options)
+    else await importSurveyResponses("survey-id", file, { ...options, structureVersion: "0".repeat(64) })
+
+    expect(mockApi.raw.post).toHaveBeenCalledOnce()
+    const body = mockApi.raw.post.mock.calls[0]?.[1] as FormData
+    expect((body.get("file") as File).size).toBe(4 * 1024 * 1024)
+    expect(String(body.get("overrides")).length).toBe(64 * 1024)
+  })
+
+  it.each(["preview", "commit"] as const)("bounds multipart metadata before the %s network call", async (operation) => {
+    mockApi.raw.post.mockResolvedValue({ json: async () => ({ data: { survey_id: "survey-id" } }) })
+    for (const input of [
+      { file: new File(["x"], `${"界".repeat(84)}.csv`), options: {} },
+      { file: new File(["x"], "responses.csv"), options: { sheet: "x".repeat(256) } },
+      { file: new File(["x"], "responses.csv", { type: "a".repeat(256) }), options: {} },
+    ]) {
+      const request = operation === "preview"
+        ? previewSurveyResponseImport("survey-id", input.file, input.options)
+        : importSurveyResponses("survey-id", input.file, { ...input.options, structureVersion: "0".repeat(64) })
+      await expect(request).rejects.toThrow(/file name|sheet name|file type/i)
+    }
+    if (operation === "commit") {
+      await expect(importSurveyResponses("survey-id", new File(["x"], "responses.csv"), {
+        structureVersion: "0".repeat(65),
+      })).rejects.toThrow(/structure version/i)
+    }
+    expect(mockApi.raw.post).not.toHaveBeenCalled()
+  })
+
   it("uses the exact erase endpoint and forwards the idempotency key", async () => {
     mockApi.post.mockResolvedValue({
       data: { scope: "selected", requested_count: 1, erased_count: 1 },

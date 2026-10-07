@@ -84,7 +84,8 @@ from services.response_service import (
 from services.survey_service import resolve_survey
 from utils.spreadsheet import CellValue, Sheet, SpreadsheetError, read_spreadsheet
 
-MAX_IMPORT_BYTES = 5 * 1024 * 1024
+MAX_IMPORT_BYTES = 4 * 1024 * 1024
+MAX_IMPORT_OVERRIDES_BYTES = 64 * 1024
 MAX_IMPORT_ROWS = 5000
 MAX_REPORTED_ITEMS = 100
 DEFAULT_UTC_OFFSET_MINUTES = 480
@@ -279,7 +280,7 @@ async def _existing_candidates(
 def _read_upload(raw: bytes, filename: str | None) -> tuple[str, list[Sheet]]:
     if len(raw) > MAX_IMPORT_BYTES:
         raise AppError(
-            "The import file exceeds the 5 MiB limit.",
+            "The import file exceeds the 4 MiB limit.",
             status_code=status.HTTP_413_CONTENT_TOO_LARGE,
         )
     try:
@@ -352,7 +353,14 @@ def _person_from(
 
 
 def _parse_overrides(raw: str | None) -> SurveyResponseImportOverrides:
-    if raw is None or not raw.strip():
+    if raw is None:
+        return SurveyResponseImportOverrides()
+    if len(raw.encode("utf-8")) > MAX_IMPORT_OVERRIDES_BYTES:
+        raise AppError(
+            "The mapping changes exceed the 64 KiB limit.",
+            status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+        )
+    if not raw.strip():
         return SurveyResponseImportOverrides()
     try:
         return SurveyResponseImportOverrides.model_validate_json(raw)

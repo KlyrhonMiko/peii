@@ -263,7 +263,7 @@ export function ResponseImportDialog({
                   aria-describedby={`${fieldId}-file-help`}
                 />
                 <p id={`${fieldId}-file-help`} className="text-xs text-muted-foreground">
-                  .xlsx or .csv · up to 5 MiB
+                  .xlsx or .csv · up to 4 MiB
                 </p>
               </div>
 

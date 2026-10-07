@@ -1,4 +1,5 @@
 import { ApiError } from "@/lib/api"
+import { MAX_IMPORT_FILE_BYTES } from "@/lib/response-import-limits"
 import type {
   SurveyResponseImportColumn,
   SurveyResponseImportColumnStatus,
@@ -12,7 +13,7 @@ import type {
   SurveyResponseImportValueIssue,
 } from "@/lib/surveys"
 
-export const MAX_IMPORT_FILE_BYTES = 5 * 1024 * 1024
+export { MAX_IMPORT_FILE_BYTES } from "@/lib/response-import-limits"
 export const IMPORT_FILE_ACCEPT = ".xlsx,.csv"
 
 /** Column target keywords; any other override value is a question UUID. */
@@ -30,7 +31,7 @@ export function validateImportFile(file: File): string | null {
     return "Choose an .xlsx or .csv file."
   }
   if (file.size === 0) return "This file is empty. Choose a file that contains responses."
-  if (file.size > MAX_IMPORT_FILE_BYTES) return "This file is larger than the 5 MiB limit."
+  if (file.size > MAX_IMPORT_FILE_BYTES) return "This file is larger than the 4 MiB limit."
   return null
 }
 
@@ -266,8 +267,5 @@ export function importRequestError(error: unknown, fallback: string): ImportRequ
     const issue = toIssue(item)
     return issue ? [issue] : []
   })
-  if (error.status === 413) {
-    return { message: "This file is larger than the 5 MiB limit.", issues, needsRecheck: false }
-  }
   return { message: error.message || fallback, issues, needsRecheck: false }
 }

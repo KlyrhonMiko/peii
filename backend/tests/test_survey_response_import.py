@@ -11,6 +11,7 @@ from __future__ import annotations
 import csv
 import io
 import json
+import zipfile
 from datetime import datetime, timedelta
 from typing import Any
 from uuid import UUID
@@ -747,3 +748,76 @@ async def test_rejects_unreadable_oversized_and_unauthorized_uploads(client, mon
     _grant_permissions("surveys.manage")
     forbidden = await _preview(client, survey_uuid, b"Timestamp\n", filename="a.csv")
     assert forbidden.status_code == 403
+
+
+async def test_exact_file_and_mapping_limits_allow_preview_and_commit(client):
+    _grant_import_permission()
+    survey_uuid = await _seed_tracer_survey()
+    original = _xlsx([_row(0)])
+
+    def padded_workbook(padding: int) -> bytes:
+        output = io.BytesIO(original)
+        with zipfile.ZipFile(output, "a") as archive:
+            archive.writestr("padding.txt", b"x" * padding)
+        return output.getvalue()
+
+    payload = padded_workbook(4 * 1024 * 1024 - len(padded_workbook(0)))
+    assert len(payload) == 4 * 1024 * 1024
+    extra = {"overrides": "{}" + " " * (64 * 1024 - 2)}
+    preview = await _preview(client, survey_uuid, payload, extra=extra)
+    assert preview.status_code == 200, preview.text
+    result = await _commit(
+        client, survey_uuid, payload, preview.json()["data"]["structure_version"], extra=extra
+    )
+    assert result.status_code == 201, result.text
+    assert len(await _stored_responses(survey_uuid)) == 1
+
+
+@pytest.mark.parametrize("operation", ["preview", "commit"])
+async def test_file_above_four_mib_is_rejected_without_writes(client, operation):
+    _grant_import_permission()
+    survey_uuid = await _seed_tracer_survey()
+    payload = b"x" * (4 * 1024 * 1024 + 1)
+    response = (
+        await _preview(client, survey_uuid, payload)
+        if operation == "preview"
+        else await _commit(client, survey_uuid, payload, "0" * 64)
+    )
+    assert response.status_code == 413, response.text
+    assert "4 MiB" in response.json()["message"]
+    assert await _stored_responses(survey_uuid) == []
+    assert await _audits(survey_uuid, "responses_imported") == []
+
+
+@pytest.mark.parametrize("operation", ["preview", "commit"])
+@pytest.mark.parametrize("raw", [
+    " " * (64 * 1024 + 1),
+    "{}" + " " * (64 * 1024 - 1),
+    json.dumps({"columns": {"0": "界" * 22_000}}, ensure_ascii=False),
+], ids=["whitespace", "padded-json", "utf8"])
+async def test_oversized_mapping_rejected_before_json_parse_without_writes(
+    client, monkeypatch, operation, raw
+):
+    _grant_import_permission()
+    survey_uuid = await _seed_tracer_survey()
+    payload = _xlsx([_row(0)])
+
+    def unexpected_json_parse(*args, **kwargs):
+        raise AssertionError("oversized mapping reached the JSON parser")
+
+    monkeypatch.setattr(
+        response_import_service.SurveyResponseImportOverrides,
+        "model_validate_json",
+        unexpected_json_parse,
+    )
+    extra = {"overrides": raw}
+    response = (
+        await _preview(client, survey_uuid, payload, extra=extra)
+        if operation == "preview"
+        else await _commit(client, survey_uuid, payload, "0" * 64, extra=extra)
+    )
+    assert response.status_code == 413, response.text
+    assert "mapping changes" in response.json()["message"]
+    assert "64 KiB" in response.json()["message"]
+    assert await _stored_responses(survey_uuid) == []
+    assert await _audits(survey_uuid, "responses_imported") == []

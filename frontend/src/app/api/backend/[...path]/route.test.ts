@@ -429,21 +429,26 @@ describe("backend BFF", () => {
     expect(fetchMock).not.toHaveBeenCalled()
   })
 
-  it("allows the larger cap only for survey response imports", async () => {
+  it.each([
+    { suffix: ["import"], declared: true },
+    { suffix: ["import", "validate"], declared: true },
+    { suffix: ["import"], declared: false },
+    { suffix: ["import", "validate"], declared: false },
+  ])("allows the exact import body cap for $suffix with declared length $declared", async ({ suffix, declared }) => {
     vi.stubEnv("BACKEND_INTERNAL_URL", "http://backend:8000/api/v1")
     vi.stubEnv("APP_ORIGIN", "http://localhost:3000")
     mocks.getClaims.mockResolvedValue({ data: { claims: null } })
     mocks.getSession.mockResolvedValue({ data: { session: null } })
     const fetchMock = vi.fn<typeof fetch>(async () => new Response('{"data":null}'))
     vi.stubGlobal("fetch", fetchMock)
-    const body = new Uint8Array(6 * 1024 * 1024).fill(65)
+    const body = new Uint8Array(4 * 1024 * 1024 + 128 * 1024).fill(65)
 
     const response = await POST(
-      new NextRequest("http://localhost:3000/api/backend/surveys/019c6e27-e55b-73d1-87d8-4e01f1f75043/responses/import", {
+      new NextRequest(`http://localhost:3000/api/backend/surveys/019c6e27-e55b-73d1-87d8-4e01f1f75043/responses/${suffix.join("/")}`, {
         method: "POST",
         headers: {
           origin: "http://localhost:3000",
-          "content-length": String(body.byteLength),
+          ...(declared ? { "content-length": String(body.byteLength) } : {}),
           "content-type": "multipart/form-data; boundary=peii-import",
         },
         body: new ReadableStream({
@@ -454,7 +459,7 @@ describe("backend BFF", () => {
         }),
         duplex: "half",
       }),
-      context(["surveys", "019c6e27-e55b-73d1-87d8-4e01f1f75043", "responses", "import"]),
+      context(["surveys", "019c6e27-e55b-73d1-87d8-4e01f1f75043", "responses", ...suffix]),
     )
 
     expect(response.status).toBe(200)
@@ -464,29 +469,41 @@ describe("backend BFF", () => {
     expect((await new Response(call[1]?.body).arrayBuffer()).byteLength).toBe(body.byteLength)
   })
 
-  it("rejects an import body above the dedicated cap", async () => {
+  it.each([
+    { suffix: ["import"], declared: true },
+    { suffix: ["import", "validate"], declared: true },
+    { suffix: ["import"], declared: false },
+    { suffix: ["import", "validate"], declared: false },
+  ])("rejects excess import body bytes for $suffix with declared length $declared", async ({ suffix, declared }) => {
     vi.stubEnv("BACKEND_INTERNAL_URL", "http://backend:8000/api/v1")
     vi.stubEnv("APP_ORIGIN", "http://localhost:3000")
-    const fetchMock = vi.fn()
+    const fetchMock = vi.fn<typeof fetch>(async () => new Response('{"data":null}'))
     vi.stubGlobal("fetch", fetchMock)
-    const body = new Uint8Array(6 * 1024 * 1024 + 1)
+    const body = new Uint8Array(4 * 1024 * 1024 + 128 * 1024 + 1)
 
     const response = await POST(
-      new NextRequest("http://localhost:3000/api/backend/surveys/00000000-0000-4000-8000-000000000401/responses/import", {
+      new NextRequest(`http://localhost:3000/api/backend/surveys/00000000-0000-4000-8000-000000000401/responses/${suffix.join("/")}`, {
         method: "POST",
         headers: {
           origin: "http://localhost:3000",
-          "content-length": String(body.byteLength),
+          ...(declared ? { "content-length": String(body.byteLength) } : {}),
           "content-type": "multipart/form-data; boundary=peii-import",
         },
-        body,
+        body: new ReadableStream({
+          start(controller) {
+            controller.enqueue(body.subarray(0, body.byteLength - 1))
+            controller.enqueue(body.subarray(body.byteLength - 1))
+            controller.close()
+          },
+        }),
+        duplex: "half",
       }),
-      context(["surveys", "00000000-0000-4000-8000-000000000401", "responses", "import"]),
+      context(["surveys", "00000000-0000-4000-8000-000000000401", "responses", ...suffix]),
     )
 
     expect(response.status).toBe(413)
     expect(response.headers.get("cache-control")).toBe("no-store")
-    expect(mocks.createSupabaseServerClient).not.toHaveBeenCalled()
+    if (declared) expect(mocks.createSupabaseServerClient).not.toHaveBeenCalled()
     expect(fetchMock).not.toHaveBeenCalled()
   })
 
