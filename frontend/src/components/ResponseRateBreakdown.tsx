@@ -13,7 +13,6 @@ export function formatRate(rate: number | null) {
 
 function rowNote(row: RateRow) {
   if (row.alumni === null) return "no alumni total"
-  if (!row.alumniComplete) return "incomplete alumni totals or degree data"
   if (row.responses === 0) return "no responses yet"
   return null
 }
@@ -44,7 +43,7 @@ function RateBars({ title, rows, view }: { title: string; rows: RateRow[]; view:
   if (rows.length === 0) {
     return <p className="text-sm text-slate-400">No responses or alumni totals for these filters.</p>
   }
-  const rates = rows.map((row) => responseRate(row.responses, row.alumniComplete ? row.alumni : null))
+  const rates = rows.map((row) => responseRate(row.responses, row.alumni))
   const scale = rateScale(Math.max(0, ...rates.map((rate) => rate ?? 0)))
   // One grid for every row keeps the label, plot, and respondent columns aligned with the axis.
   const columns = cn(
@@ -61,19 +60,12 @@ function RateBars({ title, rows, view }: { title: string; rows: RateRow[]; view:
         {rows.map((row, index) => {
           const rate = rates[index] ?? null
           const note = rowNote(row)
-          const counts = !row.alumniComplete && row.alumni !== null
-            ? `${row.responses.toLocaleString()} respondents, ${row.alumni.toLocaleString()} recorded alumni (incomplete)`
-            : formatRespondents(row.responses, row.alumni)
-          const summary = `${row.label}: ${counts}, response rate ${formatRate(rate)}`
+          const summary = `${row.label}: ${formatRespondents(row.responses, row.alumni)}, response rate ${formatRate(rate)}`
           return (
             <li key={row.key} aria-label={summary} title={summary} className={cn(columns, "rounded-md py-0.5 hover:bg-slate-50")}>
               <span className="truncate text-sm font-medium text-slate-800">{chartLabel(row, view)}</span>
               <span className="text-right text-xs text-slate-500 tabular-nums sm:order-last">
-                {row.alumni === null
-                  ? `${row.responses.toLocaleString()} resp.`
-                  : !row.alumniComplete
-                    ? `${row.responses.toLocaleString()} resp. · ${row.alumni.toLocaleString()} recorded alumni`
-                    : `${row.responses.toLocaleString()} / ${row.alumni.toLocaleString()}`}
+                {row.alumni === null ? `${row.responses.toLocaleString()} resp.` : `${row.responses.toLocaleString()} / ${row.alumni.toLocaleString()}`}
               </span>
               <div className="relative col-span-2 flex h-6 items-center sm:col-span-1">
                 {gridlines}
@@ -131,11 +123,11 @@ export function ResponseRateBreakdown({
 }) {
   const notes: string[] = []
   for (const { batch, alumni } of coverage.cohortsWithoutResponses) {
-    notes.push(`Batch ${batch} has no responses yet, so its ${alumni.toLocaleString()} recorded alumni are not counted in the overall and college rates.`)
+    notes.push(`Batch ${batch} has no responses yet, so its ${alumni.toLocaleString()} alumni are not counted in the overall and college rates.`)
   }
   if (coverage.respondentsWithoutAlumni > 0) {
     notes.push(
-      `${coverage.respondentsWithoutAlumni.toLocaleString()} respondents are in batches with incomplete registrar totals or degree information. Overall and affected row rates are hidden until coverage is complete; blank totals are unknown and an explicit zero is known.`,
+      `${coverage.respondentsWithoutAlumni.toLocaleString()} respondents are from batches with no alumni total, so they are not counted in the overall and college rates.`,
     )
   }
   const title = view === "batch" ? "Response rate by batch" : "Response rate by college"
