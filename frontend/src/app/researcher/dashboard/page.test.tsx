@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { beforeEach, expect, it, vi } from "vitest"
 
 import DashboardPage from "./page"
+import { departmentDegrees } from "@/lib/degree-programs"
 
 const surveyMocks = vi.hoisted(() => ({
   fetchSurveys: vi.fn(),
@@ -111,6 +112,10 @@ it("waits for a survey choice and loads analytics for each selected active surve
 })
 
 it("shows respondents over alumni and the response rate overall, per cohort, and per college", async () => {
+  const nursing = "Bachelor of Science in Nursing"
+  const bsit = "Bachelor of Science in Information Technology"
+  const engineering = "Bachelor of Science in Electronics Engineering"
+  const knownZeros = Object.fromEntries(Object.values(departmentDegrees).flat().map((degree) => [degree, 0]))
   alumniMocks.fetchAlumniTotals.mockResolvedValue({
     alumni_total: 3835,
     by_batch: { "2023": 1120, "2024": 730, "2025": 841, "2026": 1144 },
@@ -119,6 +124,12 @@ it("shows respondents over alumni and the response rate overall, per cohort, and
       "2024": { "College of Nursing": 54, "College of Computer Studies": 156 },
       "2025": { "College of Nursing": 80, "College of Computer Studies": 161 },
       "2026": { "College of Nursing": 120 },
+    },
+    by_batch_degree: {
+      "2023": { ...knownZeros, [nursing]: 74, [bsit]: 289, [engineering]: 757 },
+      "2024": { ...knownZeros, [nursing]: 54, [bsit]: 156, [engineering]: 520 },
+      "2025": { ...knownZeros, [nursing]: 80, [bsit]: 161, [engineering]: 600 },
+      "2026": { ...knownZeros, [nursing]: 120, [engineering]: 1024 },
     },
   })
   surveyMocks.fetchPEII.mockResolvedValue({
@@ -133,6 +144,11 @@ it("shows respondents over alumni and the response rate overall, per cohort, and
         "2023": { "College of Nursing": 4, "College of Computer Studies": 18 },
         "2024": { "College of Computer Studies": 20 },
         "2025": { "College of Computer Studies": 10 },
+      },
+      batch_degree_distribution: {
+        "2023": { [nursing]: 4, [bsit]: 18, [engineering]: 16 },
+        "2024": { [bsit]: 20, [engineering]: 22 },
+        "2025": { [bsit]: 10, [engineering]: 31 },
       },
     },
     qualitative_feedback_total: 0,
@@ -161,7 +177,7 @@ it("shows respondents over alumni and the response rate overall, per cohort, and
   expect(screen.getByRole("listitem", { name: "Batch 2023: 38 / 1,120 respondents, response rate 3.4%" })).toBeInTheDocument()
   expect(screen.getByText("38 / 1,120")).toBeInTheDocument()
   expect(screen.getByRole("listitem", { name: "Batch 2026: 0 / 1,144 respondents, response rate 0.0%" })).toHaveTextContent("no responses yet")
-  expect(screen.getByText(/Batch 2026 has no responses yet, so its 1,144 alumni/)).toBeInTheDocument()
+  expect(screen.getByText(/Batch 2026 has no responses yet, so its 1,144 recorded alumni/)).toBeInTheDocument()
 
   fireEvent.click(screen.getByRole("button", { name: "By college" }))
   expect(screen.queryByRole("list", { name: "Response rate by batch" })).not.toBeInTheDocument()

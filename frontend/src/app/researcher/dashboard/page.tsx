@@ -360,7 +360,12 @@ export default function DashboardPage() {
   const [surveyRefreshKey, setSurveyRefreshKey] = useState(0)
   const [filters, setFilters] = useState({ department: "All Departments", degree: "All Degrees", batch: "All Batches" })
   const [chartData, setChartData] = useState<PEIIDomainScore[]>([])
-  const [demographics, setDemographics] = useState<PEIIDemographics | null>(null)
+  const [demographicsResult, setDemographicsResult] = useState<{
+    data: PEIIDemographics | null
+    filters: typeof filters
+    surveyId: string
+    refreshKey: number
+  } | null>(null)
   const [classificationData, setClassificationData] = useState<FeedbackClassification[]>([])
   const [peiiScore, setPeiiScore] = useState<number | null>(null)
   const [peiiIndex, setPeiiIndex] = useState<number | null>(null)
@@ -379,7 +384,16 @@ export default function DashboardPage() {
   const isInitialDataLoaded = useRef(false)
   const [isExporting, setIsExporting] = useState(false)
   const [surveyOpen, setSurveyOpen] = useState(false)
-  const [alumniTotals, setAlumniTotals] = useState<AlumniTotals | null>(null)
+  const [alumniResult, setAlumniResult] = useState<{
+    data: AlumniTotals | null
+    filters: typeof filters
+    refreshKey: number
+  } | null>(null)
+  const demographics = demographicsResult?.filters === filters
+    && demographicsResult.surveyId === selectedSurveyId
+    ? demographicsResult.data : null
+  const alumniTotals = alumniResult?.filters === filters && alumniResult.refreshKey === refreshKey
+    ? alumniResult.data : null
   const [rateOpen, setRateOpen] = useState(false)
   const [rateView, setRateView] = useState<ResponseRateView>("batch")
 
@@ -515,7 +529,7 @@ export default function DashboardPage() {
     async function fetchData() {
       function resetFetchedData() {
         setChartData([])
-        setDemographics(null)
+        setDemographicsResult(null)
         setClassificationData([])
         setPeiiScore(null)
         setPeiiIndex(null)
@@ -591,7 +605,7 @@ export default function DashboardPage() {
           setQualitativeFeedbackPlaceholderCount(0)
         }
 
-        setDemographics(data.demographics)
+        setDemographicsResult({ data: data.demographics, filters, surveyId: selectedSurveyId, refreshKey })
 
         if (data.feedback_classification && data.feedback_classification.classifications) {
           setClassificationData(data.feedback_classification.classifications)
@@ -615,22 +629,31 @@ export default function DashboardPage() {
     }
   }, [selectedSurveyId, filters, refreshKey])
 
-  // Alumni totals are survey-independent reference data, so they follow only the filters.
+  // Pair only current-request reference totals with current-request demographics.
   useEffect(() => {
     const controller = new AbortController()
+    let cancelled = false
     fetchAlumniTotals(filters, controller.signal)
-      .then(setAlumniTotals)
-      .catch(() => {
-        if (!controller.signal.aborted) setAlumniTotals(null)
+      .then((data) => {
+        if (!cancelled) setAlumniResult({ data, filters, refreshKey })
       })
-    return () => controller.abort()
-  }, [filters])
+      .catch(() => {
+        if (!cancelled) setAlumniResult({ data: null, filters, refreshKey })
+      })
+    return () => {
+      cancelled = true
+      controller.abort()
+    }
+  }, [filters, refreshKey])
 
   const coverage = useMemo(
-    () => demographics
-      ? responseCoverage(demographics.batch_distribution ?? {}, demographics.batch_college_distribution ?? {}, alumniTotals)
+    () => demographics && demographicsResult?.refreshKey === refreshKey
+      ? responseCoverage(
+        demographics.batch_distribution ?? {}, demographics.batch_college_distribution ?? {}, alumniTotals,
+        demographics.batch_degree_distribution ?? {}, filters,
+      )
       : null,
-    [demographics, alumniTotals],
+    [demographics, demographicsResult, alumniTotals, filters, refreshKey],
   )
 
   const analyticsMetrics = useMemo(() => {

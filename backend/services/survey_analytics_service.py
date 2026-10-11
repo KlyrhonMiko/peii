@@ -903,6 +903,7 @@ async def compute_peii_scores(
     dept_dist: Counter[str] = Counter()
     batch_dist: Counter[str] = Counter()
     batch_college_dist: dict[str, Counter[str]] = {}
+    batch_degree_dist: dict[str, Counter[str]] = {}
     first_gen_dist: Counter[str] = Counter()
     barangay_dist: Counter[str] = Counter()
     
@@ -993,6 +994,7 @@ async def compute_peii_scores(
                     batch_dist[resp_year] += 1
                     if isinstance(resp_deg, str) and resp_deg:
                         dept_dist[resp_deg] += 1
+                        batch_degree_dist.setdefault(resp_year, Counter())[resp_deg] += 1
                         batch_college_dist.setdefault(resp_year, Counter())[
                             college_for_degree(resp_deg)
                         ] += 1
@@ -1258,6 +1260,9 @@ async def compute_peii_scores(
         batch_distribution=dict(batch_dist),
         batch_college_distribution={
             year: dict(colleges) for year, colleges in batch_college_dist.items()
+        },
+        batch_degree_distribution={
+            year: dict(degrees) for year, degrees in batch_degree_dist.items()
         },
         first_gen_distribution=dict(first_gen_dist) if first_gen_dist else None,
         barangay_distribution=dict(barangay_dist) if barangay_dist else None,

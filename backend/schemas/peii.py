@@ -30,6 +30,7 @@ class PEIIDemographics(BaseModel):
     # Response counts by "Year Graduated" answer, then by college, under the active filters.
     batch_distribution: dict[str, int] = Field(default_factory=dict)
     batch_college_distribution: dict[str, dict[str, int]] = Field(default_factory=dict)
+    batch_degree_distribution: dict[str, dict[str, int]] = Field(default_factory=dict)
     first_gen_distribution: dict[str, int] | None = None
     barangay_distribution: dict[str, int] | None = None
 

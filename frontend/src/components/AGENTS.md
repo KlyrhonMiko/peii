@@ -13,7 +13,8 @@ Follow `ui/AGENTS.md` when editing primitive building blocks under `src/componen
   grid as unsaved changes (each imported batch column replaces that column), and saves through
   one full replacement; `ResponseRateBreakdown.tsx` renders the controlled "By batch" /
   "By college" horizontal bar chart from `responseCoverage()` in plain HTML (shared
-  `rateScale()` axis, rate at the bar tip, respondents / alumni column; labels stack on phones); `SentimentTest.tsx` holds the development
+  `rateScale()` axis, rate at the bar tip, respondents / alumni column for complete populations;
+  partial subtotals are labelled "recorded alumni" with affected rates hidden; labels stack on phones); `SentimentTest.tsx` holds the development
   sentiment-analysis utility surfaced only in non-production builds.
 - `DashboardFilters.tsx`, `ProgramFilter.tsx`, and `SurveySelect.tsx` provide product
   filtering and selection controls.

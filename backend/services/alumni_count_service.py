@@ -2,6 +2,7 @@ from collections.abc import Sequence
 from uuid import UUID
 
 from fastapi import status
+from sqlalchemy import text
 from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -61,6 +62,10 @@ async def replace_alumni_counts(
 ) -> Sequence[AlumniCount]:
     """Make the stored totals equal the payload, reviving soft-deleted keys."""
     _validate_entries(payload)
+    # Serialize the whole replacement before taking its read snapshot, including an empty
+    # table or keys not yet inserted. Row locks alone do not protect those cases.
+    if session.get_bind().dialect.name == "postgresql":
+        await session.execute(text("LOCK TABLE alumni_counts IN SHARE ROW EXCLUSIVE MODE"))
     existing = {
         (row.batch_year, row.degree_program): row
         for row in (await session.exec(select(AlumniCount).with_for_update())).all()
@@ -139,15 +144,18 @@ async def alumni_total(
 
     by_batch: dict[str, int] = {}
     by_batch_college: dict[str, dict[str, int]] = {}
+    by_batch_degree: dict[str, dict[str, int]] = {}
     for batch_year, degree_program, total in rows:
         by_batch[batch_year] = by_batch.get(batch_year, 0) + total
         colleges = by_batch_college.setdefault(batch_year, {})
         college = college_for_degree(degree_program)
         colleges[college] = colleges.get(college, 0) + total
+        by_batch_degree.setdefault(batch_year, {})[degree_program] = total
     return AlumniTotalRead(
         alumni_total=sum(by_batch.values()) if rows else None,
         by_batch=by_batch,
         by_batch_college=by_batch_college,
+        by_batch_degree=by_batch_degree,
         batch=batch,
         department=department,
         degree=degree,

@@ -195,6 +195,7 @@ export interface PEIIDemographics {
   department_distribution: Record<string, number>
   batch_distribution?: Record<string, number>
   batch_college_distribution?: Record<string, Record<string, number>>
+  batch_degree_distribution?: Record<string, Record<string, number>>
   first_gen_distribution?: Record<string, number> | null
   barangay_distribution?: Record<string, number> | null
 }

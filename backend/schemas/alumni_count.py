@@ -46,6 +46,8 @@ class AlumniTotalRead(BaseModel):
     # Totals per batch, then per college, so the dashboard can leave out batches that
     # have no survey responses before it sums a college's alumni.
     by_batch_college: dict[str, dict[str, int]]
+    # A missing program is unknown; explicit zero must remain distinguishable from absence.
+    by_batch_degree: dict[str, dict[str, int]]
     batch: str | None
     department: str | None
     degree: str | None

@@ -13,9 +13,14 @@ and survey management/detail/settings routes.
   The Total Responses tile shows "respondents / alumni" and the response rate. The tile is a
   toggle (collapsed by default) that opens the rate panel inside the Key Metrics grid, directly
   under the tile on phones, with a "By batch" (default) / "By college" switch (`/alumni-counts/total` plus the PEII
-  `batch_distribution` and `batch_college_distribution`). Cohorts without responses or without an
-  alumni total are left out of the overall and college rates and named in a note. The tile falls
-  back to the sample-size label when no total is stored. Surveys never read alumni counts.
+  `batch_distribution`, `batch_college_distribution`, and `batch_degree_distribution`). Batches
+  without responses remain outside overall and college denominators. All selected canonical
+  degree programs need explicit registrar totals (zero is valid); blank totals and missing or
+  unknown respondent degrees withhold affected rates and display recorded subtotals with an
+  incomplete label. Overall rates are hidden if any responding batch is incomplete. Demographics
+  and alumni results are keyed to filters and refresh requests, so delayed or superseded requests
+  cannot mix a previous filter's numerator or denominator. The tile falls back to the sample-size
+  label when its denominator is unknown. Surveys never read alumni counts.
 - `survey/page.tsx` authenticates with `surveys.read` and composes the live
    `SurveyManagement` client component. That component owns survey CRUD, structure
    editing/reordering, retention settings, response, aggregate, raw, identity,

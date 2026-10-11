@@ -341,8 +341,10 @@ Routes are mounted below `API_V1_PREFIX` (normally `/api/v1`):
 - `/users` and `/audit-logs`: administration and audit history.
 - `/alumni-counts`: registrar graduate totals by batch year and degree program. `GET /` and the
   full-replacement `PUT /` require `alumni_counts.manage`; `GET /total` sums the totals for the
-  dashboard batch/department/degree filters, with per-batch and per-batch-per-college
+  dashboard batch/department/degree filters, with per-batch, per-batch-per-college, and per-degree
   breakdowns, and requires `survey_responses.read_aggregates`.
+  Replacement holds one PostgreSQL table lock through the atomic mutation/audit commit, including
+  an initially empty table. Missing degree totals remain unknown; explicit zero is retained.
 - `/surveys`: surveys plus nested sections, questions, and
   responses, aggregates, streamed export, and erasure.
 - `/survey/{token}`: Google-authenticated survey loading and idempotent response submission;

@@ -157,19 +157,33 @@ async def test_total_breaks_down_by_cohort_and_college(client):
         "2024": {"College of Computer Studies": 128},
         "2025": {"College of Computer Studies": 161, "College of Nursing": 80},
     }
+    assert data["by_batch_degree"] == {
+        "2024": {BSIT: 128},
+        "2025": {BSIT: 131, BSCS: 30, BSN: 80},
+    }
 
     filtered = (
         await client.get("/api/v1/alumni-counts/total?department=College%20of%20Nursing")
     ).json()["data"]
     assert filtered["by_batch"] == {"2025": 80}
     assert filtered["by_batch_college"] == {"2025": {"College of Nursing": 80}}
+    assert filtered["by_batch_degree"] == {"2025": {BSN: 80}}
 
     empty = (await client.get("/api/v1/alumni-counts/total?batch=2023")).json()["data"]
     assert empty == {
         "alumni_total": None,
         "by_batch": {},
         "by_batch_college": {},
+        "by_batch_degree": {},
         "batch": "2023",
         "department": None,
         "degree": None,
     }
+
+
+async def test_degree_coverage_preserves_explicit_zero_and_omits_unknown_cells(client):
+    await _replace(client, [{"batch_year": "2025", "degree_program": BSIT, "total": 0}])
+    data = (await client.get("/api/v1/alumni-counts/total")).json()["data"]
+    # Zero is known population; an absent BSCS row remains unknown even in the same college.
+    assert data["by_batch_degree"] == {"2025": {BSIT: 0}}
+    assert data["alumni_total"] == 0

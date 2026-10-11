@@ -38,6 +38,7 @@ export interface AlumniTotals {
   alumni_total: number | null
   by_batch: Record<string, number>
   by_batch_college: Record<string, Record<string, number>>
+  by_batch_degree: Record<string, Record<string, number>>
 }
 
 export async function fetchAlumniTotals(filters: AlumniTotalFilters, signal?: AbortSignal): Promise<AlumniTotals | null> {
@@ -63,20 +64,21 @@ export interface RateRow {
   key: string
   label: string
   responses: number
-  /** Null when no registrar total exists for this row. */
+  /** Recorded registrar subtotal; a partial subtotal is not a rate denominator. */
   alumni: number | null
+  alumniComplete: boolean
 }
 
 export interface ResponseCoverage {
-  /** Respondents in cohorts that have both responses and an alumni total. */
+  /** All respondents in the selected cohorts, including those with unknown populations. */
   respondents: number
-  /** Alumni in those same cohorts; null when no cohort qualifies. */
+  /** Alumni in responding cohorts; null unless every selected program is known. */
   alumni: number | null
   cohorts: RateRow[]
   colleges: RateRow[]
   /** Cohorts with an alumni total but no responses; left out of the rates. */
   cohortsWithoutResponses: Array<{ batch: string; alumni: number }>
-  /** Respondents whose cohort has no alumni total; left out of the rates. */
+  /** Respondents in cohorts with incomplete population or degree coverage. */
   respondentsWithoutAlumni: number
 }
 
@@ -92,45 +94,73 @@ function sumValues(values: Record<string, number> | undefined) {
 }
 
 /**
- * Pairs respondents with registrar alumni so both sides cover the same cohorts. A cohort counts
- * toward the rates only when it has at least one response and an alumni total: a batch that has
- * not been surveyed yet would otherwise pull every rate down.
+ * Rates require explicit registrar totals for every selected catalogue program, including
+ * programs without respondents. Blank totals and unassigned degrees keep rates unknown.
+ * Batches without responses remain outside overall and college denominators.
  */
 export function responseCoverage(
   responsesByBatch: Record<string, number>,
   responsesByBatchCollege: Record<string, Record<string, number>>,
   alumni: AlumniTotals | null,
+  responsesByBatchDegree: Record<string, Record<string, number>> = {},
+  filters: AlumniTotalFilters = { batch: "All Batches", department: "All Departments", degree: "All Degrees" },
 ): ResponseCoverage {
   const alumniByBatch = alumni?.by_batch ?? {}
+  const alumniByDegree = alumni?.by_batch_degree ?? {}
+  const departmentPrograms = filters.department === "All Departments"
+    ? Object.values(departmentDegrees).flat()
+    : departmentDegrees[filters.department] ?? []
+  const requiredPrograms = filters.degree === "All Degrees"
+    ? departmentPrograms
+    : departmentPrograms.filter((degree) => degree === filters.degree)
+  const requiredSet = new Set(requiredPrograms)
   const batches = Array.from(new Set([...Object.keys(responsesByBatch), ...Object.keys(alumniByBatch)])).sort()
-  const covered = batches.filter((batch) => (responsesByBatch[batch] ?? 0) > 0 && alumniByBatch[batch] !== undefined)
+  const respondingBatches = batches.filter((batch) => (responsesByBatch[batch] ?? 0) > 0)
+  const degreesAccountedFor = (batch: string) => sumValues(responsesByBatchDegree[batch]) === (responsesByBatch[batch] ?? 0)
+  const populationKeysKnown = (batch: string) => Object.keys(alumniByDegree[batch] ?? {}).every((degree) => requiredSet.has(degree))
+  const batchComplete = (batch: string) => requiredPrograms.length > 0
+    && requiredPrograms.every((degree) => alumniByDegree[batch]?.[degree] !== undefined)
+    && populationKeysKnown(batch)
+    && degreesAccountedFor(batch)
+    && Object.keys(responsesByBatchDegree[batch] ?? {}).every((degree) => requiredSet.has(degree))
 
   const cohorts = batches.map((batch) => ({
     key: batch,
     label: `Batch ${batch}`,
     responses: responsesByBatch[batch] ?? 0,
     alumni: alumniByBatch[batch] ?? null,
+    alumniComplete: batchComplete(batch),
   }))
 
-  const collegeBatches = covered.length > 0 ? covered : Object.keys(responsesByBatchCollege)
   const colleges = new Map<string, RateRow>()
-  for (const batch of collegeBatches) {
+  for (const batch of respondingBatches) {
     for (const [college, count] of Object.entries(responsesByBatchCollege[batch] ?? {})) {
-      const row = colleges.get(college) ?? { key: college, label: college, responses: 0, alumni: null }
+      const row = colleges.get(college) ?? { key: college, label: college, responses: 0, alumni: null, alumniComplete: false }
       row.responses += count
       colleges.set(college, row)
     }
-    if (covered.length === 0) continue
     for (const [college, total] of Object.entries(alumni?.by_batch_college[batch] ?? {})) {
-      const row = colleges.get(college) ?? { key: college, label: college, responses: 0, alumni: null }
+      const row = colleges.get(college) ?? { key: college, label: college, responses: 0, alumni: null, alumniComplete: false }
       row.alumni = (row.alumni ?? 0) + total
       colleges.set(college, row)
     }
   }
+  for (const row of colleges.values()) {
+    const programs = (departmentDegrees[row.key] ?? []).filter((degree) => requiredSet.has(degree))
+    row.alumniComplete = programs.length > 0 && respondingBatches.every((batch) =>
+      programs.every((degree) => alumniByDegree[batch]?.[degree] !== undefined)
+      && populationKeysKnown(batch)
+      && degreesAccountedFor(batch)
+      && programs.reduce((total, degree) => total + (responsesByBatchDegree[batch]?.[degree] ?? 0), 0)
+        === (responsesByBatchCollege[batch]?.[row.key] ?? 0),
+    )
+  }
 
   return {
-    respondents: covered.reduce((total, batch) => total + (responsesByBatch[batch] ?? 0), 0),
-    alumni: covered.length > 0 ? covered.reduce((total, batch) => total + (alumniByBatch[batch] ?? 0), 0) : null,
+    respondents: sumValues(responsesByBatch),
+    alumni: respondingBatches.length > 0 && respondingBatches.every(batchComplete)
+      ? respondingBatches.reduce((total, batch) => total + (alumniByBatch[batch] ?? 0), 0)
+      : null,
     cohorts,
     colleges: Array.from(colleges.values()).sort(
       (a, b) => collegeRank(a.key) - collegeRank(b.key) || a.key.localeCompare(b.key),
@@ -138,6 +168,8 @@ export function responseCoverage(
     cohortsWithoutResponses: batches
       .filter((batch) => (responsesByBatch[batch] ?? 0) === 0 && alumniByBatch[batch] !== undefined)
       .map((batch) => ({ batch, alumni: alumniByBatch[batch] ?? 0 })),
-    respondentsWithoutAlumni: sumValues(responsesByBatch) - covered.reduce((total, batch) => total + (responsesByBatch[batch] ?? 0), 0),
+    respondentsWithoutAlumni: respondingBatches
+      .filter((batch) => !batchComplete(batch))
+      .reduce((total, batch) => total + (responsesByBatch[batch] ?? 0), 0),
   }
 }

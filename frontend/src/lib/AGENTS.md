@@ -11,8 +11,11 @@ This guide covers `src/lib/`.
 - `users.ts`, `rbac.ts`, `audit.ts`, and `surveys.ts` own domain types, mapping, and operations.
   `audit.ts` maps the read-only audit trail list/detail endpoints through `/api/backend`;
   `alumni-counts.ts` lists/replaces registrar totals, fetches the filter-matched alumni totals
-  (overall, per batch, per batch and college), and owns `responseCoverage()`: a cohort counts
-  toward the overall and college rates only when it has both responses and an alumni total;
+  (overall, per batch, per batch and college, per batch and degree), and owns `responseCoverage()`:
+  rates require explicit totals (including zero) for every canonical grid program selected by
+  the current filters, with degree-level response coverage. Unknown/missing degree data and blank
+  registrar cells withhold affected rates; recorded subtotals remain visibly incomplete.
+  Batches without responses remain outside the overall and college denominators;
   `alumni-csv.ts` owns the alumni CSV template (`college,degree_program,<year>...`) builder and
   strict parser; `csv.ts` is the shared quoted-CSV row parser; `degree-programs.ts` is the
   frontend degree-by-college list (mirror of the backend `DEPARTMENT_MAPPING`);
