@@ -4,6 +4,7 @@ from sqlalchemy import text
 pytestmark = pytest.mark.integration
 
 APP_TABLES = {
+    "alumni_counts",
     "audit_logs",
     "false_positive_feedbacks",
     "google_survey_auth_proofs",

@@ -26,6 +26,7 @@ PERMISSIONS: dict[str, str] = {
     "roles.read": "View roles and permissions.",
     "roles.manage": "Manage roles and permissions.",
     "audit_logs.read": "View audit logs.",
+    "alumni_counts.manage": "View and edit registrar alumni counts.",
     "ml.models.read": "View ML models.",
     "ml.sentiment.run": "Run sentiment analysis.",
     "surveys.read": "View surveys.",

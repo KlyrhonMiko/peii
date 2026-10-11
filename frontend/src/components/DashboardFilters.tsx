@@ -4,6 +4,9 @@ import { useState } from "react"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Button } from "@/components/ui/button"
 import { ChevronDown, Check, Filter } from "lucide-react"
+import { departmentDegrees } from "@/lib/degree-programs"
+
+export { departmentDegrees }
 
 const defaultDepartments = [
   "All Departments",
@@ -15,37 +18,6 @@ const defaultDepartments = [
   "College of Business Administration",
   "College of Arts and Sciences",
 ]
-export const departmentDegrees: Record<string, string[]> = {
-  "College of Engineering": [
-    "Bachelor of Science in Electronics Engineering"
-  ],
-  "College of Nursing": [
-    "Bachelor of Science in Nursing"
-  ],
-  "College of Education": [
-    "Bachelor of Elementary Education",
-    "Bachelor of Secondary Education",
-    "Bachelor of Secondary Education - Major in English",
-    "Bachelor of Secondary Education - Major in Filipino",
-    "Bachelor of Secondary Education - Major in Mathematics",
-    "Certificate in Teaching Program (CTP)"
-  ],
-  "College of Computer Studies": [
-    "Bachelor of Science in Computer Science",
-    "Bachelor of Science in Information Technology"
-  ],
-  "College of Hospitality Management": [
-    "Bachelor of Science in Hospitality Management"
-  ],
-  "College of Business Administration": [
-    "Bachelor of Science in Accountancy",
-    "Bachelor of Science in Business Administration - Major in Marketing Management",
-    "Bachelor of Science in Entrepreneurship"
-  ],
-  "College of Arts and Sciences": [
-    "Bachelor of Arts in Psychology"
-  ]
-}
 const defaultBatches = ["All Batches", "2024", "2023", "2022", "2021", "2020"]
 
 export interface DashboardFiltersProps {

@@ -1,3 +1,4 @@
+from models.alumni_count import AlumniCount
 from models.audit_log import AuditLog
 from models.false_positive_feedback import FalsePositiveFeedback
 from models.google_survey_auth_proof import GoogleSurveyAuthProof
@@ -9,6 +10,7 @@ from models.survey_section import SurveySection
 from models.user import User
 
 __all__ = [
+    "AlumniCount",
     "User",
     "AuditLog",
     "GoogleSurveyAuthProof",

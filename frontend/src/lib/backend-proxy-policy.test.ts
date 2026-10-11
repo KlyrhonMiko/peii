@@ -106,6 +106,17 @@ describe("isAllowedBackendRequest", () => {
     expect(isAllowedBackendRequest("GET", ["audit-logs", ""])).toBe(false)
   })
 
+  it("allows alumni count reads, full replacement, and the dashboard total", () => {
+    expect(isAllowedBackendRequest("GET", ["alumni-counts"])).toBe(true)
+    expect(isAllowedBackendRequest("PUT", ["alumni-counts"])).toBe(true)
+    expect(isAllowedBackendRequest("GET", ["alumni-counts", "total"])).toBe(true)
+
+    expect(isAllowedBackendRequest("POST", ["alumni-counts"])).toBe(false)
+    expect(isAllowedBackendRequest("DELETE", ["alumni-counts"])).toBe(false)
+    expect(isAllowedBackendRequest("PUT", ["alumni-counts", "total"])).toBe(false)
+    expect(isAllowedBackendRequest("GET", ["alumni-counts", "other"])).toBe(false)
+  })
+
   it("rejects unsupported survey subroutes for every method", () => {
     for (const method of ["GET", "POST", "PATCH", "PUT", "DELETE"]) {
       expect(isAllowedBackendRequest(method, ["surveys", "survey-id", "unsupported"])).toBe(false)

@@ -18,8 +18,9 @@ are still deployment responsibilities.
    survey-scoped response idempotency), `3aad20b0fc8a` (ML sentiments),
    `b0d864b9935b` (false-positive feedbacks), `a6c42481a0d9` (polarity override),
    `7ac95c493227` (performance indexes), `b43d56b55144` (survey-question JSONB), and
-   `bf21a63040a2` (false-positive feedback Data API lockdown), and `c1d2e3f4a5b6`
-   (survey-response import permission). `c1d2e3f4a5b6` is the current
+   `bf21a63040a2` (false-positive feedback Data API lockdown), `c1d2e3f4a5b6`
+   (survey-response import permission), `c2da89bc5ecd` (`is_cta`), and `da9498d628e8`
+   (alumni counts table, lockdown, and permission). `da9498d628e8` is the current
    head.
 - Run `./.venv/bin/alembic upgrade head` once as the protected release job. Promote API replicas
   only after the migration, backfill review, and smoke test succeed. Future schema changes are

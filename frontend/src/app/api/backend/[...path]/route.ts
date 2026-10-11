@@ -148,7 +148,7 @@ function proxyLimits(method: string, path: string[]) {
 }
 
 function requiresTrailingSlash(path: string[]): boolean {
-  if (path.length === 1) return ["surveys", "users", "audit-logs"].includes(path[0] ?? "")
+  if (path.length === 1) return ["surveys", "users", "audit-logs", "alumni-counts"].includes(path[0] ?? "")
   return (
     path.length === 3 &&
     path[0] === "surveys" &&

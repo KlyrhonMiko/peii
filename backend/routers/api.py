@@ -1,5 +1,6 @@
 from fastapi import APIRouter
 
+from routers.alumni_counts import router as alumni_counts_router
 from routers.audit_logs import router as audit_logs_router
 from routers.auth import router as auth_router
 from routers.health import router as health_router
@@ -20,6 +21,7 @@ api_router.include_router(rbac_router, prefix="/rbac", tags=["rbac"])
 api_router.include_router(ml_router, prefix="/ml", tags=["ml"])
 api_router.include_router(users_router, prefix="/users", tags=["users"])
 api_router.include_router(audit_logs_router, prefix="/audit-logs", tags=["audit-logs"])
+api_router.include_router(alumni_counts_router, prefix="/alumni-counts", tags=["alumni-counts"])
 api_router.include_router(surveys_router, prefix="/surveys", tags=["surveys"])
 api_router.include_router(
     survey_questions_router,

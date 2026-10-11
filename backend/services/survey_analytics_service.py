@@ -648,6 +648,17 @@ DEPARTMENT_MAPPING = {
 }
 
 
+COLLEGE_BY_DEGREE = {
+    degree: college for college, degrees in DEPARTMENT_MAPPING.items() for degree in degrees
+}
+UNMAPPED_COLLEGE = "Other programs"
+
+
+def college_for_degree(degree: str) -> str:
+    """Map a degree answer to its college; unknown answers group as ``Other programs``."""
+    return COLLEGE_BY_DEGREE.get(degree, COLLEGE_BY_DEGREE.get(degree.strip(), UNMAPPED_COLLEGE))
+
+
 def _matching_response_filters(
     survey_id: UUID,
     survey_map: _SurveyQuestionMap,
@@ -890,6 +901,8 @@ async def compute_peii_scores(
     gender_dist: Counter[str] = Counter()
     location_dist: Counter[str] = Counter()
     dept_dist: Counter[str] = Counter()
+    batch_dist: Counter[str] = Counter()
+    batch_college_dist: dict[str, Counter[str]] = {}
     first_gen_dist: Counter[str] = Counter()
     barangay_dist: Counter[str] = Counter()
     
@@ -977,8 +990,12 @@ async def compute_peii_scores(
 
                     # Demographics tracking
                     total_valid_responses += 1
+                    batch_dist[resp_year] += 1
                     if isinstance(resp_deg, str) and resp_deg:
                         dept_dist[resp_deg] += 1
+                        batch_college_dist.setdefault(resp_year, Counter())[
+                            college_for_degree(resp_deg)
+                        ] += 1
                     gender_question_id = smap["gender_q"]
                     gender_ans = (
                         ans.get(gender_question_id)
@@ -1238,6 +1255,10 @@ async def compute_peii_scores(
         gender_distribution=dict(gender_dist),
         location_distribution=dict(location_dist),
         department_distribution=dict(dept_dist),
+        batch_distribution=dict(batch_dist),
+        batch_college_distribution={
+            year: dict(colleges) for year, colleges in batch_college_dist.items()
+        },
         first_gen_distribution=dict(first_gen_dist) if first_gen_dist else None,
         barangay_distribution=dict(barangay_dist) if barangay_dist else None,
     )

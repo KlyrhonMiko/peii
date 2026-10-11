@@ -8,6 +8,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from core.config import convert_to_async_database_url, settings
 from models import (  # noqa: F401
+    AlumniCount,
     AuditLog,
     GoogleSurveyAuthProof,
     Permission,

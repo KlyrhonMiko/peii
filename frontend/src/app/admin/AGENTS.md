@@ -11,6 +11,9 @@ This guide covers `src/app/admin/` and nested admin routes.
   management. User-role assignment remains in the user-management workflow.
 - `audit-logs/page.tsx` requires `audit_logs.read` and renders the read-only append-only
   audit trail with resource/action/request-id filters and pagination.
+- `alumni/page.tsx` requires `alumni_counts.manage` and renders the registrar alumni-count grid
+  (batch columns, degree rows grouped by department). Totals are aggregate counts only; there is
+  no alumni roster. Only the dashboard reads them, through the response-rate tile.
 
 ## Admin Rules
 - Keep admin pages aligned with the shared portal chrome unless requirements clearly
@@ -26,7 +29,7 @@ This guide covers `src/app/admin/` and nested admin routes.
 ## Data And API Contracts
 - Keep frontend user/admin types aligned with backend schemas.
 - Admin routes authenticate through `requirePortalUser()`. Pages request `users.read`,
-  `roles.read`, or `audit_logs.read`, and action availability derives from the returned
+  `roles.read`, `audit_logs.read`, or `alumni_counts.manage`, and action availability derives from the returned
   permission set.
 - Frontend checks improve UX but do not replace backend permission enforcement.
 

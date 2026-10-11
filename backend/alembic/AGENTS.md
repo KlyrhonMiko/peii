@@ -15,9 +15,11 @@ SQLModel metadata changes into database schema changes.
   `fb1c93d15474` retention/withdrawal revision, `2bf09a6bc738`, the
   `d5a4f7c91e2b` Supabase Data API lockdown revision, `a8055c9859f5` Google survey respondent
   identity/auth-proof revision, `b9055c9859f6`, `f88b9c1d0000`, `3aad20b0fc8a`,
-  `b0d864b9935b`, `a6c42481a0d9`, `7ac95c493227`, `b43d56b55144`, and `bf21a63040a2`.
-  `bf21a63040a2` is the current migration head.
-  That revision requires the migration identity to own every protected table before changing
+  `b0d864b9935b`, `a6c42481a0d9`, `7ac95c493227`, `b43d56b55144`, `bf21a63040a2`,
+  `c1d2e3f4a5b6` (response import permission), `c2da89bc5ecd` (`is_cta`), and
+  `da9498d628e8` (alumni counts table, its Data API lockdown, and `alumni_counts.manage`).
+  `da9498d628e8` is the current migration head.
+  The `d5a4f7c91e2b` revision requires the migration identity to own every protected table before changing
   privileges or RLS, retains RLS on `alembic_version`, and `env.py` preflights owner-or-BYPASSRLS
   access plus effective CRUD privileges on that table for later migrations.
   Fresh environments run `./.venv/bin/alembic upgrade head`, and production runs that command

@@ -174,7 +174,8 @@ Read this file first, then the guide closest to the files you are changing.
   `f77a807cf2f9_expand_distribution_security`, `d1f9bad768ad`, the Phase 3 `fb1c93d15474`
   revision, `2bf09a6bc738`, `d5a4f7c91e2b`, `a8055c9859f5`, `b9055c9859f6`, `f88b9c1d0000`,
   `3aad20b0fc8a`, `b0d864b9935b`, `a6c42481a0d9`, `7ac95c493227`, `b43d56b55144`, and
-  `bf21a63040a2`, and `c1d2e3f4a5b6` (response import permission). `c1d2e3f4a5b6` is the current migration head. Fresh environments
+  `bf21a63040a2`, `c1d2e3f4a5b6` (response import permission), `c2da89bc5ecd` (`is_cta`), and
+  `da9498d628e8` (alumni counts). `da9498d628e8` is the current migration head. Fresh environments
   must run `./.venv/bin/alembic upgrade head`; production runs it once as the protected release
   job before API replicas are promoted.
 - Historically, the `f77a807cf2f9` compatibility revision added SHA-256 token digests and

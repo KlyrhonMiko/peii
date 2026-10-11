@@ -43,6 +43,7 @@ CANONICAL_TABLES = {
     "response_erasure_receipts",
 }
 LIVE_METADATA_TABLES = CANONICAL_TABLES | {
+    "alumni_counts",
     "false_positive_feedbacks",
     "google_survey_auth_proofs",
 }

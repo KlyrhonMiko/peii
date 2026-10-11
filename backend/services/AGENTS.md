@@ -26,6 +26,14 @@ a second response for one respondent: rows match existing responses or earlier r
 contact number, or name (personal-detail text questions), then by identical non-personal
 answers. A match only fills blank answers and never overwrites; preview and commit share one
 code path, and commit requires the preview's `structure_version`.
+`alumni_count_service.py` stores registrar graduate totals keyed by batch year and degree program.
+They are reference data, not linked to any survey. Replacement validates degrees against
+`DEPARTMENT_MAPPING`, soft-deletes omitted rows, revives re-added keys, and writes one audit event.
+`alumni_total` reuses `normalize_peii_filters` and `DEPARTMENT_MAPPING`, so the dashboard rate
+follows the same filters as PEII; it returns `alumni_total=None` when no stored row matches, plus
+`by_batch` and `by_batch_college` breakdowns. PEII demographics add the matching response counts
+`batch_distribution` and `batch_college_distribution` (colleges via `college_for_degree`; unknown
+degrees group as "Other programs"). The PEII cache key is `outcomes-v14`.
 PEII analytics accept an explicitly selected active, undeleted survey; the survey title is
 not an eligibility condition. Surveys without the expected profile/outcome questions may
 produce empty PEII data.

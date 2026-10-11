@@ -136,8 +136,9 @@ survey-scoped response idempotency) -> `3aad20b0fc8a` (ml_sentiments) ->
 `b0d864b9935b` (false_positive_feedbacks) -> `a6c42481a0d9` (polarity_override) ->
 `7ac95c493227` (performance indexes) -> `b43d56b55144` (survey-question JSONB) ->
 `bf21a63040a2` (false-positive feedback Data API lockdown) ->
-`c1d2e3f4a5b6` (survey-response import permission).
-`c1d2e3f4a5b6` is the current Alembic head. For production, run
+`c1d2e3f4a5b6` (survey-response import permission) -> `c2da89bc5ecd` (`is_cta`) ->
+`da9498d628e8` (alumni counts table, Data API lockdown, and `alumni_counts.manage`).
+`da9498d628e8` is the current Alembic head. For production, run
 `./.venv/bin/alembic upgrade head` once as the protected Oracle release job before the single Uvicorn worker
 is started. Do not migrate in API startup commands. Review the Phase 3
 survey-policy and response-deadline backfill before activating the external purge job.
@@ -338,6 +339,10 @@ Routes are mounted below `API_V1_PREFIX` (normally `/api/v1`):
   password changes.
 - `/rbac`: permissions, roles, and role assignments.
 - `/users` and `/audit-logs`: administration and audit history.
+- `/alumni-counts`: registrar graduate totals by batch year and degree program. `GET /` and the
+  full-replacement `PUT /` require `alumni_counts.manage`; `GET /total` sums the totals for the
+  dashboard batch/department/degree filters, with per-batch and per-batch-per-college
+  breakdowns, and requires `survey_responses.read_aggregates`.
 - `/surveys`: surveys plus nested sections, questions, and
   responses, aggregates, streamed export, and erasure.
 - `/survey/{token}`: Google-authenticated survey loading and idempotent response submission;

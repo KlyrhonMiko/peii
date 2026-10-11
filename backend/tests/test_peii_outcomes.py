@@ -104,6 +104,11 @@ async def test_outcomes_use_post_mapping_valid_answers_and_filtered_stream(clien
             )
             assert unfiltered.demographics is not None
             assert unfiltered.demographics.total_responses == 9
+            assert unfiltered.demographics.batch_distribution == {"2024": 8, "2023": 1}
+            assert unfiltered.demographics.batch_college_distribution == {
+                "2024": {"College of Computer Studies": 7, "Other programs": 1},
+                "2023": {"College of Computer Studies": 1},
+            }
         for filters, expected in [
             ({"department": "College of Computer Studies"}, 8),
             ({"department": "College of Nursing"}, 0),
@@ -221,7 +226,7 @@ async def test_peii_sentinel_filters_share_versioned_cache_and_invalidate(client
     assert calls[0]["batch_year"] is None
     assert calls[0]["department"] is None
     assert calls[0]["degree"] is None
-    assert keys == [("peii", build_cache_key(survey_id, "outcomes-v12", "", "", ""))]
+    assert keys == [("peii", build_cache_key(survey_id, "outcomes-v14", "", "", ""))]
     invalidate_survey_analytics(survey_id)
     assert (await client.get(url)).status_code == 200
     assert len(calls) == 2

@@ -19,7 +19,8 @@ Follow the route-area guide when editing a nested route:
   enrollment. Workspace links are filtered by effective capabilities rather than role names.
 - `mfa/verify/` is the portal-only AAL1-to-AAL2 TOTP challenge. It never uses the isolated
   Google respondent session or the backend browser proxy.
-- `admin/` contains authenticated, permission-gated user, role, and audit-log management routes.
+- `admin/` contains authenticated, permission-gated user, role, audit-log, and alumni-count
+  management routes.
 - `survey/` contains Google-authenticated tokenized alumni survey routes, loading UI, and the
   removed `/survey/withdraw` route (returns not found).
 - `login/`, `forgot-password/`, `reset-password/`, and `auth/confirm/` implement Supabase

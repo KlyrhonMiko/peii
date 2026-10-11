@@ -22,9 +22,11 @@ Phase 3 response-operations implementation. The forward migration chain is:
   -> b43d56b55144 (survey question options/config JSONB)
   -> bf21a63040a2 (false-positive feedback Data API lockdown)
   -> c1d2e3f4a5b6 (survey-response import permission)
+  -> c2da89bc5ecd (is_cta)
+  -> da9498d628e8 (alumni counts table, Data API lockdown, alumni_counts.manage)
 ```
 
-`c1d2e3f4a5b6` is the current Alembic head. Fresh environments and the production release job
+`da9498d628e8` is the current Alembic head. Fresh environments and the production release job
 run `./.venv/bin/alembic upgrade head` once before API replicas are promoted. Phase 3 is **not**
 a rolling or independently deployable frontend/backend release: the request contract and
 retention writes change together. Block public submissions at ingress, drain and stop every old

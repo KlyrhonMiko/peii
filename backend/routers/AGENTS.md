@@ -14,6 +14,8 @@ parsing, status codes, response models, and response assembly.
   Phase 1 POST and Phase 2 PATCH), `survey_responses.py`
   (identity-aware protected response reads, raw listing, prepared export with signed download URL, and erasure), and
   `survey_analytics.py` (aggregates). They are registered through `routers/api.py`.
+- `alumni_counts.py` owns survey-independent registrar totals: list and full replacement need
+  `alumni_counts.manage`; `/total` needs `survey_responses.read_aggregates` and is not cached.
 
 ## Router Rules
 - Keep routers thin. They should parse HTTP input, call services, convert models to read

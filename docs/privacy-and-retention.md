@@ -19,12 +19,13 @@ column after digest reconciliation, and `d5a4f7c91e2b` applies the Supabase Data
 lockdown. `a8055c9859f5` added short-lived Google survey auth proofs, nullable legacy-compatible
 response identity snapshots, survey-scoped dedupe uniqueness, `survey_responses.read_identity`,
 and proof-table ACL/RLS lockdown; the protected-table and proof-table downgrades are intentionally
-fail-closed and irreversible. The current Alembic head is `c1d2e3f4a5b6`; after `a8055c9859f5`
+fail-closed and irreversible. The current Alembic head is `da9498d628e8`; after `a8055c9859f5`
 the chain continues through `b9055c9859f6` (`is_template`), `f88b9c1d0000` (drops
 distributions), `3aad20b0fc8a` (ML sentiments), `b0d864b9935b` (false-positive feedbacks), and
 `a6c42481a0d9` (polarity override), `7ac95c493227` (performance indexes),
 `b43d56b55144` (survey-question JSONB), `bf21a63040a2` (false-positive feedback Data API
-lockdown), and `c1d2e3f4a5b6` (response import permission).
+lockdown), `c1d2e3f4a5b6` (response import permission), `c2da89bc5ecd` (`is_cta`), and
+`da9498d628e8` (alumni counts; aggregate registrar totals only, no personal data).
 
 ## Google-authenticated identified survey flow
 

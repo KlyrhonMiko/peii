@@ -7,8 +7,13 @@ Follow `ui/AGENTS.md` when editing primitive building blocks under `src/componen
 
 ## Current Responsibilities
 - `app-sidebar.tsx` and `nav-bar.tsx` contain shared portal navigation.
-- `AdminUserManagement.tsx`, `AdminRoleManagement.tsx`, and `AdminAuditLogs.tsx` contain
-  live permission-aware administration workflows; `SentimentTest.tsx` holds the development
+- `AdminUserManagement.tsx`, `AdminRoleManagement.tsx`, `AdminAuditLogs.tsx`, and
+  `AdminAlumniCounts.tsx` contain live permission-aware administration workflows. The alumni
+  grid uses `lib/degree-programs.ts`, downloads a prefilled CSV template, imports a CSV into the
+  grid as unsaved changes (each imported batch column replaces that column), and saves through
+  one full replacement; `ResponseRateBreakdown.tsx` renders the controlled "By batch" /
+  "By college" horizontal bar chart from `responseCoverage()` in plain HTML (shared
+  `rateScale()` axis, rate at the bar tip, respondents / alumni column; labels stack on phones); `SentimentTest.tsx` holds the development
   sentiment-analysis utility surfaced only in non-production builds.
 - `DashboardFilters.tsx`, `ProgramFilter.tsx`, and `SurveySelect.tsx` provide product
   filtering and selection controls.

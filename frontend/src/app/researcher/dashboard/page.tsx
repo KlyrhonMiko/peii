@@ -25,6 +25,8 @@ import {
   fetchPEII,
 } from "@/lib/surveys"
 import { getDimensionColor } from "@/lib/dimension-colors"
+import { fetchAlumniTotals, responseCoverage, responseRate, type AlumniTotals } from "@/lib/alumni-counts"
+import { ResponseRateBreakdown, formatRate, formatRespondents, type ResponseRateView } from "@/components/ResponseRateBreakdown"
 import type { PEIIDomainScore } from "@/components/ClientDomainGainChart"
 import type { PEIIAnalyticsResponse, PEIIDemographics, PEIIHistoricalTrend, FeedbackClassification, QualitativeFeedback, Survey } from "@/lib/surveys"
 
@@ -377,6 +379,9 @@ export default function DashboardPage() {
   const isInitialDataLoaded = useRef(false)
   const [isExporting, setIsExporting] = useState(false)
   const [surveyOpen, setSurveyOpen] = useState(false)
+  const [alumniTotals, setAlumniTotals] = useState<AlumniTotals | null>(null)
+  const [rateOpen, setRateOpen] = useState(false)
+  const [rateView, setRateView] = useState<ResponseRateView>("batch")
 
   const handleExportDashboard = async () => {
     if (isLoading || isExporting || !demographics?.total_responses) return
@@ -610,6 +615,24 @@ export default function DashboardPage() {
     }
   }, [selectedSurveyId, filters, refreshKey])
 
+  // Alumni totals are survey-independent reference data, so they follow only the filters.
+  useEffect(() => {
+    const controller = new AbortController()
+    fetchAlumniTotals(filters, controller.signal)
+      .then(setAlumniTotals)
+      .catch(() => {
+        if (!controller.signal.aborted) setAlumniTotals(null)
+      })
+    return () => controller.abort()
+  }, [filters])
+
+  const coverage = useMemo(
+    () => demographics
+      ? responseCoverage(demographics.batch_distribution ?? {}, demographics.batch_college_distribution ?? {}, alumniTotals)
+      : null,
+    [demographics, alumniTotals],
+  )
+
   const analyticsMetrics = useMemo(() => {
     if (!demographics) return []
 
@@ -636,11 +659,15 @@ export default function DashboardPage() {
     const isAllBatches = filters.batch === "All Batches"
     const batchIndicator = isAllBatches ? "Average of all previous changes" : `Batch ${filters.batch}`
 
+    const rate = coverage ? responseRate(coverage.respondents, coverage.alumni) : null
+
     return [
       {
         label: "Total Responses",
         value: demographics.total_responses.toLocaleString(),
-        subValue: "Sample Size Reliability",
+        subValue: rate !== null && coverage ? formatRespondents(coverage.respondents, coverage.alumni) : "Sample Size Reliability",
+        indicator: rate !== null ? `Response rate: ${formatRate(rate)}` : undefined,
+        expandable: true,
         icon: Users,
         color: "text-blue-600",
         bgColor: "bg-blue-50",
@@ -674,7 +701,7 @@ export default function DashboardPage() {
         icon: AlertTriangle,
       },
     ]
-  }, [demographics, chartData, peiiScore, peiiIndex, filters.batch])
+  }, [demographics, chartData, peiiScore, peiiIndex, filters.batch, coverage])
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500 w-full pb-12">
@@ -835,12 +862,14 @@ export default function DashboardPage() {
                 <div className="w-full">
                   <ExportableSection id="chart-metrics-ledger" name="Key Metrics" filters={filters} hideButton={isExporting}>
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8">
-                      {analyticsMetrics.map((stat) => {
+                      {analyticsMetrics.map((stat, index) => {
+                        // On one-column phones the rate panel sits right under the Total Responses tile.
+                        const orderClass = index === 0 ? "" : "order-2 sm:order-none"
                         const isDomain = stat.label === "Primary Driver" || stat.label === "Needs Attention"
                         const dimColor = isDomain && stat.value !== "N/A" ? getDimensionColor(stat.value) : null
 
-                        return (
-                          <div key={stat.label} className="flex flex-col">
+                        const content = (
+                          <>
                             <div className="mb-2">
                               <span
                                 className={`text-[10px] font-bold uppercase tracking-[0.2em] ${dimColor ? 'border-l-2 pl-2' : ''} text-slate-500`}
@@ -862,9 +891,40 @@ export default function DashboardPage() {
                                 </div>
                               )}
                             </div>
+                          </>
+                        )
+
+                        if ("expandable" in stat && stat.expandable && !isExporting) {
+                          return (
+                            <button
+                              key={stat.label}
+                              type="button"
+                              onClick={() => setRateOpen((open) => !open)}
+                              aria-expanded={rateOpen}
+                              aria-controls="response-rate-panel"
+                              className="group -m-3 flex flex-col rounded-xl p-3 text-left transition-colors hover:bg-slate-100/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/40"
+                            >
+                              {content}
+                              <span className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-indigo-600 group-hover:text-indigo-700">
+                                {rateOpen ? "Hide response rates" : "Show response rates"}
+                                <ChevronDown className={`size-3.5 transition-transform ${rateOpen ? "rotate-180" : ""}`} aria-hidden="true" />
+                              </span>
+                            </button>
+                          )
+                        }
+
+                        return (
+                          <div key={stat.label} className={`flex flex-col ${orderClass}`}>
+                            {content}
                           </div>
                         )
                       })}
+                      {/* Response rate against registrar alumni totals; toggled from the Total Responses tile */}
+                      {rateOpen && coverage && !isExporting && (
+                        <div id="response-rate-panel" className="order-1 col-span-full sm:order-last">
+                          <ResponseRateBreakdown coverage={coverage} view={rateView} onViewChange={setRateView} />
+                        </div>
+                      )}
                     </div>
                   </ExportableSection>
                 </div>

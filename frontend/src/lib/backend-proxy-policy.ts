@@ -121,7 +121,9 @@ export function isAllowedBackendRequest(method: string, path: string[]): boolean
         matchesSurveyResponseAction(path, "identity") ||
         matchesSurveyResponseAction(path, "peii") ||
         (path.length === 1 && path[0] === "audit-logs") ||
-        (path.length === 2 && path[0] === "audit-logs" && hasValue(path[1]))
+        (path.length === 2 && path[0] === "audit-logs" && hasValue(path[1])) ||
+        (path.length === 1 && path[0] === "alumni-counts") ||
+        (path.length === 2 && path[0] === "alumni-counts" && path[1] === "total")
       )
     case "POST":
       return (
@@ -155,6 +157,7 @@ export function isAllowedBackendRequest(method: string, path: string[]): boolean
       )
     case "PUT":
       return (
+        (path.length === 1 && path[0] === "alumni-counts") ||
         (path.length === 3 && path[0] === "surveys" && hasValue(path[1]) && path[2] === "structure") ||
         (path.length === 4 && path[0] === "rbac" && path[1] === "users" && hasValue(path[2]) && path[3] === "roles")
       )

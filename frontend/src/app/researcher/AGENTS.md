@@ -10,6 +10,12 @@ and survey management/detail/settings routes.
   both "PEII" and "Survey" as words, and lets users choose another. It owns department/batch
   filter state for the selected survey, derives summary values, and renders the unified analytics
   dashboard including cohort trends, PEII dimensions, and sentiment divergence chart wrappers.
+  The Total Responses tile shows "respondents / alumni" and the response rate. The tile is a
+  toggle (collapsed by default) that opens the rate panel inside the Key Metrics grid, directly
+  under the tile on phones, with a "By batch" (default) / "By college" switch (`/alumni-counts/total` plus the PEII
+  `batch_distribution` and `batch_college_distribution`). Cohorts without responses or without an
+  alumni total are left out of the overall and college rates and named in a note. The tile falls
+  back to the sample-size label when no total is stored. Surveys never read alumni counts.
 - `survey/page.tsx` authenticates with `surveys.read` and composes the live
    `SurveyManagement` client component. That component owns survey CRUD, structure
    editing/reordering, retention settings, response, aggregate, raw, identity,
