@@ -39,45 +39,56 @@ function chartLabel(row: RateRow, view: ResponseRateView) {
   return view === "college" ? row.label.replace(/^College of /, "") : row.label.replace(/^Batch /, "")
 }
 
+const MICRO_LABEL = "text-[10px] font-bold uppercase tracking-[0.2em]"
+
 function RateBars({ title, rows, view }: { title: string; rows: RateRow[]; view: ResponseRateView }) {
   if (rows.length === 0) {
     return <p className="text-sm text-slate-400">No responses or alumni totals for these filters.</p>
   }
   const rates = rows.map((row) => responseRate(row.responses, row.alumni))
-  const scale = rateScale(Math.max(0, ...rates.map((rate) => rate ?? 0)))
+  const maxRate = Math.max(0, ...rates.map((rate) => rate ?? 0))
+  const scale = rateScale(maxRate)
   // One grid for every row keeps the label, plot, and respondent columns aligned with the axis.
   const columns = cn(
-    "grid grid-cols-[minmax(0,1fr)_auto] gap-x-4 gap-y-1.5 sm:items-center",
+    "grid grid-cols-[minmax(0,1fr)_auto] gap-x-6 gap-y-1.5 sm:items-center",
     view === "batch" ? "sm:grid-cols-[3.5rem_minmax(0,1fr)_8.5rem]" : "sm:grid-cols-[11rem_minmax(0,1fr)_8.5rem]",
   )
-  const gridlines = scale.ticks.slice(1, -1).map((tick) => (
-    <span key={tick} aria-hidden="true" className="absolute inset-y-0 w-px bg-slate-100" style={{ left: `${(tick / scale.max) * 100}%` }} />
-  ))
 
   return (
     <figure className="flex flex-col gap-2">
-      <ul aria-label={title} className="flex flex-col gap-3 sm:gap-2">
+      <div aria-hidden="true" className={cn(columns, "hidden border-b border-slate-200 pb-2 text-slate-400 sm:grid", MICRO_LABEL)}>
+        <span>{view === "batch" ? "Batch" : "College"}</span>
+        <span className="order-last text-right">Resp. / alumni</span>
+        <span>Response rate</span>
+      </div>
+      <ul aria-label={title} className="flex flex-col gap-3 sm:gap-1">
         {rows.map((row, index) => {
           const rate = rates[index] ?? null
           const note = rowNote(row)
+          // Like the other dashboard bar charts, only the leading bar takes the accent color.
+          const isLeader = rate !== null && rate > 0 && rate === maxRate
           const summary = `${row.label}: ${formatRespondents(row.responses, row.alumni)}, response rate ${formatRate(rate)}`
           return (
-            <li key={row.key} aria-label={summary} title={summary} className={cn(columns, "rounded-md py-0.5 hover:bg-slate-50")}>
+            <li key={row.key} aria-label={summary} title={summary} className={cn(columns, "-mx-2 rounded-md px-2 py-1 transition-colors hover:bg-slate-100/70")}>
               <span className="truncate text-sm font-medium text-slate-800">{chartLabel(row, view)}</span>
-              <span className="text-right text-xs text-slate-500 tabular-nums sm:order-last">
+              <span className="text-right text-sm text-slate-500 tabular-nums sm:order-last">
                 {row.alumni === null ? `${row.responses.toLocaleString()} resp.` : `${row.responses.toLocaleString()} / ${row.alumni.toLocaleString()}`}
               </span>
               <div className="relative col-span-2 flex h-6 items-center sm:col-span-1">
-                {gridlines}
-                <span aria-hidden="true" className="absolute inset-y-0 left-0 w-px bg-slate-300" />
+                <span aria-hidden="true" className="absolute inset-y-0 left-0 w-px bg-slate-200" />
                 {rate !== null && rate > 0 && (
                   <span
                     aria-hidden="true"
-                    className="relative h-5 rounded-r-[4px] bg-indigo-500"
+                    className={cn("relative h-4 rounded-r-sm", isLeader ? "bg-indigo-500" : "bg-slate-300")}
                     style={{ width: `${(rate / scale.max) * 100}%` }}
                   />
                 )}
-                <span className={cn("relative pl-2 text-xs tabular-nums whitespace-nowrap", rate === null ? "text-slate-400" : "font-semibold text-slate-900")}>
+                <span
+                  className={cn(
+                    "relative pl-2 text-xs tabular-nums whitespace-nowrap",
+                    rate === null ? "text-slate-400" : isLeader ? "font-semibold text-slate-900" : "font-medium text-slate-500",
+                  )}
+                >
                   {rate === null ? note : formatRate(rate)}
                   {rate !== null && note && <span className="font-normal text-slate-400"> · {note}</span>}
                 </span>
@@ -133,11 +144,11 @@ export function ResponseRateBreakdown({
   const title = view === "batch" ? "Response rate by batch" : "Response rate by college"
 
   return (
-    <div className="flex flex-col gap-5 rounded-2xl border border-slate-200/80 bg-white p-5 sm:p-6">
+    <div className="flex flex-col gap-6 border-t border-slate-200 pt-8">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-col gap-1">
-            <h4 className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500">{title}</h4>
-          <p className="text-xs text-slate-500">Respondents ÷ registrar alumni. The right column shows respondents / alumni.</p>
+        <div className="flex flex-col gap-1.5">
+          <h4 className={cn(MICRO_LABEL, "text-slate-500")}>{title}</h4>
+          <p className="text-sm text-slate-500">Respondents ÷ registrar alumni under the current filters.</p>
         </div>
         <div role="group" aria-label="Group response rates" className="flex items-center gap-1 rounded-lg border border-slate-200/60 bg-slate-100/80 p-1">
           {VIEWS.map((option) => (
@@ -160,7 +171,7 @@ export function ResponseRateBreakdown({
       </div>
       <RateBars title={title} rows={view === "batch" ? coverage.cohorts : coverage.colleges} view={view} />
       {notes.length > 0 && (
-        <ul className="flex flex-col gap-1 border-t border-slate-100 pt-3 text-xs text-slate-500">
+        <ul className="flex flex-col gap-1 border-t border-slate-200 pt-3 text-xs text-slate-500">
           {notes.map((note) => <li key={note}>{note}</li>)}
         </ul>
       )}

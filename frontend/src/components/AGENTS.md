@@ -13,7 +13,10 @@ Follow `ui/AGENTS.md` when editing primitive building blocks under `src/componen
   grid as unsaved changes (each imported batch column replaces that column), and saves through
   one full replacement; `ResponseRateBreakdown.tsx` renders the controlled "By batch" /
   "By college" horizontal bar chart from `responseCoverage()` in plain HTML (shared
-  `rateScale()` axis, rate at the bar tip, respondents / alumni column; labels stack on phones); `SentimentTest.tsx` holds the development
+  `rateScale()` axis, rate at the bar tip, respondents / alumni column; labels stack on phones).
+  It follows the dashboard's borderless style: a hairline top rule instead of a card, micro-label
+  column headers, slate bars with only the leading rate in the indigo accent, and no gridlines;
+  `SentimentTest.tsx` holds the development
   sentiment-analysis utility surfaced only in non-production builds.
 - `DashboardFilters.tsx`, `ProgramFilter.tsx`, and `SurveySelect.tsx` provide product
   filtering and selection controls.
@@ -37,6 +40,10 @@ Follow `ui/AGENTS.md` when editing primitive building blocks under `src/componen
   `structure_version`.
 - `SurveyShareLinkDialog.tsx` (formerly `SurveyDistributionManager.tsx`) shows the public
   shareable survey link (`/survey/{surveyId}`); the distribution feature was removed.
+- `OutcomeDonutCard.tsx` is the single layout for the Employment donut row (fixed-height
+  header, donut, summary label, legend) plus `likertDonutData()`. `ClientHiringVelocity`,
+  `ClientEmploymentStability`, `ClientKeyOutcomes`, and `ClientDegreeAlignment` only map
+  their aggregate into it; change shared layout there so the four cards stay level.
 - `CohortTrendChart.tsx` contains a filter-aware Recharts bar chart;
   `PEIIDimensionsTrendChart.tsx`, `PEIIHistoricalTrendChart.tsx`, and `SentimentDivergenceChart.tsx`
   contain analytics charts.

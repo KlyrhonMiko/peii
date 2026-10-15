@@ -283,6 +283,13 @@ function AnalyticsSkeleton({ filters }: { filters?: { batch: string } }) {
   )
 }
 
+// Donut row dividers sit in the middle of the 4rem column gap, so every card keeps the same
+// content width and the donuts render at the same size and height.
+const DONUT_DIVIDER_FROM_TWO_COLUMNS =
+  "@2xl:before:absolute @2xl:before:inset-y-0 @2xl:before:-left-8 @2xl:before:w-px @2xl:before:bg-slate-200"
+const DONUT_DIVIDER_FROM_FOUR_COLUMNS =
+  "@5xl:before:absolute @5xl:before:inset-y-0 @5xl:before:-left-8 @5xl:before:w-px @5xl:before:bg-slate-200"
+
 function ExportableSection({ id, name, children, filters, hideButton }: { id: string, name: string, children: React.ReactNode, filters: { batch: string, department: string, degree: string }, hideButton?: boolean }) {
   const currentFilters = useRef(filters)
   useEffect(() => { currentFilters.current = filters }, [filters])
@@ -987,14 +994,16 @@ export default function DashboardPage() {
                   </div>
                 </div>
 
-                {/* Row 2: The Doughnut Charts (Velocity, Stability, Outcomes, Alignment) */}
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-12 lg:gap-10 pb-4">
+                {/* Row 2: The Doughnut Charts (Velocity, Stability, Outcomes, Alignment).
+                    Columns follow the row's own width so a sidebar never squeezes the donuts. */}
+                <div className="@container">
+                <div className="grid grid-cols-1 @2xl:grid-cols-2 @5xl:grid-cols-4 gap-y-12 gap-x-16 pb-4">
                   <div className="min-w-0 h-full flex flex-col">
                     <ExportableSection id="chart-hiring-velocity" name="Hiring Velocity" filters={filters} hideButton={isExporting}>
                       <ClientHiringVelocity distribution={outcomes?.time_to_first_job ?? null} isLoading={isLoading} />
                     </ExportableSection>
                   </div>
-                  <div className="md:border-l md:border-slate-200 md:pl-10 min-w-0 h-full flex flex-col">
+                  <div className={`relative min-w-0 h-full flex flex-col ${DONUT_DIVIDER_FROM_TWO_COLUMNS}`}>
                     <ExportableSection id="chart-employment-stability" name="Employment Stability" filters={filters} hideButton={isExporting}>
                       <ClientEmploymentStability
                         statusDistribution={outcomes?.employment_status ?? null}
@@ -1003,16 +1012,17 @@ export default function DashboardPage() {
                       />
                     </ExportableSection>
                   </div>
-                  <div className="lg:border-l lg:border-slate-200 lg:pl-10 min-w-0 h-full flex flex-col">
+                  <div className={`relative min-w-0 h-full flex flex-col ${DONUT_DIVIDER_FROM_FOUR_COLUMNS}`}>
                     <ExportableSection id="chart-key-outcomes" name="Key Outcomes" filters={filters} hideButton={isExporting}>
                       <ClientKeyOutcomes distribution={outcomes?.employment_stability ?? null} isLoading={isLoading} />
                     </ExportableSection>
                   </div>
-                  <div className="md:border-l md:border-slate-200 md:pl-10 min-w-0 h-full flex flex-col">
+                  <div className={`relative min-w-0 h-full flex flex-col ${DONUT_DIVIDER_FROM_TWO_COLUMNS}`}>
                     <ExportableSection id="chart-degree-alignment" name="Degree Alignment" filters={filters} hideButton={isExporting}>
                       <ClientDegreeAlignment distribution={outcomes?.degree_alignment ?? null} isLoading={isLoading} />
                     </ExportableSection>
                   </div>
+                </div>
                 </div>
               </div>
               </ExportableSection>
