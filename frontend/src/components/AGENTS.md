@@ -40,6 +40,22 @@ Follow `ui/AGENTS.md` when editing primitive building blocks under `src/componen
   `structure_version`.
 - `SurveyShareLinkDialog.tsx` (formerly `SurveyDistributionManager.tsx`) shows the public
   shareable survey link (`/survey/{surveyId}`); the distribution feature was removed.
+- `ReportTable.tsx` renders one `peii-report.ts` table spec in the paper's style (numbered
+  title, ruled header, bold totals, then `Note.`, `Method.`, and any consistency warning).
+  `DataMethodPanel.tsx` is the "Data and method" toggle under one chart, holding only that
+  chart's tables. In a row of charts (ancestor `data-table-row`) the open tables portal into the
+  row's full-width `data-table-slot`, so neighbouring charts keep their size and level; while the
+  chart exports (`capturing`) they render inline so the PNG carries them. The toggle is
+  `data-export-exclude`. `ReportFigure.tsx` renders a dashboard chart by `ReportFigureId` for the
+  report. `MethodAppendix.tsx` typesets Chapter 2 Eq. 1–5 in MathML (native browser math, no
+  library; element types in `src/types/mathml.d.ts`), with Eq. 4 built from `DIMENSION_WEIGHTS`. `PrintableReport.tsx` is the print-first sheet for `/researcher/dashboard/report`: it
+  loads the survey title by business code (and checks it matches the UUID), the PEII analytics,
+  and alumni totals, renders each block as Figure N (the chart) then its Table N, numbers figures
+  and tables separately, appends the method section. "Save as PDF" downloads
+  `PEII Printable Report - YYYY-MM-DD.pdf` through `lib/report-pdf.ts`; elements marked
+  `data-pdf-block` (header, section headings, figures, print tables, appendix blocks) are the
+  capture units. Verbatim feedback and
+  model/system evaluation results are deliberately left out.
 - `OutcomeDonutCard.tsx` is the single layout for the Employment donut row (fixed-height
   header, donut, summary label, legend) plus `likertDonutData()`. `ClientHiringVelocity`,
   `ClientEmploymentStability`, `ClientKeyOutcomes`, and `ClientDegreeAlignment` only map

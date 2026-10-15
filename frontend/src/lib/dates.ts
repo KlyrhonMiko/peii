@@ -13,3 +13,9 @@ export function formatBackendUtcTimestamp(
   if (Number.isNaN(date.getTime())) return value
   return date.toLocaleString("en-US", options)
 }
+
+/** Local calendar date as YYYY-MM-DD, for file names (toISOString would give the UTC date). */
+export function localDateStamp(date: Date = new Date()): string {
+  const pad = (value: number) => String(value).padStart(2, "0")
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
+}

@@ -13,19 +13,22 @@ import { ClientIncomeDistribution } from "@/components/ClientIncomeDistribution"
 import { ClientHiringVelocity } from "@/components/ClientHiringVelocity"
 import { ClientJobChannels } from "@/components/ClientJobChannels"
 import { ClientEmploymentStability } from "@/components/ClientEmploymentStability"
+import { DataMethodPanel } from "@/components/DataMethodPanel"
 import { DashboardNav } from "@/components/DashboardNav"
 import { DashboardFilters, departmentDegrees } from "@/components/DashboardFilters"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Button } from "@/components/ui/button"
 import { toast } from "sonner"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
-import { Target, AlertTriangle, Database, Users, TrendingUp, Download, Loader2, ChevronDown, Check } from "lucide-react"
+import { Target, AlertTriangle, Database, Users, TrendingUp, Download, Loader2, ChevronDown, Check, FileText, Image as ImageIcon } from "lucide-react"
 import {
   fetchSurveys,
   fetchPEII,
 } from "@/lib/surveys"
 import { getDimensionColor } from "@/lib/dimension-colors"
 import { fetchAlumniTotals, responseCoverage, responseRate, type AlumniTotals } from "@/lib/alumni-counts"
+import { buildReportTables, type ReportTable } from "@/lib/peii-report"
+import { localDateStamp } from "@/lib/dates"
 import { ResponseRateBreakdown, formatRate, formatRespondents, type ResponseRateView } from "@/components/ResponseRateBreakdown"
 import type { PEIIDomainScore } from "@/components/ClientDomainGainChart"
 import type { PEIIAnalyticsResponse, PEIIDemographics, PEIIHistoricalTrend, FeedbackClassification, QualitativeFeedback, Survey } from "@/lib/surveys"
@@ -290,12 +293,15 @@ const DONUT_DIVIDER_FROM_TWO_COLUMNS =
 const DONUT_DIVIDER_FROM_FOUR_COLUMNS =
   "@5xl:before:absolute @5xl:before:inset-y-0 @5xl:before:-left-8 @5xl:before:w-px @5xl:before:bg-slate-200"
 
-function ExportableSection({ id, name, children, filters, hideButton }: { id: string, name: string, children: React.ReactNode, filters: { batch: string, department: string, degree: string }, hideButton?: boolean }) {
+function ExportableSection({ id, name, children, filters, hideButton, tables }: { id: string, name: string, children: React.ReactNode, filters: { batch: string, department: string, degree: string }, hideButton?: boolean, tables?: Array<ReportTable | null | undefined> }) {
+  // While true, the chart's data tables render inside the captured element so the PNG carries them.
+  const [capturing, setCapturing] = useState(false)
   const currentFilters = useRef(filters)
   useEffect(() => { currentFilters.current = filters }, [filters])
   const handleExport = async () => {
     const exportFilters = filters
     try {
+      if (tables) setCapturing(true)
       const exportPromise = (async () => {
         await new Promise(r => setTimeout(r, 150))
         const { toPng } = await import('html-to-image')
@@ -325,8 +331,7 @@ function ExportableSection({ id, name, children, filters, hideButton }: { id: st
         if (currentFilters.current !== exportFilters) throw new Error("Filters changed during export. Please export again.")
         const link = document.createElement('a')
         link.href = dataUrl
-        const date = new Date().toISOString().split('T')[0]
-        link.download = `peii-${name.toLowerCase().replace(/\s+/g, '-')}-${filters.batch}-${filters.department}${filters.degree === "All Degrees" ? "" : `-${filters.degree}`}-${date}.png`
+        link.download = `PEII - ${name} - ${localDateStamp()}.png`
         link.click()
       })();
 
@@ -338,6 +343,8 @@ function ExportableSection({ id, name, children, filters, hideButton }: { id: st
       await exportPromise
     } catch (e) {
       console.error(e)
+    } finally {
+      setCapturing(false)
     }
   }
 
@@ -354,6 +361,7 @@ function ExportableSection({ id, name, children, filters, hideButton }: { id: st
       )}
       <div id={id} className="w-full flex-1 flex flex-col min-w-0">
         {children}
+        {tables && <DataMethodPanel name={name} tables={tables} capturing={capturing} />}
       </div>
     </div>
   )
@@ -377,6 +385,7 @@ export default function DashboardPage() {
   const [qualitativeFeedbackTruncated, setQualitativeFeedbackTruncated] = useState(false)
   const [qualitativeFeedbackPlaceholderCount, setQualitativeFeedbackPlaceholderCount] = useState(0)
   const [outcomes, setOutcomes] = useState<PEIIAnalyticsResponse["outcome_distributions"] | null>(null)
+  const [analytics, setAnalytics] = useState<PEIIAnalyticsResponse | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [fetchError, setFetchError] = useState<string | null>(null)
   const [refreshKey, setRefreshKey] = useState(0)
@@ -386,6 +395,7 @@ export default function DashboardPage() {
   const isInitialDataLoaded = useRef(false)
   const [isExporting, setIsExporting] = useState(false)
   const [surveyOpen, setSurveyOpen] = useState(false)
+  const [exportOpen, setExportOpen] = useState(false)
   const [alumniTotals, setAlumniTotals] = useState<AlumniTotals | null>(null)
   const [rateOpen, setRateOpen] = useState(false)
   const [rateView, setRateView] = useState<ResponseRateView>("batch")
@@ -531,6 +541,7 @@ export default function DashboardPage() {
         setQualitativeFeedbackTotal(0)
         setQualitativeFeedbackTruncated(false)
         setOutcomes(null)
+        setAnalytics(null)
       }
 
       if (!cancelled) {
@@ -551,6 +562,7 @@ export default function DashboardPage() {
         )
         if (cancelled) return
         setOutcomes(data.outcome_distributions ?? null)
+        setAnalytics(data)
 
         if (!isInitialDataLoaded.current) {
           if (data.historical_trend) {
@@ -638,6 +650,12 @@ export default function DashboardPage() {
       ? responseCoverage(demographics.batch_distribution ?? {}, demographics.batch_college_distribution ?? {}, alumniTotals)
       : null,
     [demographics, alumniTotals],
+  )
+
+  // The same table specs feed the "Data and method" panels and the printable report.
+  const reportTables = useMemo(
+    () => (analytics ? buildReportTables({ analytics, coverage, filters }) : null),
+    [analytics, coverage, filters],
   )
 
   const analyticsMetrics = useMemo(() => {
@@ -798,15 +816,50 @@ export default function DashboardPage() {
                 availableDegrees={availableDegrees}
               />
               <div className="hidden sm:block w-px h-6 bg-slate-200" />
-              <Button
-                variant="ghost"
-                onClick={handleExportDashboard}
-                disabled={isExporting || isLoading || !demographics || demographics.total_responses === 0}
-                className="hidden md:flex h-8 text-[13px] font-medium text-slate-500 hover:text-slate-900 hover:bg-slate-100 px-3 items-center gap-2 transition-colors disabled:opacity-50"
-              >
-                {isExporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4 opacity-70" />}
-                <span>{isExporting ? "Exporting..." : "Export"}</span>
-              </Button>
+              <Popover open={exportOpen} onOpenChange={setExportOpen}>
+                <PopoverTrigger
+                  render={
+                    <Button
+                      variant="ghost"
+                      disabled={isExporting || isLoading || !demographics || demographics.total_responses === 0}
+                      className="hidden md:flex h-8 text-[13px] font-medium text-slate-500 hover:text-slate-900 hover:bg-slate-100 px-3 items-center gap-2 transition-colors disabled:opacity-50"
+                    >
+                      {isExporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4 opacity-70" />}
+                      <span>{isExporting ? "Exporting..." : "Export"}</span>
+                      <ChevronDown className="w-3.5 h-3.5 opacity-60" />
+                    </Button>
+                  }
+                />
+                <PopoverContent
+                  align="end"
+                  className="w-72 p-1.5 flex flex-col gap-0.5 bg-white border border-slate-200 rounded-xl shadow-[0_8px_30px_rgb(0,0,0,0.08)]"
+                >
+                  <a
+                    href={`/researcher/dashboard/report?${new URLSearchParams({ survey: selectedSurveyId, code: surveys.find((survey) => survey.id === selectedSurveyId)?.surveyId ?? "", ...filters }).toString()}`}
+                    target="_blank"
+                    rel="noopener"
+                    onClick={() => setExportOpen(false)}
+                    className="flex items-start gap-2.5 rounded-lg px-2.5 py-2 text-left text-slate-600 transition-colors hover:bg-slate-50 hover:text-slate-900 outline-none focus-visible:bg-slate-50"
+                  >
+                    <FileText className="mt-0.5 size-4 shrink-0 text-slate-400" aria-hidden="true" />
+                    <span className="flex flex-col gap-0.5">
+                      <span className="text-[12px] font-medium text-slate-900">Printable report</span>
+                      <span className="text-[11px] text-slate-500">Figures, tables, and methods for the current filters, saved as a PDF.</span>
+                    </span>
+                  </a>
+                  <button
+                    type="button"
+                    onClick={() => { setExportOpen(false); void handleExportDashboard() }}
+                    className="flex items-start gap-2.5 rounded-lg px-2.5 py-2 text-left text-slate-600 transition-colors hover:bg-slate-50 hover:text-slate-900 outline-none focus-visible:bg-slate-50"
+                  >
+                    <ImageIcon className="mt-0.5 size-4 shrink-0 text-slate-400" aria-hidden="true" />
+                    <span className="flex flex-col gap-0.5">
+                      <span className="text-[12px] font-medium text-slate-900">Chart images</span>
+                      <span className="text-[11px] text-slate-500">A ZIP file with a PNG of each dashboard section.</span>
+                    </span>
+                  </button>
+                </PopoverContent>
+              </Popover>
             </div>
           ) : null}
         </div>
@@ -860,14 +913,14 @@ export default function DashboardPage() {
 
             {/* SECTION 1: OVERVIEW */}
             <section id="section-overview" className="scroll-mt-32">
-              <ExportableSection id="export-section-overview" name="Overview Section" filters={filters} hideButton={isExporting}>
+              <ExportableSection id="export-section-overview" name="Overview" filters={filters} hideButton={isExporting}>
               <div className="mb-8 border-b border-slate-900 pb-2">
                 <h3 className="text-xl font-bold tracking-tight text-slate-900 uppercase">Overview</h3>
               </div>
               <div className="flex flex-col gap-12 lg:gap-16">
                 {/* Key Metrics (Full width, 4 columns) */}
                 <div className="w-full">
-                  <ExportableSection id="chart-metrics-ledger" name="Key Metrics" filters={filters} hideButton={isExporting}>
+                  <ExportableSection id="chart-metrics-ledger" name="Key Metrics" tables={[reportTables?.metrics, reportTables?.["rate-batch"], reportTables?.["rate-college"]]} filters={filters} hideButton={isExporting}>
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8">
                       {analyticsMetrics.map((stat, index) => {
                         // On one-column phones the rate panel sits right under the Total Responses tile.
@@ -938,7 +991,7 @@ export default function DashboardPage() {
 
                 {/* Demographics (Full width, 4 columns) */}
                 <div className="w-full">
-                  <ExportableSection id="chart-demographics" name="Demographics" filters={filters} hideButton={isExporting}>
+                  <ExportableSection id="chart-demographics" name="Demographics" tables={[reportTables?.profile, reportTables?.programs, reportTables?.batches]} filters={filters} hideButton={isExporting}>
                     <ClientDemographicsOverview demographics={demographics} isLoading={isLoading} />
                   </ExportableSection>
                 </div>
@@ -953,20 +1006,23 @@ export default function DashboardPage() {
                   <h3 className="text-xl font-bold tracking-tight text-slate-900 uppercase">Performance</h3>
                 </div>
                 {filters.batch === "All Batches" && (
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 lg:gap-12 pb-12 border-b border-slate-200">
-                    <ExportableSection id="chart-historical-trend" name="Historical Trend" filters={filters} hideButton={isExporting}>
+                  <div data-table-row className="flex flex-col pb-12 border-b border-slate-200">
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-12">
+                    <ExportableSection id="chart-historical-trend" name="Historical PEII Trend" tables={[reportTables?.["peii-batch"]]} filters={filters} hideButton={isExporting}>
                       <ClientPEIIHistoricalTrendChart data={historicalTrend} isLoading={isLoading} />
                     </ExportableSection>
 
-                    <ExportableSection id="chart-dimension-trend" name="Dimension Trend" filters={filters} hideButton={isExporting}>
+                    <ExportableSection id="chart-dimension-trend" name="Dimension Trend Comparison" tables={[reportTables?.["gain-batch"]]} filters={filters} hideButton={isExporting}>
                       <ClientPEIIDimensionsTrendChart data={historicalTrend} isLoading={isLoading} />
                     </ExportableSection>
+                  </div>
+                  <div data-table-slot />
                   </div>
                 )}
               </ExportableSection>
 
               <div className="pb-4 mt-8">
-                <ExportableSection id="chart-domain-gain" name="Domain Gain" filters={filters} hideButton={isExporting}>
+                <ExportableSection id="chart-domain-gain" name="Domain Improvement" tables={[reportTables?.["domain-improvement"], reportTables?.wlc]} filters={filters} hideButton={isExporting}>
                   <ClientDomainGainChart data={chartData} isLoading={isLoading} />
                 </ExportableSection>
               </div>
@@ -974,37 +1030,40 @@ export default function DashboardPage() {
 
             {/* SECTION 3: EMPLOYMENT */}
             <section id="section-employment" className="scroll-mt-32">
-              <ExportableSection id="export-section-employment" name="Employment Section" filters={filters} hideButton={isExporting}>
+              <ExportableSection id="export-section-employment" name="Employment" filters={filters} hideButton={isExporting}>
               <div className="mb-8 border-b border-slate-900 pb-2">
                 <h3 className="text-xl font-bold tracking-tight text-slate-900 uppercase">Employment</h3>
               </div>
 
               <div className="flex flex-col gap-16">
                 {/* Row 1: The Wide Charts (Income Distribution & Job Search Channels) */}
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 pb-12 border-b border-slate-200">
+                <div data-table-row className="flex flex-col pb-12 border-b border-slate-200">
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-12">
                   <div className="min-w-0 h-full flex flex-col">
-                    <ExportableSection id="chart-income-distribution" name="Income Distribution" filters={filters} hideButton={isExporting}>
+                    <ExportableSection id="chart-income-distribution" name="Monthly Income Distribution" tables={[reportTables?.income]} filters={filters} hideButton={isExporting}>
                       <ClientIncomeDistribution distribution={outcomes?.monthly_income ?? null} isLoading={isLoading} />
                     </ExportableSection>
                   </div>
                   <div className="lg:border-l lg:border-slate-200 lg:pl-16 min-w-0 h-full flex flex-col">
-                    <ExportableSection id="chart-job-channels" name="Job Search Channels" filters={filters} hideButton={isExporting}>
+                    <ExportableSection id="chart-job-channels" name="First Job Acquisition Channels" tables={[reportTables?.channels]} filters={filters} hideButton={isExporting}>
                       <ClientJobChannels distribution={outcomes?.job_search_channel ?? null} isLoading={isLoading} />
                     </ExportableSection>
                   </div>
                 </div>
+                <div data-table-slot />
+                </div>
 
                 {/* Row 2: The Doughnut Charts (Velocity, Stability, Outcomes, Alignment).
                     Columns follow the row's own width so a sidebar never squeezes the donuts. */}
-                <div className="@container">
+                <div data-table-row className="@container flex flex-col">
                 <div className="grid grid-cols-1 @2xl:grid-cols-2 @5xl:grid-cols-4 gap-y-12 gap-x-16 pb-4">
                   <div className="min-w-0 h-full flex flex-col">
-                    <ExportableSection id="chart-hiring-velocity" name="Hiring Velocity" filters={filters} hideButton={isExporting}>
+                    <ExportableSection id="chart-hiring-velocity" name="Hiring Velocity and Absorption Speed" tables={[reportTables?.["time-to-job"]]} filters={filters} hideButton={isExporting}>
                       <ClientHiringVelocity distribution={outcomes?.time_to_first_job ?? null} isLoading={isLoading} />
                     </ExportableSection>
                   </div>
                   <div className={`relative min-w-0 h-full flex flex-col ${DONUT_DIVIDER_FROM_TWO_COLUMNS}`}>
-                    <ExportableSection id="chart-employment-stability" name="Employment Stability" filters={filters} hideButton={isExporting}>
+                    <ExportableSection id="chart-employment-stability" name="Employment Quality and Security" tables={[reportTables?.["employment-type"]]} filters={filters} hideButton={isExporting}>
                       <ClientEmploymentStability
                         statusDistribution={outcomes?.employment_status ?? null}
                         typeDistribution={outcomes?.employment_type ?? null}
@@ -1013,16 +1072,17 @@ export default function DashboardPage() {
                     </ExportableSection>
                   </div>
                   <div className={`relative min-w-0 h-full flex flex-col ${DONUT_DIVIDER_FROM_FOUR_COLUMNS}`}>
-                    <ExportableSection id="chart-key-outcomes" name="Key Outcomes" filters={filters} hideButton={isExporting}>
+                    <ExportableSection id="chart-key-outcomes" name="Employment Stability" tables={[reportTables?.stability]} filters={filters} hideButton={isExporting}>
                       <ClientKeyOutcomes distribution={outcomes?.employment_stability ?? null} isLoading={isLoading} />
                     </ExportableSection>
                   </div>
                   <div className={`relative min-w-0 h-full flex flex-col ${DONUT_DIVIDER_FROM_TWO_COLUMNS}`}>
-                    <ExportableSection id="chart-degree-alignment" name="Degree Alignment" filters={filters} hideButton={isExporting}>
+                    <ExportableSection id="chart-degree-alignment" name="Degree Alignment" tables={[reportTables?.alignment]} filters={filters} hideButton={isExporting}>
                       <ClientDegreeAlignment distribution={outcomes?.degree_alignment ?? null} isLoading={isLoading} />
                     </ExportableSection>
                   </div>
                 </div>
+                <div data-table-slot />
                 </div>
               </div>
               </ExportableSection>
@@ -1030,18 +1090,18 @@ export default function DashboardPage() {
 
             {/* SECTION 4: FEEDBACK */}
             <section id="section-feedback" className="scroll-mt-32">
-              <ExportableSection id="export-section-feedback" name="Feedback Section" filters={filters} hideButton={isExporting}>
+              <ExportableSection id="export-section-feedback" name="Feedback" filters={filters} hideButton={isExporting}>
               <div className="mb-8 border-b border-slate-900 pb-2">
                 <h3 className="text-xl font-bold tracking-tight text-slate-900 uppercase">Feedback</h3>
               </div>
               <div className="flex flex-col gap-16">
                 <div className="pb-16 border-b border-slate-200">
-                  <ExportableSection id="chart-feedback-sentiment" name="Feedback Sentiment" filters={filters} hideButton={isExporting}>
+                  <ExportableSection id="chart-feedback-sentiment" name="Feedback Sentiment by Dimension" tables={[reportTables?.sentiment, reportTables?.["feedback-entries"], reportTables?.["gain-sentiment"]]} filters={filters} hideButton={isExporting}>
                     <ClientFeedbackClassificationChart data={classificationData} />
                   </ExportableSection>
                 </div>
                 <div className="pb-4">
-                  <ExportableSection id="chart-curriculum-feedback" name="Curriculum Feedback" filters={filters} hideButton={isExporting}>
+                  <ExportableSection id="chart-curriculum-feedback" name="Curriculum and Improvement Feedback" filters={filters} hideButton={isExporting}>
                     <ClientCurriculumFeedback
                       surveyId={selectedSurveyId}
                       feedbacks={qualitativeFeedback}

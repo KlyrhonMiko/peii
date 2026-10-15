@@ -127,10 +127,13 @@ export function ResponseRateBreakdown({
   coverage,
   view,
   onViewChange,
+  showViewSwitch = true,
 }: {
   coverage: ResponseCoverage
   view: ResponseRateView
-  onViewChange: (view: ResponseRateView) => void
+  onViewChange?: (view: ResponseRateView) => void
+  /** The printable report shows each view as its own figure, so it hides the switch. */
+  showViewSwitch?: boolean
 }) {
   const notes: string[] = []
   for (const { batch, alumni } of coverage.cohortsWithoutResponses) {
@@ -150,24 +153,26 @@ export function ResponseRateBreakdown({
           <h4 className={cn(MICRO_LABEL, "text-slate-500")}>{title}</h4>
           <p className="text-sm text-slate-500">Respondents ÷ registrar alumni under the current filters.</p>
         </div>
-        <div role="group" aria-label="Group response rates" className="flex items-center gap-1 rounded-lg border border-slate-200/60 bg-slate-100/80 p-1">
-          {VIEWS.map((option) => (
-            <button
-              key={option.value}
-              type="button"
-              aria-pressed={view === option.value}
-              onClick={() => onViewChange(option.value)}
-              className={cn(
-                "rounded-md border px-3 py-1 text-[12px] font-medium transition-all",
-                view === option.value
-                  ? "border-slate-200/50 bg-white text-slate-900 shadow-sm"
-                  : "border-transparent text-slate-500 hover:bg-slate-200/50 hover:text-slate-700",
-              )}
-            >
-              {option.label}
-            </button>
-          ))}
-        </div>
+        {showViewSwitch && onViewChange && (
+          <div role="group" aria-label="Group response rates" className="flex items-center gap-1 rounded-lg border border-slate-200/60 bg-slate-100/80 p-1">
+            {VIEWS.map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                aria-pressed={view === option.value}
+                onClick={() => onViewChange(option.value)}
+                className={cn(
+                  "rounded-md border px-3 py-1 text-[12px] font-medium transition-all",
+                  view === option.value
+                    ? "border-slate-200/50 bg-white text-slate-900 shadow-sm"
+                    : "border-transparent text-slate-500 hover:bg-slate-200/50 hover:text-slate-700",
+                )}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
       <RateBars title={title} rows={view === "batch" ? coverage.cohorts : coverage.colleges} view={view} />
       {notes.length > 0 && (

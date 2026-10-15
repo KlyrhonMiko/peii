@@ -23,6 +23,25 @@ This guide covers `src/lib/`.
   operations;
   survey response idempotency is survey-scoped and
   there is no distribution feature.
+- `peii-report.ts` turns one `PEIIAnalyticsResponse` plus `responseCoverage()` into the
+  Chapter 3 report tables (`buildReportTables()`, `buildReportSections()`) and the Chapter 2
+  method appendix tables (`methodTables()`). Every note is generated from the data,
+  never copied from the paper. It also owns the response-target rule (`responseTarget()`: 70%
+  below 100 graduates, 60% for 100-300, 50% above 300; needed = ceil), `peiiTier()`, and
+  `DIMENSION_WEIGHTS`, a copy of the backend `DOMAIN_WEIGHTS` (the API does not return weights).
+  The WLC table re-adds weight × gain and sets `warning` when the total drifts more than 0.005
+  from `cohort_result.peii_score`; update both copies together. Method text describes what the
+  backend computes: pooled item means per wave, gain, weighted sum, index against Batch 2023.
+  Per-chart tables (`metrics`, `time-to-job`, `employment-type`, `stability`, `alignment`, plus the
+  income and channel distributions) state how each chart's headline figure is computed.
+  `buildReportSections()` returns blocks of an optional figure (`ReportFigureId`) and its tables;
+  trend figures need two or more batches. `peii-report.test.ts` asserts the paper's Chapter 3
+  values from live-captured inputs. `dates.ts` `localDateStamp()` gives the local YYYY-MM-DD
+  used in export file names. `report-pdf.ts` builds the report PDF in the browser: it captures
+  each `data-pdf-block` with `html-to-image` and places it on A4 pages with `jspdf`
+  (`layoutBlocks()` keeps figures and headings whole, splits tables of 90 mm or more only between
+  rows with at least 30 mm on each side, and honours `data-pdf-break-before`), then adds a
+  "Page n of N" footer. Pages are JPEG images, so PDF text is not selectable.
 - `auth.ts` owns server-side current-user and permission guards, including the account profile
   fields consumed by the shared Settings page.
 - `supabase/` owns the server client and cookie policy.

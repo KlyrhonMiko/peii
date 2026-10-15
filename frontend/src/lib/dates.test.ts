@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import { formatBackendUtcTimestamp, parseBackendUtcTimestamp } from "./dates"
+import { formatBackendUtcTimestamp, localDateStamp, parseBackendUtcTimestamp } from "./dates"
 
 describe("backend UTC timestamps", () => {
   it("treats timezone-free backend values as UTC", () => {
@@ -14,5 +14,11 @@ describe("backend UTC timestamps", () => {
     const value = "2026-09-14T13:22:23+08:00"
 
     expect(parseBackendUtcTimestamp(value).toISOString()).toBe("2026-09-14T05:22:23.000Z")
+  })
+})
+
+describe("localDateStamp", () => {
+  it("uses the local calendar date with zero padding", () => {
+    expect(localDateStamp(new Date(2026, 0, 5, 23, 30))).toBe("2026-01-05")
   })
 })

@@ -130,6 +130,11 @@
 }
 
 @layer base {
+  /* Equations in the printable report: a real math typeface, as in the PEII paper. */
+  math {
+    font-family: "Cambria Math", "STIX Two Math", "Latin Modern Math", math;
+  }
+
   * {
     @apply border-border outline-ring/50;
   }
@@ -217,5 +222,23 @@
 
   .scrollbar-gutter-stable {
     scrollbar-gutter: stable;
+  }
+}
+/* Printing: only page content prints. The portal sidebar and top bar are app chrome. */
+@media print {
+  @page {
+    size: A4;
+    margin: 16mm 14mm;
+  }
+
+  [data-slot="sidebar"],
+  [data-slot="sidebar-gap"] {
+    display: none !important;
+  }
+
+  body {
+    background: white;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
   }
 }

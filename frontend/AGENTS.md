@@ -62,7 +62,8 @@ No tracked pre-commit configuration currently runs frontend checks automatically
 
 ## Stack Contracts
 - `package.json` declares Next 16.3, React 19.2, Tailwind 4, Recharts, Base UI, Supabase
-  SSR/client libraries, Motion, lucide icons, shadcn, and Vitest.
+  SSR/client libraries, Motion, lucide icons, shadcn, Vitest, and the client-only export
+  libraries `html-to-image`, `jszip`, and `jspdf` (always loaded with dynamic `import()`).
 - `components.json` uses `style: "base-nova"`, `rsc: true`, Tailwind v4 CSS variables,
   Base UI composition, and lucide as the icon library.
 - Internal imports should use the configured `@/*` alias.
