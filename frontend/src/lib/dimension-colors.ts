@@ -28,12 +28,12 @@ export const DIMENSION_COLORS: Record<string, DimensionColorMeta> = {
     shortName: "Employability",
   },
   "Family Upliftment and Financial Stability": {
-    hex: "#f43f5e", // rose-500
-    tailwindPost: "bg-rose-500",
-    tailwindPre: "bg-rose-200",
-    text: "text-rose-600",
-    bgLight: "bg-rose-50",
-    border: "border-rose-200",
+    hex: "#84cc16", // lime-500
+    tailwindPost: "bg-lime-500",
+    tailwindPre: "bg-lime-200",
+    text: "text-lime-600",
+    bgLight: "bg-lime-50",
+    border: "border-lime-200",
     shortName: "Family Upliftment",
   },
   "Governance Trust and LGU Support Valuation": {
@@ -99,7 +99,7 @@ export function getDimensionColor(dimensionName?: string | null): DimensionColor
 export const DIMENSION_HEX_COLORS = [
   "#3b82f6", // blue-500
   "#8b5cf6", // violet-500
-  "#f43f5e", // rose-500
+  "#84cc16", // lime-500
   "#f59e0b", // amber-500
   "#10b981", // emerald-500
 ] as const

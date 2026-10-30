@@ -58,8 +58,8 @@ export function CohortTrendChart({ data }: CohortTrendChartProps) {
             <linearGradient id="cohortTrendStroke" x1="0" y1="0" x2="1" y2="0">
               <stop offset="0%" stopColor="#3b82f6" />
               <stop offset="25%" stopColor="#8b5cf6" />
-              <stop offset="50%" stopColor="#f43f5e" />
-              <stop offset="75%" stopColor="#f59e0b" />
+              <stop offset="50%" stopColor="#f59e0b" />
+              <stop offset="75%" stopColor="#84cc16" />
               <stop offset="100%" stopColor="#10b981" />
             </linearGradient>
           </defs>
